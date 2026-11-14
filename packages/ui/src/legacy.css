@@ -1,0 +1,102 @@
+/*
+ * TEMPORARY. Keeps the pages that have not been rebuilt on the design system looking right.
+ * Delete this file, and its import in both root layouts, when the last page has moved over.
+ *
+ * It applies only to content inside <main> that is NOT a design-system element (a class starting
+ * `tj-`) and is not inside one. So a page stops being "legacy" the moment its root element is
+ * e.g. <div class="tj-page">: nothing here touches it, and nothing needs switching off.
+ */
+
+/* The old variable names, as aliases of the new tokens. Use the new names in new code. */
+:root {
+	--bg: var(--bg-page);
+	/* --surface keeps its name and meaning. */
+	--ink: var(--text-primary);
+	--muted: var(--text-muted);
+	--line: var(--border);
+	--a: var(--accent);
+	--b: var(--secondary);
+	--c: var(--status-attention-icon);
+	--warn: var(--status-critical-icon);
+}
+
+/* The old page frame: a centred column with padding. A page whose root is a tj- element (for
+   example <div class="tj-page">) gets none of this and lays itself out. */
+main:where(:not(:has(> [class^='tj-'], > [class*=' tj-']))) {
+	width: 100%;
+	max-width: 64rem;
+	margin: 0 auto;
+	padding: 1.5rem var(--layout-gutter) 3rem;
+	line-height: 1.55;
+}
+
+/* The design system's stylesheet removes default margins and list markers. Old pages rely on them. */
+main
+	:is(p, ol, ul, dl, h3, h4, figure):where(
+		:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)
+	) {
+	margin-block: 1em;
+}
+main
+	:is(ol, ul):where(
+		:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)
+	) {
+	padding-inline-start: 2.5rem;
+}
+main
+	ul:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	list-style: disc;
+}
+main
+	ol:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	list-style: decimal;
+}
+main
+	dd:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	margin-inline-start: 2.5rem;
+}
+main
+	figure:where(
+		:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)
+	) {
+	margin-inline: 2.5rem;
+}
+main
+	:is(h1, h2, h3):where(
+		:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)
+	) {
+	line-height: 1.2;
+	text-wrap: balance;
+}
+main
+	h1:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	font-size: 2rem;
+	margin: 0.25rem 0 0.5rem;
+}
+main
+	h2:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	font-size: 1.25rem;
+	margin: 2rem 0 0.83em;
+}
+main
+	code:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	font-family: var(--font-mono);
+	font-size: 0.88em;
+	background: var(--border);
+	padding: 1px 5px;
+	border-radius: var(--radius-sm);
+	overflow-wrap: anywhere;
+}
+/* Old pages place images inline. */
+main
+	img:where(:not([class^='tj-'], [class*=' tj-'], main [class^='tj-'] *, main [class*=' tj-'] *)) {
+	display: inline;
+}
+.eyebrow {
+	font-family: var(--font-mono);
+	font-size: 0.8rem;
+	letter-spacing: 0.05em;
+	text-transform: uppercase;
+	color: var(--text-muted);
+	margin: 0;
+}
