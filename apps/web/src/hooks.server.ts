@@ -1,4 +1,5 @@
 import { LANG_COOKIE, resolveLang } from '#lib/campaign-site/i18n/index.ts';
+import { readDonorSession } from '#lib/campaign-site/server/session.ts';
 import { getContext, initContext } from '#lib/server/context.ts';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
@@ -15,6 +16,8 @@ export const init: ServerInit = () => {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.ctx = getContext();
+	// The donor signed in with Qatom on this browser, or null.
+	event.locals.session = readDonorSession(event.cookies, event.locals.ctx.config.SESSION_SECRET);
 	// The page's language, so screen readers and translation tools read it in the right one.
 	// The same choice the root layout makes for the words on the page.
 	const lang = resolveLang(
