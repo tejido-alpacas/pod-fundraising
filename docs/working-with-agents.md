@@ -24,6 +24,11 @@ You do not have to run any of this yourself. Your agent does it. You only need t
   running.
 - **Merging** is pressing the button that copies the changes into `main`. From that moment
   everyone has them.
+- **Merging is also releasing.** A few minutes after a merge, GitHub puts the new `main` on the
+  live site (tejido.net and app.tejido.net) by itself, database changes included. Nobody
+  presses a second button. You can watch it under the Actions tab on GitHub: the newest "CI"
+  run on `main` has a `deploy` step, green when the live site is updated, red when it is not.
+  If it is red, tell whoever looks after the infrastructure; `infra/README.md` says what to do.
 
 **The one rule that is ours to keep.** GitHub will let anyone merge at any time; we are not on
 a plan that can lock it. So: **never merge unless every check has a green tick.** Not on red,
@@ -78,7 +83,8 @@ something outside your track. What to do:
 
 Your agent should never suggest them. If it does, say no and tell the team.
 
-- Deploying, or running anything against the live site or live database.
+- Deploying, or running anything against the live site or live database. Merging a pull
+  request is the only way anything is released.
 - Pushing straight to `main`, or "force" pushing.
 - Merging while a check is red or still running.
 - Skipping, deleting or "temporarily disabling" a test or a check to get past an error.
