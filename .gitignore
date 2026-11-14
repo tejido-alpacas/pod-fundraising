@@ -28,6 +28,12 @@ bun.lockb
 .worktrees
 .claude/worktrees
 
+# The end-to-end suite: its screenshots and report, and each test person's signed-in browser
+# state (a session cookie: never commit it, never upload it)
+/e2e/artifacts
+/e2e/.auth
+/e2e/.test-output
+
 # Tooling
 *.tsbuildinfo
 .eslintcache

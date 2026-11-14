@@ -17,6 +17,7 @@
 		"db:migrate": "node src/cli.ts migrate",
 		"db:seed": "node src/cli.ts seed",
 		"db:seed:sql": "node src/cli.ts seed-sql",
+		"db:seed:e2e:sql": "node src/cli.ts e2e-seed-sql",
 		"db:prepare": "node src/cli.ts prepare",
 		"db:reset": "node src/cli.ts reset"
 	},

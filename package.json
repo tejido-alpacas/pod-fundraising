@@ -11,7 +11,8 @@
 	},
 	"workspaces": [
 		"apps/*",
-		"packages/*"
+		"packages/*",
+		"e2e"
 	],
 	"scripts": {
 		"preinstall": "node scripts/require-npm.mjs",
@@ -28,7 +29,10 @@
 		"db:migrate": "npm run db:migrate --workspace @tejido/db",
 		"db:seed": "npm run db:seed --workspace @tejido/db",
 		"db:seed:sql": "npm run --silent db:seed:sql --workspace @tejido/db",
-		"db:reset": "npm run db:reset --workspace @tejido/db"
+		"db:reset": "npm run db:reset --workspace @tejido/db",
+		"db:seed:e2e:sql": "npm run --silent db:seed:e2e:sql --workspace @tejido/db --",
+		"e2e": "npm run e2e --workspace @tejido/e2e --",
+		"e2e:list": "npm run e2e:list --workspace @tejido/e2e"
 	},
 	"devDependencies": {
 		"@eslint/js": "^10.0.1",
