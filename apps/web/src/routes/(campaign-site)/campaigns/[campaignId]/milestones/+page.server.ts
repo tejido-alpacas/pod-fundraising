@@ -1,5 +1,12 @@
 import { error } from '@sveltejs/kit';
-import { isConfirmed, isRefunded, type Entry, type Party } from '@tejido/contracts';
+import {
+	confirmationStrength,
+	isConfirmed,
+	isRefunded,
+	shownRelationship,
+	type Entry,
+	type Party
+} from '@tejido/contracts';
 import { getCampaign, listDeposits, listEntries, listMilestones, listParties } from '@tejido/db';
 import type { PageServerLoad } from './$types';
 
@@ -9,7 +16,16 @@ import type { PageServerLoad } from './$types';
 
 /** Donors see who a party is, never how to reach them. */
 function publicParty(party: Party | undefined) {
-	return party ? { name: party.name, title: party.title, role: party.role } : null;
+	return party
+		? {
+				name: party.name,
+				title: party.title,
+				role: party.role,
+				// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+				relationship: shownRelationship(party),
+				relationshipReason: party.relationshipReason
+			}
+		: null;
 }
 
 /** Whole days from one calendar date to a later one. Both are `YYYY-MM-DD`. */
@@ -61,6 +77,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			kind: milestone.kind,
 			dueDate: milestone.dueDate,
 			state: milestone.state,
+			/** The confirmation strength to show. Null until the milestone is confirmed. */
+			strength: confirmationStrength(milestone, partyById.get(milestone.confirmerPartyId)),
 			confirmedAt: milestone.confirmedAt,
 			// Late: the due date has passed and nobody has confirmed it. Nothing else is assumed.
 			daysLate: !confirmed && milestone.dueDate < today ? daysBetween(milestone.dueDate, today) : 0,

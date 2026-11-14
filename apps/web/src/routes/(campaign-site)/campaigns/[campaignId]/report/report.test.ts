@@ -3,7 +3,14 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Entry, MilestoneHitEntry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, deposits, entries, milestones, refunds } from '@tejido/db';
+import {
+	campaigns,
+	deposits,
+	entries,
+	milestones,
+	refunds,
+	setPartyRelationship
+} from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -128,16 +135,29 @@ describe('the final report', () => {
 					title: 'Walls up to roof height',
 					state: 'open',
 					dueDate: '2026-11-27',
-					owner: { name: 'Coral Ridge Builders', title: 'Contractor', role: 'third_party' },
+					owner: {
+						name: 'Coral Ridge Builders',
+						title: 'Contractor',
+						role: 'third_party',
+						relationship: 'participant',
+						relationshipReason: null
+					},
 					namedConfirmer: {
 						name: 'Yvonne Campbell',
 						title: 'Head teacher, Mangrove Bay Primary School',
-						role: 'confirmer'
+						role: 'confirmer',
+						relationship: 'stakeholder',
+						relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
 					}
 				},
 				expect.objectContaining({ id: 'm3-books-delivered', state: 'claimed' })
 			]);
-			expect(data.totals).toMatchObject({ milestones: 3, confirmed: 1, independent: 1 });
+			// The head teacher benefits from the library: her sign-off is a stakeholder confirmation.
+			expect(data.totals).toMatchObject({
+				milestones: 3,
+				confirmed: 1,
+				byStrength: { participant: 0, stakeholder: 1, independent: 0 }
+			});
 		});
 
 		it('still lists every milestone in order, and names nobody as confirming an unconfirmed one', async () => {
@@ -194,9 +214,41 @@ describe('the final report', () => {
 			expect(data.totals).toMatchObject({
 				milestones: 3,
 				confirmed: 3,
-				independent: 2,
+				byStrength: { participant: 1, stakeholder: 2, independent: 0 },
 				byCreator: 1
 			});
+		});
+
+		it('shows a confirmer with no recorded relationship as a stakeholder, never as independent', async () => {
+			await setPartyRelationship(test.db, headTeacher.id, {
+				relationship: null,
+				relationshipReason: null
+			});
+
+			const { data, row } = await report();
+
+			expect(row('m1-foundation').strength).toBe('stakeholder');
+			expect(row('m1-foundation').confirmedBy).toMatchObject({ relationship: 'stakeholder' });
+			expect(data.totals.byStrength).toEqual({ participant: 1, stakeholder: 2, independent: 0 });
+		});
+
+		it('counts a confirmation as independent only when the confirmer is recorded as independent', async () => {
+			const reason = 'Employed by the parish council. Not paid by the project.';
+			await setPartyRelationship(test.db, headTeacher.id, {
+				relationship: 'independent',
+				relationshipReason: reason
+			});
+
+			const { data, row } = await report();
+
+			expect(row('m2-walls').strength).toBe('independent');
+			expect(row('m2-walls').confirmedBy).toMatchObject({
+				relationship: 'independent',
+				relationshipReason: reason
+			});
+			// The creator's own sign-off stays a participant confirmation whoever was named.
+			expect(row('m3-books-delivered').strength).toBe('participant');
+			expect(data.totals.byStrength).toEqual({ participant: 1, stakeholder: 0, independent: 2 });
 		});
 
 		it('says who confirmed each milestone, when, and how strongly', async () => {
@@ -204,22 +256,28 @@ describe('the final report', () => {
 
 			expect(row('m1-foundation')).toMatchObject({
 				state: 'confirmed_independent',
+				strength: 'stakeholder',
 				confirmedAt: '2026-10-30T09:41:07.000Z',
 				confirmedBy: {
 					who: 'confirmer',
 					name: 'Yvonne Campbell',
-					title: 'Head teacher, Mangrove Bay Primary School'
+					title: 'Head teacher, Mangrove Bay Primary School',
+					relationship: 'stakeholder',
+					relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
 				},
 				owner: { name: 'Coral Ridge Builders', title: 'Contractor', role: 'third_party' }
 			});
 			// Confirmed by the creator: the creator's name, and never the named confirmer's.
 			expect(row('m3-books-delivered')).toMatchObject({
 				state: 'confirmed_creator',
+				strength: 'participant',
 				confirmedAt: '2026-12-04T12:00:00.000Z',
 				confirmedBy: {
 					who: 'creator',
 					name: 'Mangrove Bay Parent-Teacher Association',
-					title: null
+					title: null,
+					relationship: 'participant',
+					relationshipReason: null
 				}
 			});
 		});

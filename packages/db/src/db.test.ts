@@ -1,4 +1,5 @@
-import { DEPOSIT_AMOUNT, type Deposit, type Entry } from '@tejido/contracts';
+import { DEPOSIT_AMOUNT, partySchema, type Deposit, type Entry } from '@tejido/contracts';
+import { sql } from 'drizzle-orm';
 import { fixtures } from '@tejido/contracts/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hasCampaigns, runMigrations, seedFixtures, seedFixturesSql } from './admin.ts';
@@ -16,7 +17,8 @@ import {
 	listDeposits,
 	listEntries,
 	listMilestones,
-	listParties
+	listParties,
+	setPartyRelationship
 } from './index.ts';
 import { deposits, entries } from './schema.ts';
 import { createTestDatabase, type TestDatabase } from './testing.ts';
@@ -220,6 +222,66 @@ describe('writing', () => {
 		const linked = await getParty(test.db, id);
 		expect(linked?.agentWalletHostname).toBe(agent);
 		expect(linked?.primaryWalletHostname).toBe(primary);
+	});
+});
+
+describe('how a party relates to the project', () => {
+	beforeEach(async () => {
+		test = await createTestDatabase();
+		await seedFixtures(test.db);
+	});
+
+	it('is read back as the fixtures recorded it', async () => {
+		const headTeacher = await getParty(test.db, 'head-teacher');
+		expect(headTeacher?.relationship).toBe('stakeholder');
+		expect(headTeacher?.relationshipReason).toBe(
+			'Head teacher of the school whose library is being rebuilt.'
+		);
+		expect((await getParty(test.db, 'contractor'))?.relationship).toBe('participant');
+	});
+
+	it('is null, not a default, for a party stored without one', async () => {
+		// A row as it was written before the columns existed: neither value is given.
+		await test.db.run(
+			sql`INSERT INTO parties (id, campaign_id, role, name, title, email, reporter_code, created_at)
+				VALUES ('inspector', ${fixtures.campaign.id}, 'confirmer', 'A. Inspector', 'Building inspector', 'inspector@parish.example', 'rc_22222222222222222223', '2026-10-06T09:00:00.000Z')`
+		);
+
+		const stored = await getParty(test.db, 'inspector');
+		expect(stored?.relationship).toBeNull();
+		expect(stored?.relationshipReason).toBeNull();
+		expect(partySchema.parse(stored)).toEqual(stored);
+	});
+
+	it('is recorded, replaced and cleared by setPartyRelationship', async () => {
+		const reason = 'Employed by the parish council. Not paid by the project.';
+		await setPartyRelationship(test.db, 'head-teacher', {
+			relationship: 'independent',
+			relationshipReason: reason
+		});
+		// Nothing else on the party changes, and no other party is touched.
+		expect(await getParty(test.db, 'head-teacher')).toEqual({
+			...fixtures.parties[2],
+			relationship: 'independent',
+			relationshipReason: reason
+		});
+		expect(await getParty(test.db, 'contractor')).toEqual(fixtures.parties[0]);
+
+		await setPartyRelationship(test.db, 'head-teacher', {
+			relationship: null,
+			relationshipReason: null
+		});
+		expect((await getParty(test.db, 'head-teacher'))?.relationship).toBeNull();
+	});
+
+	it('refuses a reason longer than the contract allows, and stores nothing', async () => {
+		await expect(
+			setPartyRelationship(test.db, 'head-teacher', {
+				relationship: 'independent',
+				relationshipReason: 'x'.repeat(301)
+			})
+		).rejects.toThrow();
+		expect(await getParty(test.db, 'head-teacher')).toEqual(fixtures.parties[2]);
 	});
 });
 

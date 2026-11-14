@@ -6,6 +6,10 @@
 		CLAIM_LABEL,
 		MILESTONE_STATE_LABEL,
 		PARTY_ROLE_LABEL,
+		milestoneLabel,
+		milestoneMeaning,
+		partyLabel,
+		strengthSummary,
 		formatDate,
 		formatDateTime
 	} from '#lib/campaign-site/labels.ts';
@@ -17,21 +21,11 @@
 	const totals = $derived(data.totals);
 	const held = $derived(totals.paid - totals.returned);
 
-	/** What each confirmation strength means, in the same words as the milestone status page. */
-	const STATE_MEANS: Record<MilestoneState, string> = {
-		confirmed_independent:
-			'The named confirmer, who did not do the work, signed it off from their own wallet.',
-		confirmed_creator:
-			'No independent confirmer answered in the waiting period, so the campaign’s creator signed it off.',
-		claimed: 'The party doing the work says it is done. Nobody has confirmed it yet.',
-		open: 'Nobody has reported this milestone as done yet.'
-	};
-
 	const words = (value: string) => value.replaceAll('_', ' ');
 	const count = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
 </script>
 
-{#snippet stateBadge(state: MilestoneState)}
+{#snippet stateBadge(state: MilestoneState, label: string = MILESTONE_STATE_LABEL[state])}
 	<span class="badge state-{state}">
 		<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
 			{#if state === 'confirmed_independent'}
@@ -54,7 +48,7 @@
 				/>
 			{/if}
 		</svg>
-		{MILESTONE_STATE_LABEL[state]}
+		{label}
 	</span>
 {/snippet}
 
@@ -78,19 +72,12 @@
 				<time datetime={data.deliveredAt}>{formatDateTime(data.deliveredAt)}</time>{/if}.
 		</p>
 		<p>
-			{#if totals.byCreator === 0}
-				{totals.milestones === 1
-					? 'It was confirmed independently'
-					: `All ${totals.milestones} were confirmed independently`}: by a named confirmer who did
-				not do the work.
-			{:else if totals.independent === 0}
-				{totals.milestones === 1 ? 'It was' : `All ${totals.milestones} were`} confirmed by the campaign’s
-				creator, not by an independent confirmer.
-			{:else}
-				{totals.independent} of {totals.milestones}
-				{totals.independent === 1 ? 'was' : 'were'} confirmed independently. {totals.byCreator}
-				{totals.byCreator === 1 ? 'was' : 'were'} confirmed by the campaign’s creator, because no independent
-				confirmer answered.
+			How they were confirmed: {strengthSummary(totals.byStrength)}. This says how each person who
+			confirmed relates to the project. It describes a relationship and is not a score.
+			{#if totals.byCreator > 0}
+				{totals.byCreator} of them
+				{totals.byCreator === 1 ? 'was' : 'were'} confirmed by the campaign’s creator, because the named
+				confirmer did not answer.
 			{/if}
 		</p>
 	</section>
@@ -174,8 +161,8 @@
 		<li class="card state-{milestone.state}" id={milestone.id}>
 			<header>
 				<h2><span class="number">{index + 1}.</span> {milestone.title}</h2>
-				<p class="standing">{@render stateBadge(milestone.state)}</p>
-				<p class="means">{STATE_MEANS[milestone.state]}</p>
+				<p class="standing">{@render stateBadge(milestone.state, milestoneLabel(milestone))}</p>
+				<p class="means">{milestoneMeaning(milestone)}</p>
 			</header>
 
 			{#if milestone.description}<p>{milestone.description}</p>{/if}
@@ -190,7 +177,12 @@
 						<span class="muted">
 							({milestone.confirmedBy.who === 'creator'
 								? 'the campaign’s creator'
-								: PARTY_ROLE_LABEL.confirmer})
+								: partyLabel({
+										role: 'confirmer',
+										relationship: milestone.confirmedBy.relationship
+									})}){milestone.confirmedBy.relationshipReason
+								? ` ${milestone.confirmedBy.relationshipReason}`
+								: ''}
 						</span>
 					{:else if milestone.confirmed}
 						<span class="muted">The confirmer is not on record.</span>
@@ -200,6 +192,9 @@
 							<span class="muted">
 								Named to confirm it: {milestone.namedConfirmer.name}, {milestone.namedConfirmer
 									.title}
+								({partyLabel(milestone.namedConfirmer)}){milestone.namedConfirmer.relationshipReason
+									? ` ${milestone.namedConfirmer.relationshipReason}`
+									: ''}
 							</span>
 						{/if}
 					{/if}
