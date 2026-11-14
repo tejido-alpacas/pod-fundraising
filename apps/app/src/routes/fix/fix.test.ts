@@ -203,11 +203,13 @@ describe('the page', () => {
 			{
 				id: CLAIM,
 				milestoneTitle: (await walls()).title,
+				milestonePosition: 2,
 				report: 'claim',
 				summary: 'All four walls are up to roof height.',
 				filedAt: claim.filedAt,
 				missing: NEEDS_PHOTO,
 				attached: 0,
+				notPublic: [],
 				room: 10,
 				documentsOnly: false
 			}
@@ -335,6 +337,23 @@ describe('a file kept from donors', () => {
 		});
 		// Choosing the same file here does not make it public behind the uploader's back.
 		expect((await getEvidenceFile(test.db, sha256(PNG)))?.visibility).toBe('not_public');
+
+		// The page then says which attached file donors are not shown, in the uploader's own
+		// two lines, so the person can see why the report is still incomplete.
+		const page = await view(sessionFor(contractor));
+		expect(page.entries).toMatchObject([
+			{
+				id: CLAIM,
+				attached: 1,
+				notPublic: [{ kind: 'Site photo', reason: 'It shows the neighbours.' }]
+			}
+		]);
+	});
+
+	it('is not mentioned on a report whose files donors can all see', async () => {
+		expect((await view(sessionFor(supplier))).entries).toMatchObject([
+			{ id: DELIVERY, attached: 1, notPublic: [] }
+		]);
 	});
 });
 

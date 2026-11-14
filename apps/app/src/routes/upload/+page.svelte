@@ -10,8 +10,9 @@
 		type EvidenceVisibility,
 		MAX_PHOTOS_PER_ENTRY
 	} from '@tejido/contracts';
+	import { Banner, Button, Icon, shortId } from '@tejido/ui';
+	import CopyButton from '#lib/CopyButton.svelte';
 	import {
-		agentEntry,
 		agentList,
 		checkEvidenceFile,
 		DOCUMENT_TYPE_NAMES,
@@ -24,12 +25,22 @@
 		problemFromStatus,
 		type EvidenceProblem
 	} from '#lib/evidence.ts';
+	import FieldPage from '#lib/FieldPage.svelte';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
 
 	let { data, form }: PageProps = $props();
 
-	type Ended =
+	/**
+	 * Where one chosen file is. Each state is set only when the code has reached it:
+	 * `waiting` (chosen, another file is being sent first), `uploading` (this request is open),
+	 * `done` (POST /api/evidence answered with a URL and a fingerprint), `failed`.
+	 */
+	type Progress =
+		| { status: 'waiting' }
+		| { status: 'uploading'; sent: number; total: number | null }
 		| {
 				status: 'done';
 				url: string;
@@ -37,23 +48,29 @@
 				visibility: EvidenceVisibility;
 				picture: boolean;
 		  }
-		| { status: 'failed'; problem: string };
-	type Row = { key: string; name: string } & (Ended | { status: 'uploading' });
+		| { status: 'failed'; problem: string; retry: boolean };
+	type Row = { key: string; name: string; picture: boolean; preview: string | null } & Progress;
 
 	// True once the page's script is running. Until then the form posts to this page's own
 	// action and the page reloads with the results; after, each file goes to POST /api/evidence
-	// as soon as it is chosen and the results build up without a reload.
+	// as soon as it is chosen and the rows build up without a reload.
 	let enhanced = $state(false);
 	let sent = $state<Row[]>([]);
-	let copied = $state<string | null>(null);
-	let copyFailed = $state(false);
+	let copiedAll = $state<'copied' | 'failed' | null>(null);
+	let dragging = $state(false);
 	let count = 0;
+	let sending = false;
+	/** The chosen files themselves, kept so a failed one can be sent again. */
+	const files = new SvelteMap<string, File>();
 
 	// Who may see the files chosen next. Decided before choosing, because with the script
-	// running a file is sent as soon as it is chosen.
+	// running a file is sent as soon as it is chosen. Each file keeps the choice it was chosen
+	// under, however long it waits its turn.
 	let keepFromDonors = $state(false);
 	let notPublicKind = $state('');
 	let notPublicReason = $state('');
+	type NotPublic = { kind: string; reason: string };
+	const notPublic = new SvelteMap<string, NotPublic>();
 
 	let picker = $state<HTMLFormElement>();
 
@@ -61,509 +78,654 @@
 		enhanced = true;
 		// A file chosen before the script was ready has had no `change` to start it. Send it now.
 		for (const input of picker?.querySelectorAll<HTMLInputElement>('input[type="file"]') ?? []) {
-			void send(input);
+			take(input);
 		}
 	});
 
 	// What the form action answered, when the form was posted without the script.
 	const posted = $derived(
-		(form?.results ?? []).map((result, index): Row =>
-			result.ok
-				? { key: `posted-${index}`, status: 'done', ...result }
-				: { key: `posted-${index}`, status: 'failed', ...result }
-		)
+		(form?.results ?? []).map((result, index): Row => {
+			const base = { key: `posted-${index}`, name: result.name, preview: null };
+			return result.ok
+				? {
+						...base,
+						picture: result.picture,
+						status: 'done',
+						url: result.url,
+						sha256: result.sha256,
+						visibility: result.visibility
+					}
+				: { ...base, picture: false, status: 'failed', problem: result.problem, retry: false };
+		})
 	);
 	const rows = $derived([...posted, ...sent]);
-	const done = $derived(rows.filter((row) => row.status === 'done'));
-	const list = $derived(agentList(done));
-	const distinct = $derived(new Set(done.map((row) => row.sha256)).size);
 
-	const failed = (problem: EvidenceProblem): Ended => ({
+	// The same file uploaded twice is stored once, so the second row is left out, and says so.
+	const firstBySha256 = $derived.by(() => {
+		const first = new SvelteMap<string, Row>();
+		for (const row of rows) {
+			if (row.status === 'done' && !first.has(row.sha256)) first.set(row.sha256, row);
+		}
+		return first;
+	});
+	const uploaded = $derived([...firstBySha256.values()].filter((row) => row.status === 'done'));
+	const stillSending = $derived(
+		rows.filter((row) => row.status === 'waiting' || row.status === 'uploading').length
+	);
+	const list = $derived(agentList(uploaded));
+
+	const failed = (problem: EvidenceProblem): Progress => ({
 		status: 'failed',
-		problem: PROBLEM_SENTENCES[problem]
+		problem:
+			problem === 'network' || problem === 'unexpected'
+				? `${PROBLEM_SENTENCES[problem]} The file is still on this phone.`
+				: PROBLEM_SENTENCES[problem],
+		// Sending the same file again can only help when the file itself was not the problem.
+		retry: problem === 'network' || problem === 'unexpected'
 	});
 
-	async function post(file: File, picture: boolean): Promise<Ended> {
-		const body = new FormData();
-		body.set(EVIDENCE_FILE_FIELD, file);
-		if (keepFromDonors) {
-			if (notPublicKind.trim() === '' || notPublicReason.trim() === '') {
-				return failed('not_public_words');
+	function set(key: string, progress: Progress) {
+		const at = sent.findIndex((row) => row.key === key);
+		const row = sent[at];
+		if (row) {
+			sent[at] = { key, name: row.name, picture: row.picture, preview: row.preview, ...progress };
+		}
+	}
+
+	/** Sends one file and reports the bytes the browser says have left the phone. */
+	function post(
+		file: File,
+		picture: boolean,
+		words: NotPublic | undefined,
+		onSent: (sent: number, total: number) => void
+	) {
+		return new Promise<Progress>((resolve) => {
+			const body = new FormData();
+			body.set(EVIDENCE_FILE_FIELD, file);
+			if (words) {
+				body.set(EVIDENCE_VISIBILITY_FIELD, 'not_public');
+				body.set(EVIDENCE_NOT_PUBLIC_KIND_FIELD, words.kind);
+				body.set(EVIDENCE_NOT_PUBLIC_REASON_FIELD, words.reason);
 			}
-			body.set(EVIDENCE_VISIBILITY_FIELD, 'not_public');
-			body.set(EVIDENCE_NOT_PUBLIC_KIND_FIELD, notPublicKind);
-			body.set(EVIDENCE_NOT_PUBLIC_REASON_FIELD, notPublicReason);
-		}
 
-		let response: Response;
-		try {
-			response = await fetch('/api/evidence', { method: 'POST', body });
-		} catch {
-			return failed('network');
-		}
-		if (!response.ok) return failed(problemFromStatus(response.status));
-
-		let answer: unknown;
-		try {
-			answer = await response.json();
-		} catch {
-			return failed('unexpected');
-		}
-		const parsed = evidenceUploadResponseSchema.safeParse(answer);
-		return parsed.success ? { status: 'done', ...parsed.data, picture } : failed('unexpected');
+			const request = new XMLHttpRequest();
+			request.open('POST', '/api/evidence');
+			request.upload.onprogress = (event) => {
+				if (event.lengthComputable) onSent(event.loaded, event.total);
+			};
+			request.onerror = request.onabort = request.ontimeout = () => resolve(failed('network'));
+			request.onload = () => {
+				if (request.status < 200 || request.status >= 300) {
+					resolve(failed(problemFromStatus(request.status)));
+					return;
+				}
+				let answer: unknown;
+				try {
+					answer = JSON.parse(request.responseText);
+				} catch {
+					resolve(failed('unexpected'));
+					return;
+				}
+				const parsed = evidenceUploadResponseSchema.safeParse(answer);
+				resolve(
+					parsed.success ? { status: 'done', ...parsed.data, picture } : failed('unexpected')
+				);
+			};
+			request.send(body);
+		});
 	}
 
-	function chosen(event: Event & { currentTarget: HTMLInputElement }) {
-		void send(event.currentTarget);
+	/** Sends the waiting files one after another. One loop at a time. */
+	async function drain() {
+		if (sending) return;
+		sending = true;
+		for (;;) {
+			const next = sent.find((row) => row.status === 'waiting');
+			const file = next && files.get(next.key);
+			if (!next || !file) break;
+			const { key, picture } = next;
+			set(key, { status: 'uploading', sent: 0, total: null });
+			const ended = await post(file, picture, notPublic.get(key), (bytes, total) =>
+				set(key, { status: 'uploading', sent: bytes, total })
+			);
+			set(key, ended);
+			if (ended.status === 'done') {
+				files.delete(key);
+				notPublic.delete(key);
+			}
+		}
+		sending = false;
 	}
 
-	async function send(input: HTMLInputElement) {
-		const files = [...(input.files ?? [])];
-		input.value = '';
-
-		// Every chosen file gets its row at once; then they are sent one after another.
-		const waiting: { key: string; file: File; picture: boolean }[] = [];
-		for (const file of files) {
+	/** Every chosen file gets its row at once; then they are sent one after another. */
+	function add(chosen: File[]) {
+		for (const file of chosen) {
 			const key = `sent-${count++}`;
 			const check = checkEvidenceFile(file);
-			if (check.ok) {
-				sent.push({ key, name: file.name, status: 'uploading' });
-				waiting.push({ key, file, picture: isPicture(check.type) });
+			const picture = isPicture(file.type);
+			const base = { key, name: file.name, picture };
+			const wordsMissing = notPublicKind.trim() === '' || notPublicReason.trim() === '';
+			if (check.ok && keepFromDonors && wordsMissing) {
+				// Never sent as public by mistake: without both lines it is not sent at all.
+				sent.push({ ...base, preview: null, ...failed('not_public_words') });
+			} else if (check.ok) {
+				files.set(key, file);
+				if (keepFromDonors) notPublic.set(key, { kind: notPublicKind, reason: notPublicReason });
+				sent.push({
+					...base,
+					preview: picture ? URL.createObjectURL(file) : null,
+					status: 'waiting'
+				});
 			} else {
-				sent.push({ key, name: file.name, ...failed(check.problem) });
+				sent.push({ ...base, preview: null, ...failed(check.problem) });
 			}
 		}
-		for (const { key, file, picture } of waiting) {
-			const ended = await post(file, picture);
-			const at = sent.findIndex((row) => row.key === key);
-			if (at !== -1) sent[at] = { key, name: file.name, ...ended };
+		void drain();
+	}
+
+	function take(input: HTMLInputElement) {
+		const chosen = [...(input.files ?? [])];
+		input.value = '';
+		add(chosen);
+	}
+
+	function retry(key: string) {
+		if (!files.has(key)) return;
+		set(key, { status: 'waiting' });
+		void drain();
+	}
+
+	function remove(key: string) {
+		const at = sent.findIndex((row) => row.key === key);
+		const row = sent[at];
+		if (!row) return;
+		if (row.preview) URL.revokeObjectURL(row.preview);
+		files.delete(key);
+		notPublic.delete(key);
+		sent.splice(at, 1);
+	}
+
+	function dropped(event: DragEvent) {
+		event.preventDefault();
+		dragging = false;
+		add([...(event.dataTransfer?.files ?? [])]);
+	}
+
+	async function copyAll() {
+		try {
+			await navigator.clipboard.writeText(list);
+			copiedAll = 'copied';
+		} catch {
+			copiedAll = 'failed';
 		}
 	}
 
-	async function copy(what: string, text: string) {
-		try {
-			await navigator.clipboard.writeText(text);
-			copied = what;
-			copyFailed = false;
-		} catch {
-			copied = null;
-			copyFailed = true;
-		}
-	}
+	const megabytes = (bytes: number) => (bytes / 1024 / 1024).toFixed(1);
+	const fileCount = (n: number) => (n === 1 ? '1 file' : `${n} files`);
 </script>
 
-<svelte:head><title>Upload evidence · Tejido</title></svelte:head>
+<svelte:head><title>Add evidence · Tejido</title></svelte:head>
 
-{#snippet copyButton(what: string, text: string)}
-	{#if enhanced}
-		<button type="button" class="copy" onclick={() => copy(what, text)}>
-			{copied === what ? 'Copied' : 'Copy'}
-		</button>
-	{/if}
-{/snippet}
-
-<article>
-	<p class="eyebrow">Evidence</p>
-	<h1>Upload photos and documents</h1>
-	<p class="lede">
-		Upload the photos or documents that show your work. For each one you get a web address and a
-		fingerprint (its SHA-256). Give both to your agent, and it attaches them to your report.
-	</p>
+<FieldPage
+	title="Add evidence"
+	subtitle={page.data.nav?.party?.name ?? 'Photos and documents'}
+	back="/"
+	actions={enhanced && uploaded.length > 0 ? actions : undefined}
+>
+	<h1 class="tj-vh">Add photos and documents</h1>
 
 	{#if data.viewer === 'signed_out'}
-		<p class="note">
-			You are not signed in, so you cannot upload yet. Open the invite link you were sent and sign
-			in with Qatom from there. Then come back to this page.
-		</p>
-		<p><a class="way" href="/">Go to the home page</a></p>
+		<Banner tone="attention" icon="alert-circle" title="Sign in to add evidence">
+			You are not signed in, so nothing can be uploaded yet. Open the invitation link you were sent
+			and sign in with Qatom from there. Then come back to this page.
+			{#snippet actions()}<Button size="field" href="/">Go to the home page</Button>{/snippet}
+		</Banner>
 	{:else if data.viewer === 'no_party'}
-		<p class="note">
-			You are signed in as {data.email}, but not on a campaign, so you cannot upload yet. Open the
-			invite link you were sent and sign in from there. Then come back to this page.
-		</p>
-		<p><a class="way" href="/">Go to the home page</a></p>
+		<Banner tone="attention" icon="alert-circle" title="You’re not on a project yet">
+			You are signed in as {data.email}, but not on a project, so nothing can be uploaded yet. Open
+			the invitation link you were sent and sign in from there. Then come back to this page.
+			{#snippet actions()}<Button size="field" href="/">Go to the home page</Button>{/snippet}
+		</Banner>
 	{:else}
 		<form
 			bind:this={picker}
+			class="tj-picker"
 			method="POST"
 			action="?/upload"
 			enctype="multipart/form-data"
-			onsubmit={(event) => event.preventDefault()}
+			onsubmit={(event) => {
+				if (enhanced) event.preventDefault();
+			}}
 		>
-			<fieldset class="who">
-				<legend>Who may see the files you choose next</legend>
-				<label class="tick">
+			<label class="tj-picker__opt tj-picker__opt--primary">
+				<Icon name="camera" size={28} />
+				<span>Take a photo</span>
+				<small>Opens the camera</small>
+				<input
+					type="file"
+					name={EVIDENCE_FILE_FIELD}
+					accept={PICTURE_TYPES.join(',')}
+					capture="environment"
+					onchange={(event) => take(event.currentTarget)}
+				/>
+			</label>
+			<label class="tj-picker__opt">
+				<Icon name="paperclip" size={28} />
+				<span>Choose files</span>
+				<small>Photos or {DOCUMENT_TYPE_NAMES}s</small>
+				<input
+					type="file"
+					name={EVIDENCE_FILE_FIELD}
+					accept={[...PICTURE_TYPES, ...DOCUMENT_TYPES].join(',')}
+					multiple
+					onchange={(event) => take(event.currentTarget)}
+				/>
+			</label>
+			{#if enhanced}
+				<div
+					class={['tj-picker__drop', dragging && 'is-over']}
+					role="presentation"
+					ondragover={(event) => {
+						event.preventDefault();
+						dragging = true;
+					}}
+					ondragleave={() => (dragging = false)}
+					ondrop={dropped}
+				>
+					Or drop files here
+				</div>
+			{/if}
+			<p class="tj-picker__limits">
+				Photos ({PICTURE_TYPE_NAMES}) or {DOCUMENT_TYPE_NAMES} documents, up to
+				{EVIDENCE_MAX_MEGABYTES} MB each. Up to {MAX_PHOTOS_PER_ENTRY} files per report.
+			</p>
+			<fieldset class="app-who">
+				<legend class="tj-label">Who may see the files you choose next</legend>
+				<label class="tj-check">
 					<input
 						type="checkbox"
 						name={EVIDENCE_VISIBILITY_FIELD}
 						value="not_public"
 						bind:checked={keepFromDonors}
 					/>
-					<span>Keep these files from donors</span>
+					<span class="tj-check__text">
+						<span>Keep these files from donors</span>
+						<small>
+							Tick this before you choose a file. A file is sent as soon as you choose it.
+						</small>
+					</span>
 				</label>
-				<small>
-					Leave this off and donors see the files. Turn it on for something donors should not see,
-					such as a list with pupils’ names. Then only you and this campaign’s confirmers can open
-					the file. Donors are told it exists, with the two lines below, and are not shown it. A
-					file kept from donors does not count as the photo or document a milestone claim needs.
-				</small>
+				<!-- Without the page's script the two lines cannot appear on a tick, so they are always there. -->
 				{#if keepFromDonors || !enhanced}
-					<label>
-						<span>What it is</span>
-						<small>For example: Class list. Fill this in before choosing the file.</small>
+					<p class="tj-help" id="who-help">
+						Left unticked, donors see the files. Tick it for something donors should not see, such
+						as a list with pupils’ names. Then only you and this project’s confirmers can open the
+						file. Donors are told it exists, with the two lines below, and are not shown it. A file
+						kept from donors does not count as the photo or document a milestone report needs.
+					</p>
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-kind">What it is</label>
 						<input
+							class="tj-input"
+							id="np-kind"
 							type="text"
 							name={EVIDENCE_NOT_PUBLIC_KIND_FIELD}
 							maxlength={EVIDENCE_NOT_PUBLIC_KIND_MAX}
+							aria-describedby="np-kind-help"
 							bind:value={notPublicKind}
 						/>
-					</label>
-					<label>
-						<span>Why donors are not shown it</span>
-						<small>For example: It has pupils’ names on it.</small>
+						<p class="tj-help" id="np-kind-help">
+							For example: Class list. Fill this in before choosing the file.
+						</p>
+					</div>
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-reason">Why donors are not shown it</label>
 						<input
+							class="tj-input"
+							id="np-reason"
 							type="text"
 							name={EVIDENCE_NOT_PUBLIC_REASON_FIELD}
 							maxlength={EVIDENCE_NOT_PUBLIC_REASON_MAX}
+							aria-describedby="np-reason-help"
 							bind:value={notPublicReason}
 						/>
-					</label>
-					<p class="problem">
-						Donors read both lines. Do not put anyone’s name, or anything else private, in them.
+						<p class="tj-help" id="np-reason-help">For example: It has pupils’ names on it.</p>
+					</div>
+					<p class="tj-toolresult tj-tone--attention">
+						<Icon name="alert-circle" size={18} />
+						<span>
+							Donors read both lines. Do not put anyone’s name, or anything else private, in them.
+						</span>
 					</p>
 				{/if}
 			</fieldset>
-			<label>
-				<span>Take a photo</span>
-				<small>On a phone this opens the camera.</small>
-				<input
-					type="file"
-					name={EVIDENCE_FILE_FIELD}
-					accept={PICTURE_TYPES.join(',')}
-					capture="environment"
-					onchange={chosen}
-				/>
-			</label>
-			<label>
-				<span>Choose photos</span>
-				<small>Pictures you already have: {PICTURE_TYPE_NAMES}. You can pick several.</small>
-				<input
-					type="file"
-					name={EVIDENCE_FILE_FIELD}
-					accept={PICTURE_TYPES.join(',')}
-					multiple
-					onchange={chosen}
-				/>
-			</label>
-			<label>
-				<span>Choose documents</span>
-				<small>A receipt or a letter, as {DOCUMENT_TYPE_NAMES}. You can pick several.</small>
-				<input
-					type="file"
-					name={EVIDENCE_FILE_FIELD}
-					accept={DOCUMENT_TYPES.join(',')}
-					multiple
-					onchange={chosen}
-				/>
-			</label>
-			<p class="limits">
-				Each file can be at most {EVIDENCE_MAX_MEGABYTES} MB. One report can carry at most
-				{MAX_PHOTOS_PER_ENTRY} files.
-			</p>
-			{#if enhanced}
-				<p class="limits">Uploading starts as soon as you choose a file.</p>
-			{:else}
-				<button type="submit" class="button">Upload</button>
-			{/if}
+			<!-- Without the page's script nothing starts by itself, so the inputs are shown as the
+			     browser draws them and the form gets a button. -->
+			<noscript class="app-noscript">
+				<style>
+					.tj-picker {
+						grid-template-columns: minmax(0, 1fr);
+					}
+					.tj-picker__opt input {
+						position: static;
+						opacity: 1;
+						width: 100%;
+						min-width: 0;
+						font-size: 14px;
+					}
+				</style>
+				<button type="submit" class="tj-btn tj-btn--primary tj-btn--field tj-btn--block">
+					Upload the chosen files
+				</button>
+			</noscript>
 		</form>
 	{/if}
 
 	{#if form?.refused}
-		<p class="problem" role="alert">{form.refused}</p>
+		<Banner tone="attention" icon="alert-triangle" title="Nothing was uploaded" role="alert">
+			{form.refused}
+		</Banner>
 	{/if}
 
-	<div aria-live="polite">
-		{#if rows.length > 0}
-			<h2>Your files</h2>
-			{#if distinct > MAX_PHOTOS_PER_ENTRY}
-				<p class="problem">
-					You have uploaded {distinct} files. One report can carry at most {MAX_PHOTOS_PER_ENTRY},
-					so give your agent no more than {MAX_PHOTOS_PER_ENTRY} of them for each report.
+	{#if rows.length > 0}
+		<section class="tj-section" aria-labelledby="files">
+			<div class="tj-section__head">
+				<h2 class="tj-section__title" id="files">Your files</h2>
+				<p class="tj-section__sub">
+					{rows.length} chosen · {uploaded.length} uploaded
 				</p>
+			</div>
+
+			{#if uploaded.length > MAX_PHOTOS_PER_ENTRY}
+				<Banner tone="attention" icon="alert-circle" title="More files than one report can carry">
+					You have uploaded {uploaded.length} files. One report can carry at most
+					{MAX_PHOTOS_PER_ENTRY}, so hand over no more than {MAX_PHOTOS_PER_ENTRY} for each report.
+				</Banner>
 			{/if}
-			{#if copyFailed}
-				<p class="problem" role="alert">
-					Copying did not work in this browser. Select the text and copy it by hand.
-				</p>
-			{/if}
-			<ul>
+
+			<ul class="app-rows">
 				{#each rows as row (row.key)}
-					<li class="file">
-						<h3>{row.name}</h3>
-						{#if row.status === 'uploading'}
-							<p class="note">Uploading…</p>
+					{@const first = row.status === 'done' ? firstBySha256.get(row.sha256) : undefined}
+					{@const leftOut = first !== undefined && first.key !== row.key}
+					<li
+						class={[
+							'tj-upload',
+							row.status === 'waiting' && 'is-queued',
+							row.status === 'uploading' && 'is-uploading',
+							row.status === 'failed' && 'is-failed',
+							row.status === 'done' && (leftOut ? 'is-excluded' : 'is-done')
+						]}
+					>
+						{#if leftOut}
+							<span class="tj-upload__thumb"><Icon name="excluded" /></span>
 						{:else if row.status === 'failed'}
-							<p class="problem" role="alert">{row.problem}</p>
+							<span class="tj-upload__thumb"><Icon name="alert-triangle" /></span>
+						{:else if row.status === 'done' && row.visibility === 'not_public'}
+							<a class="tj-upload__thumb app-thumblink" href={row.url} aria-label="Open {row.name}">
+								<Icon name="eye-off" />
+							</a>
+						{:else if row.status === 'done' && row.picture}
+							<a class="app-thumblink" href={row.url} aria-label="Open {row.name}">
+								<img class="tj-upload__thumb" src={row.url} alt="" />
+							</a>
+						{:else if row.preview}
+							<img class="tj-upload__thumb" src={row.preview} alt="" />
+						{:else if row.status === 'done'}
+							<a class="tj-upload__thumb app-thumblink" href={row.url} aria-label="Open {row.name}">
+								<Icon name="file-text" />
+							</a>
 						{:else}
-							{@const entry = agentEntry(row)}
-							<div class="stored">
-								{#if row.picture}
-									<a class="preview" href={row.url}>
-										<img src={row.url} alt="Preview of {row.name}" />
-									</a>
-								{:else}
-									<a class="preview document" href={row.url}>
-										<strong>{DOCUMENT_TYPE_NAMES}</strong>
-										<span>Document. Open it to check.</span>
-									</a>
-								{/if}
-								<div class="values">
-									<p class="ok">
-										{row.visibility === 'not_public'
-											? 'Uploaded. Kept from donors: only you and this campaign’s confirmers can open it.'
-											: 'Uploaded. Donors can see it.'}
-									</p>
-									<label>
-										<span>Web address (URL)</span>
-										<span class="value">
-											<input type="text" readonly value={row.url} />
-											{@render copyButton(`${row.key}-url`, row.url)}
+							<span class="tj-upload__thumb">
+								<Icon name={row.picture ? 'image' : 'file-text'} />
+							</span>
+						{/if}
+
+						<div class="app-rowtext">
+							<p class="tj-upload__name">{row.name}</p>
+							{#if row.status === 'failed'}
+								<p class="tj-upload__meta" role="alert">
+									<Icon name="alert-triangle" size={16} />
+									<span>{row.problem}</span>
+								</p>
+							{:else}
+								<p class="tj-upload__meta" aria-live="polite">
+									{#if leftOut}
+										<Icon name="excluded" size={16} />
+										<span>Left out: it is the same file as {first.name}, which is uploaded.</span>
+									{:else if row.status === 'done'}
+										<Icon name="check" size={16} />
+										<span>
+											{row.visibility === 'not_public'
+												? 'Uploaded. Not public: only you and this project’s confirmers can open it.'
+												: 'Uploaded. Donors can see it.'}
+											Fingerprint <code class="tj-id tj-id--chip">{shortId(row.sha256)}</code>
 										</span>
-									</label>
-									<label>
-										<span>Fingerprint (SHA-256)</span>
-										<span class="value">
-											<input type="text" readonly value={row.sha256} />
-											{@render copyButton(`${row.key}-sha256`, row.sha256)}
+									{:else if row.status === 'uploading'}
+										<Icon name="upload" size={16} />
+										<span>
+											{#if row.total === null}
+												Uploading. Keep this page open.
+											{:else if row.sent < row.total}
+												Uploading · {megabytes(row.sent)} of {megabytes(row.total)} MB
+											{:else}
+												Sent. Waiting for Tejido to answer.
+											{/if}
 										</span>
-									</label>
-									<label>
-										<span>For your agent: copy this whole block and paste it in</span>
-										<span class="value">
-											<textarea readonly rows="4" value={entry}></textarea>
-											{@render copyButton(`${row.key}-entry`, entry)}
-										</span>
-									</label>
-								</div>
+									{:else}
+										<Icon name="clock" size={16} />
+										<span>Next to send. Keep this page open.</span>
+									{/if}
+								</p>
+							{/if}
+						</div>
+
+						{#if leftOut || (row.status === 'failed' && !row.retry)}
+							{#if row.key.startsWith('sent-')}
+								<button
+									type="button"
+									class="tj-btn tj-btn--quiet tj-btn--icon"
+									aria-label="Remove {row.name} from this list"
+									onclick={() => remove(row.key)}
+								>
+									<Icon name="x" />
+								</button>
+							{:else}
+								<span></span>
+							{/if}
+						{:else if row.status === 'failed'}
+							<Button size="sm" icon="retry" onclick={() => retry(row.key)}>Retry</Button>
+						{:else if row.status === 'done' && enhanced}
+							<CopyButton text={row.sha256} label="Copy the file fingerprint of {row.name}" />
+						{:else}
+							<span></span>
+						{/if}
+
+						{#if row.status === 'uploading' && row.total !== null}
+							{@const percent = Math.min(100, Math.round((row.sent / row.total) * 100))}
+							<div
+								class="tj-upload__bar"
+								role="progressbar"
+								aria-label="Uploading {row.name}"
+								aria-valuenow={percent}
+								aria-valuemin="0"
+								aria-valuemax="100"
+							>
+								<span style:--value="{percent}%"></span>
 							</div>
 						{/if}
 					</li>
 				{/each}
 			</ul>
+		</section>
+	{/if}
 
-			<p class="next">
-				Next, give these to your agent. If your report is open in another tab, go back to it and
-				paste the block there. If you have not started one,
-				<a href="/chat">file a report</a>.
+	{#if uploaded.length > 0}
+		<section class="tj-section" aria-labelledby="next">
+			<h2 class="tj-section__title" id="next">Hand them to your report</h2>
+			<p class="tj-plain">
+				<Icon name="info" />
+				<span>
+					Uploading stores a file. It does not file anything. A file reaches donors only when it is
+					attached to a report: copy the {uploaded.length === 1 ? 'file' : 'files'}, open your
+					report, and paste. If you have not started a report,
+					<a href="/chat">file one now</a>.
+				</span>
 			</p>
 
-			{#if distinct > 1}
-				<section class="all">
-					<h2>All {distinct} files, for your agent</h2>
-					<p>
-						Copy this whole block and paste it to your agent. It is the list of everything on this
-						page that uploaded, ready to attach to a report.
-					</p>
-					<span class="value">
-						<textarea readonly rows={Math.min(distinct * 4 + 2, 16)} value={list}></textarea>
-						{@render copyButton('all', list)}
-					</span>
-				</section>
-			{/if}
+			<details class="tj-card app-technical">
+				<summary>
+					<Icon name="chevron-down" />
+					<span>Technical details</span>
+				</summary>
+				<div class="app-technical__body">
+					{#each uploaded as row (row.key)}
+						{#if row.status === 'done'}
+							<dl class="tj-dl">
+								<div>
+									<dt>{row.name}: web address</dt>
+									<dd class="app-value">
+										<a class="tj-id tj-id--host" href={row.url}>{row.url}</a>
+										{#if enhanced}
+											<CopyButton text={row.url} label="Copy the web address of {row.name}" />
+										{/if}
+									</dd>
+								</div>
+								<div>
+									<dt>{row.name}: file fingerprint (SHA-256)</dt>
+									<dd class="app-value">
+										<code class="tj-id">{row.sha256}</code>
+										{#if enhanced}
+											<CopyButton
+												text={row.sha256}
+												label="Copy the file fingerprint of {row.name}"
+											/>
+										{/if}
+									</dd>
+								</div>
+							</dl>
+						{/if}
+					{/each}
+					<div class="tj-field">
+						<label class="tj-label" for="block">
+							{uploaded.length === 1 ? 'This file' : `All ${uploaded.length} files`}, as the block a
+							report takes
+						</label>
+						<textarea
+							class="tj-textarea app-block"
+							id="block"
+							readonly
+							rows={Math.min(uploaded.length * 4 + 2, 14)}
+							value={list}></textarea>
+						<p class="tj-help">
+							The copy button below copies exactly this. You can also select it and copy it by hand.
+						</p>
+					</div>
+				</div>
+			</details>
+		</section>
+	{/if}
+</FieldPage>
+
+{#snippet actions()}
+	<Button variant="primary" size="field" block icon="copy" onclick={copyAll}>
+		{#if copiedAll === 'copied'}
+			Copied. Now paste it into your report
+		{:else}
+			Copy {fileCount(uploaded.length)} for your report
 		{/if}
-	</div>
-</article>
+	</Button>
+	<p class="tj-help app-center" role="status">
+		{#if copiedAll === 'failed'}
+			Copying did not work in this browser. Open Technical details and copy the block by hand.
+		{:else if stillSending > 0}
+			{fileCount(stillSending)} still sending. {stillSending === 1 ? 'It is' : 'They are'} not included
+			until uploaded.
+		{:else}
+			Nothing is filed until you say so in your report.
+		{/if}
+	</p>
+	{#if copiedAll === 'copied'}
+		<Button variant="secondary" size="field" block href="/chat">Go to your report</Button>
+	{/if}
+{/snippet}
 
 <style>
-	.who {
-		margin: 0 0 1rem;
-		padding: 0.75rem;
-		border: 1px solid var(--line);
-	}
-	.who .tick {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
-		min-height: 2.75rem;
-	}
-	.who input[type='text'] {
-		width: 100%;
-		box-sizing: border-box;
-		min-height: 2.75rem;
-		font: inherit;
-	}
-	article {
-		max-width: 44rem;
-	}
-	.lede {
-		color: var(--muted);
-	}
-	.way {
-		display: inline-flex;
-		align-items: center;
-		min-height: 2.75rem;
-	}
-	.next {
-		color: var(--muted);
-	}
-	.note {
-		border-left: 3px solid var(--line);
-		padding-left: 0.75rem;
-		color: var(--muted);
-	}
-	.problem {
-		border-left: 3px solid var(--warn);
-		padding-left: 0.75rem;
-		color: var(--warn);
-	}
-	.ok {
-		margin: 0;
-		font-weight: 600;
-		color: var(--a);
-	}
-	form,
-	.file,
-	.all {
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 1rem 1.25rem;
-	}
-	form {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 1rem;
-		margin: 1.5rem 0;
-	}
-	label {
-		display: grid;
-		grid-template-columns: minmax(0, 1fr);
-		gap: 0.2rem;
-	}
-	label > span:first-child {
-		font-weight: 600;
-	}
-	.values label > span:first-child {
-		font-weight: 400;
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	small,
-	.limits {
-		margin: 0;
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	input[type='file'] {
-		font: inherit;
-		max-width: 100%;
-	}
-	.button {
-		justify-self: start;
-		font: inherit;
-		font-weight: 600;
-		color: var(--surface);
-		background: var(--a);
-		border: 0;
-		border-radius: 6px;
-		padding: 0.6rem 1.1rem;
-		cursor: pointer;
-	}
-	ul {
-		list-style: none;
-		padding: 0;
-		margin: 1rem 0 0;
-		display: grid;
-		gap: 0.9rem;
-	}
-	h3 {
-		margin: 0 0 0.5rem;
-		font-size: 1rem;
-		overflow-wrap: anywhere;
-	}
-	.file p {
-		margin-bottom: 0;
-	}
-	.stored {
-		display: grid;
-		grid-template-columns: 9rem 1fr;
-		gap: 1rem;
-		align-items: start;
-	}
-	.preview {
-		display: block;
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		overflow: hidden;
-		background: var(--bg);
-	}
-	.preview img {
-		display: block;
-		width: 100%;
-		height: 9rem;
-		object-fit: cover;
-	}
-	.document {
-		display: grid;
-		gap: 0.25rem;
-		place-content: center;
+	.app-center {
 		text-align: center;
-		min-height: 9rem;
-		padding: 0.5rem;
-		text-decoration: none;
-		font-size: 0.85rem;
-		color: var(--muted);
 	}
-	.document strong {
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 1.4rem;
-		color: var(--c);
-	}
-	.values {
+	.app-who {
+		grid-column: 1 / -1;
 		display: grid;
-		gap: 0.7rem;
+		gap: var(--space-3);
 		min-width: 0;
-	}
-	.value {
-		display: flex;
-		gap: 0.5rem;
-		align-items: start;
-	}
-	.value input,
-	.value textarea {
-		flex: 1;
-		min-width: 0;
-		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-		font-size: 0.85rem;
-		color: var(--ink);
-		background: var(--bg);
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		padding: 0.4rem 0.5rem;
-	}
-	.value textarea {
-		resize: vertical;
-	}
-	.copy {
-		font: inherit;
-		font-weight: 600;
-		color: var(--ink);
+		margin: 0;
+		padding: var(--space-4);
 		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		padding: 0.35rem 0.8rem;
-		min-width: 4.75rem;
+		border: var(--border-hair) solid var(--border);
+		border-radius: var(--radius-lg);
+	}
+	.app-who legend {
+		float: left;
+		width: 100%;
+		padding: 0;
+	}
+	.app-rows {
+		display: grid;
+		gap: var(--space-3);
+	}
+	.app-rowtext {
+		min-width: 0;
+	}
+	.app-thumblink {
+		display: grid;
+		border-radius: var(--radius-md);
+	}
+	.tj-picker__drop.is-over {
+		border-color: var(--accent);
+		background: var(--accent-subtle);
+	}
+	/* The disclosure, drawn as the design's "Technical details": a quiet row that opens. */
+	.app-technical {
+		padding: 0;
+		gap: 0;
+	}
+	.app-technical > summary {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		min-height: var(--size-touch-field);
+		padding: 0 var(--space-4);
+		list-style: none;
 		cursor: pointer;
+		font: 600 14px/20px var(--font-sans);
+		color: var(--link);
 	}
-	.all {
-		margin-top: 1.5rem;
+	.app-technical > summary::-webkit-details-marker {
+		display: none;
 	}
-	.all h2 {
-		margin-top: 0;
+	.app-technical[open] > summary > :global(.tj-icon) {
+		transform: rotate(180deg);
 	}
-	@media (max-width: 32rem) {
-		.stored {
-			grid-template-columns: 1fr;
-		}
+	.app-technical__body {
+		display: grid;
+		gap: var(--space-4);
+		padding: 0 var(--space-4) var(--space-4);
+		min-width: 0;
+	}
+	.app-value {
+		display: flex;
+		gap: var(--space-2);
+		align-items: flex-start;
+		justify-content: space-between;
+		min-width: 0;
+	}
+	.app-value > :first-child {
+		min-width: 0;
+	}
+	.app-block {
+		font-family: var(--font-mono);
+		font-size: 16px;
+		line-height: 22px;
+		overflow-wrap: anywhere;
 	}
 </style>
