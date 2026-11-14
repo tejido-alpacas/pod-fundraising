@@ -6,12 +6,17 @@
 
 <header>
 	<a class="brand" href="/">Tejido</a>
-	<span>Proof-of-delivery fundraising · hackathon build</span>
+	<span>Fundraising with proof of delivery</span>
 </header>
 
 <main>
 	{@render children()}
 </main>
+
+<footer>
+	<p>Tejido shows donors what was reported on a project, who reported it and who confirmed it.</p>
+	<p><a href="/">All campaigns</a></p>
+</footer>
 
 <style>
 	:global(:root) {
@@ -59,6 +64,13 @@
 	:global(a) {
 		color: var(--a);
 	}
+	/* A link that stands alone on its line gets a tap area at least 44px tall. */
+	:global(a.tap) {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		min-width: 2.75rem;
+	}
 	:global(.eyebrow) {
 		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 		font-size: 0.8rem;
@@ -70,15 +82,19 @@
 	header {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 0.25rem 1rem;
-		align-items: baseline;
-		padding: 0.9rem 1rem;
+		gap: 0 1rem;
+		align-items: center;
+		padding: 0.25rem 1rem;
 		border-bottom: 1px solid var(--line);
 		background: var(--surface);
 		color: var(--muted);
 		font-size: 0.9rem;
 	}
 	.brand {
+		display: inline-flex;
+		align-items: center;
+		min-width: 2.75rem;
+		min-height: 2.75rem;
 		font-weight: 700;
 		font-size: 1.1rem;
 		color: var(--ink);
@@ -87,6 +103,22 @@
 	main {
 		max-width: 64rem;
 		margin: 0 auto;
-		padding: 2rem 1rem 4rem;
+		padding: 2rem 1rem 3rem;
+		min-height: calc(100vh - 14rem);
+	}
+	footer {
+		border-top: 1px solid var(--line);
+		padding: 1rem 1rem 2rem;
+		color: var(--muted);
+		font-size: 0.9rem;
+	}
+	footer p {
+		max-width: 64rem;
+		margin: 0 auto;
+	}
+	footer a {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
 	}
 </style>

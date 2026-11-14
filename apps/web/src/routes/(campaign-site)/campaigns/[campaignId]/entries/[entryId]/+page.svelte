@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatAmount } from '@tejido/contracts';
+	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -36,9 +37,9 @@
 
 	const LEFT_OUT = {
 		not_in_our_store:
-			'Not shown: the address filed for it is not a file in Tejido’s evidence store, so we cannot vouch for what it points to.',
+			'Not shown because it could not be verified: this file is not held by Tejido, so we cannot check what it is.',
 		hash_mismatch:
-			'Not shown: the SHA-256 filed with it is not the SHA-256 of the file stored at its address.',
+			'Not shown because it could not be verified: the fingerprint (SHA-256) filed with it does not match the file we hold.',
 		picture_on_documents_only:
 			'Not shown: it is a picture, and this milestone takes documents only.'
 	} as const;
@@ -57,9 +58,9 @@
 
 <svelte:head><title>{heading} · proof · {data.campaign.title} · Tejido</title></svelte:head>
 
-<p class="eyebrow">
-	<a href="/campaigns/{data.campaign.id}">{data.campaign.title}</a> · proof of one entry
-</p>
+<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current={null} />
+
+<p class="eyebrow">Proof of one entry</p>
 <h1>{heading}</h1>
 <p class="muted">
 	{data.milestone.title} · filed by {filer.name}, {filer.title} · {when(entry.filedAt)}
@@ -179,9 +180,9 @@
 				</dd>
 			</dl>
 			<p class="muted">
-				The transaction id and time come from Qatom’s ledger, not from the filer. They show that
-				this wallet paid to file this entry, and when. They do not show that what was written is
-				true.
+				Qatom is the payment service Tejido uses. The transaction id and time come from Qatom’s
+				ledger, not from the filer. They show that this wallet paid to file this entry, and when.
+				They do not show that what was written is true.
 			</p>
 		{:else}
 			<p>
@@ -204,20 +205,21 @@
 	<section class="card">
 		<h2>What was filed</h2>
 		<dl>
-			<dt>Item</dt>
+			<dt>Kind of entry</dt>
 			<dd>
 				{#if filed.item === 'log_work'}
-					Work log
+					Work log, a routine progress report
 				{:else if filed.claim === 'confirm'}
-					Milestone hit, as a confirmation
+					Confirmation that a milestone is done
 				{:else}
-					Milestone hit, as a claim
+					Claim that a milestone is done
 				{/if}
 			</dd>
 			<dt>Milestone</dt>
 			<dd>
-				{data.milestone.title} <code>{data.milestone.id}</code>
-				· <a href="/campaigns/{data.campaign.id}/milestones">milestone status</a>
+				<a href="/campaigns/{data.campaign.id}/milestones#{data.milestone.id}"
+					>{data.milestone.title}</a
+				>
 			</dd>
 			<dt>Filed by</dt>
 			<dd>{filer.name}, {filer.title} ({ROLE_LABEL[filer.role]})</dd>
@@ -317,7 +319,7 @@
 				<p class="muted">This milestone takes documents only, so no pictures are shown on it.</p>
 			{/if}
 			{#if leftOut > 0}
-				<p class="reason">
+				<p class="left-out">
 					{leftOut === 1 ? '1 attached file is' : `${leftOut} attached files are`} not shown here, for
 					the reason given beside {leftOut === 1 ? 'it' : 'each'}.
 				</p>
@@ -337,7 +339,7 @@
 							</p>
 						{:else}
 							<p><strong>{file.caption ?? 'Attached file'}</strong></p>
-							<p class="reason">{LEFT_OUT[file.why]}</p>
+							<p class="left-out">{LEFT_OUT[file.why]}</p>
 						{/if}
 						<p class="hash">
 							<span class="muted">{file.shown ? 'SHA-256' : 'SHA-256 as filed'}</span>
@@ -350,15 +352,14 @@
 	</section>
 </div>
 
-<p class="muted back"><a href="/campaigns/{data.campaign.id}">Back to the timeline</a></p>
+<p class="muted back">
+	<a class="tap" href="/campaigns/{data.campaign.id}">Back to the timeline</a>
+</p>
 
 <style>
 	.muted {
 		color: var(--muted);
 		font-size: 0.9rem;
-	}
-	.eyebrow a {
-		color: inherit;
 	}
 	.sections {
 		display: grid;
@@ -431,6 +432,9 @@
 	.reason {
 		color: var(--warn);
 	}
+	.left-out {
+		color: var(--c);
+	}
 	.status-incomplete .reason {
 		color: var(--c);
 	}
@@ -482,7 +486,7 @@
 		padding: 0.35rem 0.5rem;
 	}
 	.back {
-		margin-top: 1.5rem;
+		margin-top: 1rem;
 	}
 	@media (max-width: 34rem) {
 		dl {

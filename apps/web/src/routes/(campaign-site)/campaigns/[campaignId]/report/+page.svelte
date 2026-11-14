@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatAmount, type MilestoneState } from '@tejido/contracts';
+	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
 	import EntryStatus from '#lib/campaign-site/EntryStatus.svelte';
 	import {
 		CLAIM_LABEL,
@@ -59,10 +60,15 @@
 
 <svelte:head><title>Final report · {data.campaign.title} · Tejido</title></svelte:head>
 
-<p class="eyebrow">
-	<a href={campaignPath}>{data.campaign.title}</a> · final report
-</p>
-<h1>{data.delivered ? 'Delivered' : 'Not finished yet'}</h1>
+<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current="report" />
+
+<h1>
+	{data.delivered
+		? 'Delivered'
+		: totals.milestones === 0
+			? 'Nothing to report yet'
+			: 'Not finished yet'}
+</h1>
 
 {#if data.delivered}
 	<section class="verdict delivered" aria-label="Where this campaign stands">
@@ -91,7 +97,8 @@
 {:else}
 	<section class="verdict unfinished" aria-label="Where this campaign stands">
 		{#if totals.milestones === 0}
-			<p class="verdict-title">This campaign has no milestones, so there is nothing to report.</p>
+			<p class="verdict-title">No milestones have been set for this campaign yet.</p>
+			<p>Once they are, this page will show each milestone, who confirmed it and how strongly.</p>
 		{:else}
 			<p class="verdict-title">
 				This campaign is not finished. {totals.confirmed} of {count(
@@ -135,7 +142,11 @@
 		<dt>Created by</dt>
 		<dd>{data.campaign.creatorName}</dd>
 		<dt>Milestones</dt>
-		<dd>{totals.confirmed} of {totals.milestones} confirmed</dd>
+		<dd>
+			{totals.milestones === 0
+				? 'None set yet'
+				: `${totals.confirmed} of ${totals.milestones} confirmed`}
+		</dd>
 		<dt>Work logs filed</dt>
 		<dd>{totals.workLogs}</dd>
 		<dt>Deposits</dt>
@@ -345,15 +356,17 @@
 								<p class="left-out">
 									{entry.files.leftOut === 1
 										? '1 attached file is not shown'
-										: `${entry.files.leftOut} attached files are not shown`}: we could not confirm
-									{entry.files.leftOut === 1 ? 'it is' : 'they are'} from Tejido’s evidence store and
-									allowed on this milestone.
+										: `${entry.files.leftOut} attached files are not shown`}, because
+									{entry.files.leftOut === 1 ? 'it' : 'they'} could not be verified. Tejido shows a photo
+									or document only when it can check that it is the file that was filed.
 								</p>
 							{:else if entry.files.photos.length + entry.files.documents.length === 0}
 								<p class="muted">No photos or documents were attached.</p>
 							{/if}
 
-							<p class="proof"><a href={entry.proofPath}>See the proof behind this entry</a></p>
+							<p class="proof">
+								<a class="tap" href={entry.proofPath}>See the proof behind this entry</a>
+							</p>
 						</li>
 					{/each}
 				</ul>
@@ -369,17 +382,13 @@
 </p>
 
 <p class="muted back">
-	<a href="{campaignPath}/milestones">Milestone status</a> ·
-	<a href={campaignPath}>Back to the timeline</a>
+	<a class="tap" href={campaignPath}>Back to the timeline</a>
 </p>
 
 <style>
 	.muted {
 		color: var(--muted);
 		font-size: 0.9rem;
-	}
-	.eyebrow a {
-		color: inherit;
 	}
 	.warn {
 		color: var(--warn);
