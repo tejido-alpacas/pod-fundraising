@@ -44,7 +44,7 @@ export const fixtureCampaign: Campaign = {
 // ---------------------------------------------------------------------------
 
 const contractor: Party = {
-	id: 'pty-contractor',
+	id: 'contractor',
 	campaignId: CAMPAIGN_ID,
 	role: 'third_party',
 	name: 'Coral Ridge Builders',
@@ -57,7 +57,7 @@ const contractor: Party = {
 };
 
 const supplier: Party = {
-	id: 'pty-supplier',
+	id: 'supplier',
 	campaignId: CAMPAIGN_ID,
 	role: 'third_party',
 	name: 'Island Schoolbooks Co-operative',
@@ -74,7 +74,7 @@ const supplier: Party = {
 };
 
 const headTeacher: Party = {
-	id: 'pty-head-teacher',
+	id: 'head-teacher',
 	campaignId: CAMPAIGN_ID,
 	role: 'confirmer',
 	name: 'Yvonne Campbell',

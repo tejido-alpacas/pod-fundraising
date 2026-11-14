@@ -277,7 +277,7 @@ describe('signing in from an invite', () => {
 
 describe('a sign-in that does not finish', () => {
 	it('stops before Qatom when the invite is not one of ours', async () => {
-		const { result } = await start('?party=pty-nobody');
+		const { result } = await start('?party=nobody');
 
 		expect(result).toEqual({
 			kind: 'redirect',
