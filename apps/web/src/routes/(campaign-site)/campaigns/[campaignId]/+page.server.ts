@@ -1,7 +1,7 @@
 import { error } from '@sveltejs/kit';
-import type { Entry, Milestone, Party } from '@tejido/contracts';
+import type { Entry, EvidenceNotPublic, Milestone, Party } from '@tejido/contracts';
 import { getCampaign, listEntries, listMilestones, listParties } from '@tejido/db';
-import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
+import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -30,6 +30,9 @@ export const load = (async ({ params, locals, url }) => {
 		listEntries(db, campaign.id)
 	]);
 
+	// Which attached files their uploaders marked not public. Their addresses stay here.
+	const notPublic = await notPublicAmong(db, entries);
+
 	const partyById = new Map(parties.map((party) => [party.id, party]));
 	const milestoneById = new Map(milestones.map((milestone) => [milestone.id, milestone]));
 	const toView = (entry: Entry) =>
@@ -38,7 +41,8 @@ export const load = (async ({ params, locals, url }) => {
 			partyById.get(entry.partyId),
 			milestoneById.get(entry.milestoneId),
 			campaign.id,
-			config
+			config,
+			notPublic
 		);
 
 	// `listEntries` answers newest first. It has no limit of its own yet, so the cut is made
@@ -86,7 +90,8 @@ function entryView(
 	party: Party | undefined,
 	milestone: Milestone | undefined,
 	campaignId: string,
-	config: Parameters<typeof sortEvidence>[2]
+	config: Parameters<typeof sortEvidence>[2],
+	notPublic: ReadonlyMap<string, EvidenceNotPublic>
 ) {
 	const { inputs } = entry;
 	const isClaim = entry.item === 'milestone_hit';
@@ -117,7 +122,7 @@ function entryView(
 		unit: isClaim ? entry.inputs.unit || null : null,
 		amountSpent: isClaim ? (entry.inputs.amount_spent ?? null) : null,
 		location: inputs.location || null,
-		evidence: sortEvidence(inputs.photos, milestone?.kind, config),
+		evidence: sortEvidence(inputs.photos, milestone?.kind, config, notPublic),
 		proofPath: `/campaigns/${campaignId}/entries/${entry.id}`
 	};
 }

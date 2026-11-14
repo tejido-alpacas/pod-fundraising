@@ -35,15 +35,6 @@
 
 	const ROLE_LABEL = { third_party: 'does the work', confirmer: 'independent confirmer' } as const;
 
-	const LEFT_OUT = {
-		not_in_our_store:
-			'Not shown because it could not be verified: this file is not held by Tejido, so we cannot check what it is.',
-		hash_mismatch:
-			'Not shown because it could not be verified: the fingerprint (SHA-256) filed with it does not match the file we hold.',
-		picture_on_documents_only:
-			'Not shown: it is a picture, and this milestone takes documents only.'
-	} as const;
-
 	const heading = $derived(
 		filed.item === 'log_work'
 			? 'Work log'
@@ -53,7 +44,7 @@
 	);
 
 	const hasReceipt = $derived(receipt.twistId !== null);
-	const leftOut = $derived(data.evidence.filter((file) => !file.shown).length);
+	const leftOut = $derived(data.evidence.filter((file) => file.state !== 'shown').length);
 </script>
 
 <svelte:head><title>{heading} · proof · {data.campaign.title} · Tejido</title></svelte:head>
@@ -327,7 +318,7 @@
 			<ul class="evidence">
 				{#each data.evidence as file, index (index)}
 					<li>
-						{#if file.shown}
+						{#if file.state === 'shown'}
 							{#if file.kind === 'photo'}
 								<a href={file.url}>
 									<img src={file.url} alt={file.caption ?? 'Evidence photo'} loading="lazy" />
@@ -337,12 +328,18 @@
 								<strong>{file.caption ?? (file.kind === 'photo' ? 'Photo' : 'Document')}</strong>
 								· <a href={file.url} download>download the {file.kind}</a>
 							</p>
+						{:else if file.state === 'not_public'}
+							<p><strong>Not public: {file.kind}</strong></p>
+							<p class="left-out">
+								{file.reason} Only the party who filed it and this campaign’s confirmers can open it.
+							</p>
 						{:else}
-							<p><strong>{file.caption ?? 'Attached file'}</strong></p>
-							<p class="left-out">{LEFT_OUT[file.why]}</p>
+							<p><strong>Attached file</strong></p>
+							<p class="left-out">{file.sentence}</p>
 						{/if}
 						<p class="hash">
-							<span class="muted">{file.shown ? 'SHA-256' : 'SHA-256 as filed'}</span>
+							<span class="muted">{file.state === 'left_out' ? 'SHA-256 as filed' : 'SHA-256'}</span
+							>
 							<code>{file.sha256}</code>
 						</p>
 					</li>

@@ -1,13 +1,15 @@
-import { checkEvidence, evidenceStoreOrigin } from '#lib/server/backend/evidence.ts';
 import { error } from '@sveltejs/kit';
-import { isConfirmed, type Entry, type MilestoneKind, type Photo } from '@tejido/contracts';
+import { evidenceFileStates, isConfirmed, type Entry } from '@tejido/contracts';
 import {
+	evidenceStoreOrigin,
 	getCampaign,
 	getEntry,
 	getMilestone,
 	getParty,
 	listDeposits,
-	listUnrefundedDeposits
+	listNotPublicEvidence,
+	listUnrefundedDeposits,
+	takesDocumentsOnly
 } from '@tejido/db';
 import { sameTwin } from '@tejido/qatom';
 import type { PageServerLoad } from './$types';
@@ -15,53 +17,11 @@ import type { PageServerLoad } from './$types';
 // The proof page (A3): the receipt behind one entry, for a donor who wants to check a report
 // for themselves. Everything returned here is shown to the public, so it is built field by
 // field: no reporter code, no email address and no primary wallet ever leaves this file.
-
-/**
- * Milestone kinds whose evidence is documents only: no picture may be shown on them. This is
- * the rule that keeps photos of a child off a campaign.
- *
- * It repeats `documentsOnly` in KIND_RULES (lib/server/backend/checkin-rules.ts, Track C),
- * which is not exported. If that table changes, this must change with it.
- */
-const DOCUMENTS_ONLY: Record<MilestoneKind, boolean> = {
-	construction: false,
-	goods_delivery: false,
-	funds_handover: true,
-	service: true
-};
-
-/** Why a file attached to the entry is not shown. */
-type LeftOutReason =
-	/** Its address is not a file in Tejido's evidence store. */
-	| 'not_in_our_store'
-	/** The hash filed with it is not the hash of the stored file. */
-	| 'hash_mismatch'
-	/** It is a picture, and this milestone takes documents only. */
-	| 'picture_on_documents_only';
-
-type EvidenceFile =
-	| { shown: true; kind: 'photo' | 'document'; url: string; sha256: string; caption: string | null }
-	| { shown: false; why: LeftOutReason; sha256: string; caption: string | null };
-
-/**
- * Checks one attached file before it may be shown. The check-in endpoint saves an entry even
- * when its evidence is wrong (as `incomplete`), so an entry's own URL is never trusted here.
- */
-function checkFile(photo: Photo, storeOrigin: string, documentsOnly: boolean): EvidenceFile {
-	const caption = photo.caption ?? null;
-	const leftOut = (why: LeftOutReason): EvidenceFile => ({
-		shown: false,
-		why,
-		sha256: photo.sha256,
-		caption
-	});
-
-	const verdict = checkEvidence(photo, storeOrigin);
-	if (verdict === 'foreign') return leftOut('not_in_our_store');
-	if (verdict === 'hash_mismatch') return leftOut('hash_mismatch');
-	if (verdict === 'photo' && documentsOnly) return leftOut('picture_on_documents_only');
-	return { shown: true, kind: verdict, url: photo.url, sha256: photo.sha256, caption };
-}
+//
+// Each attached file is passed through `evidenceFileStates` (@tejido/contracts) before it may
+// be shown. The check-in endpoint saves an entry even when its evidence is wrong (as
+// `incomplete`), so an entry's own URL is never trusted here; and a file its uploader marked
+// not public leaves this file as their words about it and its SHA-256, never its address.
 
 /** Every input the contracts define for the item, except the private reporter code. */
 function filedInputs(entry: Entry) {
@@ -142,8 +102,16 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			? sameTwin(entry.payingWallet, registeredWallet)
 			: null;
 
-	const storeOrigin = evidenceStoreOrigin(config);
-	const documentsOnly = DOCUMENTS_ONLY[milestone.kind];
+	const documentsOnly = takesDocumentsOnly(milestone.kind);
+	const photos = entry.inputs.photos ?? [];
+	const evidence = evidenceFileStates(photos, {
+		storeOrigin: evidenceStoreOrigin(config),
+		documentsOnly,
+		notPublic: await listNotPublicEvidence(
+			db,
+			photos.map((photo) => photo.sha256)
+		)
+	});
 
 	return {
 		campaign: { id: campaign.id, title: campaign.title },
@@ -169,9 +137,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			walletsMatch
 		},
 		deposit,
-		evidence: (entry.inputs.photos ?? []).map((photo) =>
-			checkFile(photo, storeOrigin, documentsOnly)
-		),
+		evidence,
 		documentsOnly
 	};
 };

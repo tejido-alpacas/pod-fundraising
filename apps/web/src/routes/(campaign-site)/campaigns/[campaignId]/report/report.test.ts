@@ -3,7 +3,7 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Entry, MilestoneHitEntry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, deposits, entries, milestones, refunds } from '@tejido/db';
+import { campaigns, deposits, entries, evidenceFiles, milestones, refunds } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -265,7 +265,7 @@ describe('the final report', () => {
 			const { row } = await report();
 
 			// Uploaded to the App: shown.
-			expect(row('m2-walls').evidence[1]!.files).toEqual({
+			expect(row('m2-walls').evidence[1]!.files).toMatchObject({
 				photos: [
 					{
 						url: `${APP}/evidence/${'a'.repeat(64)}.jpg`,
@@ -280,15 +280,45 @@ describe('the final report', () => {
 						caption: 'Inspection report'
 					}
 				],
+				notPublic: [],
 				leftOut: 0
 			});
 			// The fixtures' files are at another address: left out, and counted.
-			expect(row('m1-foundation').evidence[1]!.files).toEqual({
+			expect(row('m1-foundation').evidence[1]!.files).toMatchObject({
 				photos: [],
 				documents: [],
+				notPublic: [],
 				leftOut: 2
 			});
 			expect(JSON.stringify((await report()).data)).not.toContain('evidence.tejido.example');
+		});
+
+		it('names a not-public file by what its uploader says, and never sends its address', async () => {
+			await test.db.insert(evidenceFiles).values({
+				sha256: 'b'.repeat(64),
+				uploadedByPartyId: contractor.id,
+				visibility: 'not_public',
+				notPublicKind: 'Inspection report',
+				notPublicReason: 'It names the people who live next door.',
+				createdAt: '2026-11-14T08:00:00.000Z',
+				updatedAt: '2026-11-14T08:00:00.000Z'
+			});
+
+			const { data, row } = await report();
+
+			expect(row('m2-walls').evidence[1]!.files).toMatchObject({
+				photos: [{ sha256: 'a'.repeat(64) }],
+				documents: [],
+				notPublic: [
+					{
+						kind: 'Inspection report',
+						reason: 'It names the people who live next door.',
+						sha256: 'b'.repeat(64)
+					}
+				],
+				leftOut: 0
+			});
+			expect(JSON.stringify(data)).not.toContain(`${'b'.repeat(64)}.pdf`);
 		});
 
 		it('shows no picture on a milestone that takes documents only', async () => {
