@@ -11,16 +11,14 @@
 	"scripts": {
 		"dev": "vite dev",
 		"build": "vite build",
-		"start": "node build",
+		"start": "wrangler dev --port 5174 --inspector-port 9230 --persist-to ../../data/wrangler --env-file ../../.env",
 		"typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"lint": "svelte-kit sync && eslint --max-warnings=0 .",
 		"test": "svelte-kit sync && vitest run"
 	},
-	"dependencies": {
-		"@libsql/client": "^0.18.0"
-	},
 	"devDependencies": {
-		"@sveltejs/adapter-node": "^6.0.2",
+		"@cloudflare/workers-types": "^5.20261114.1",
+		"@sveltejs/adapter-cloudflare": "^8.0.2",
 		"@sveltejs/kit": "^3.2.0",
 		"@sveltejs/vite-plugin-svelte": "^7.3.1",
 		"@tejido/config": "*",
@@ -29,6 +27,7 @@
 		"@tejido/qatom": "*",
 		"svelte": "^5.57.3",
 		"svelte-check": "^4.7.8",
-		"vite": "^8.3.8"
+		"vite": "^8.3.8",
+		"wrangler": "^4.162.0"
 	}
 }

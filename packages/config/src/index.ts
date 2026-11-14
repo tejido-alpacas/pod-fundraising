@@ -1,16 +1,8 @@
 /**
- * @tejido/config: configuration, parsed once at startup against one schema.
+ * @tejido/config: configuration, parsed once against one schema.
  *
- * Server-only. Nothing else in the repository reads `process.env`.
+ * Server-only. A Worker parses its `env`; nothing in the repository reads `process.env`
+ * except `@tejido/config/node`, which the dev tooling uses.
  */
 export { CONFIG_NAMES, configSchema, PLACEHOLDER, type Config, type ConfigName } from './schema.ts';
-export {
-	ConfigError,
-	databaseFilePath,
-	evidenceDirectory,
-	findRepositoryRoot,
-	loadConfig,
-	parseConfig,
-	type ConfigProblem,
-	type ParseOptions
-} from './load.ts';
+export { ConfigError, parseConfig, type ConfigProblem } from './parse.ts';

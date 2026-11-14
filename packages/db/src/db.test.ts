@@ -1,7 +1,7 @@
 import { DEPOSIT_AMOUNT, type Deposit, type Entry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { hasCampaigns, runMigrations, seedFixtures } from './admin.ts';
+import { hasCampaigns, runMigrations, seedFixtures, seedFixturesSql } from './admin.ts';
 import {
 	findPartyByReporterCode,
 	getCampaign,
@@ -14,8 +14,7 @@ import {
 	listDeposits,
 	listEntries,
 	listMilestones,
-	listParties,
-	openDatabase
+	listParties
 } from './index.ts';
 import { deposits, entries } from './schema.ts';
 import { createTestDatabase, type TestDatabase } from './testing.ts';
@@ -184,9 +183,14 @@ describe('setting a database up', () => {
 		expect(await listEntries(test.db, fixtures.campaign.id)).toHaveLength(5);
 	});
 
-	it('refuses a relative database path, which would depend on where the process started', () => {
-		expect(() => openDatabase('file:./data/tejido.db')).toThrow(/absolute file: URL/);
-		expect(() => openDatabase('data/tejido.db')).toThrow(/absolute file: URL/);
-		expect(() => openDatabase(':memory:')).toThrow(/absolute file: URL/);
+	it('writes the seed as SQL that leaves a database exactly as seeding does', async () => {
+		test = await createTestDatabase();
+		await test.db.run(seedFixturesSql(test.db).split(';\n')[0] ?? '');
+		expect(await getCampaign(test.db, fixtures.campaign.id)).toEqual(fixtures.campaign);
+
+		const statements = seedFixturesSql(test.db).split(';\n');
+		for (const statement of statements.slice(1)) await test.db.run(statement);
+		expect(byId(await listParties(test.db, fixtures.campaign.id))).toEqual(byId(fixtures.parties));
+		expect(byId(await listEntries(test.db, fixtures.campaign.id))).toEqual(byId(fixtures.entries));
 	});
 });

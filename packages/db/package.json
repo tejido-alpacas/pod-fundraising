@@ -16,16 +16,18 @@
 		"db:generate": "drizzle-kit generate",
 		"db:migrate": "node src/cli.ts migrate",
 		"db:seed": "node src/cli.ts seed",
+		"db:seed:sql": "node src/cli.ts seed-sql",
 		"db:prepare": "node src/cli.ts prepare",
 		"db:reset": "node src/cli.ts reset"
 	},
 	"dependencies": {
-		"@libsql/client": "^0.18.0",
 		"@tejido/config": "*",
 		"@tejido/contracts": "*",
 		"drizzle-orm": "^0.45.4"
 	},
 	"devDependencies": {
-		"drizzle-kit": "^0.31.11"
+		"@cloudflare/workers-types": "^5.20261114.1",
+		"drizzle-kit": "^0.31.11",
+		"wrangler": "^4.162.0"
 	}
 }

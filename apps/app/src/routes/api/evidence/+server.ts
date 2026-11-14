@@ -1,5 +1,5 @@
 /**
- * POST /api/evidence: accepts one file, stores it locally, answers { url, sha256 }.
+ * POST /api/evidence: accepts one file, stores it in R2, answers { url, sha256 }.
  * Track B owns this file.
  *
  * Send multipart/form-data with the file in the `file` field. Files are stored under their
@@ -20,8 +20,6 @@ import {
 	type EvidenceUploadResponse
 } from '@tejido/contracts';
 import { createHash } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals, url }) => {
@@ -46,8 +44,7 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	const sha256 = createHash('sha256').update(bytes).digest('hex');
 	const name = `${sha256}.${EVIDENCE_CONTENT_TYPES[file.type]}`;
 
-	await mkdir(locals.ctx.evidenceDir, { recursive: true });
-	await writeFile(join(locals.ctx.evidenceDir, name), bytes);
+	await locals.ctx.evidence.put(name, bytes, { httpMetadata: { contentType: file.type } });
 
 	return json({ url: `${url.origin}/evidence/${name}`, sha256 } satisfies EvidenceUploadResponse, {
 		status: 201

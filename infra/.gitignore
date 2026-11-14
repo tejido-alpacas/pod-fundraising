@@ -9,3 +9,6 @@ crash.*.log
 *.tfvars
 *.tfvars.json
 !terraform.tfvars.example
+
+# Fixture seed written by deploy.sh --seed
+seed.sql

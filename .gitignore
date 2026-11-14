@@ -11,8 +11,10 @@ dist
 .env.*
 !.env.example
 
-# Local data: the SQLite database and uploaded evidence
+# Local data: the D1 database and R2 evidence that Wrangler keeps for the dev servers
 /data
+.wrangler
+wrangler.deploy.jsonc
 
 # npm is the only package manager here. These must never be committed.
 pnpm-lock.yaml

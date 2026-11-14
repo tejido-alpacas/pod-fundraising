@@ -5,7 +5,8 @@
 	"description": "The one schema every configuration value is parsed against, once, at startup.",
 	"type": "module",
 	"exports": {
-		".": "./src/index.ts"
+		".": "./src/index.ts",
+		"./node": "./src/node.ts"
 	},
 	"scripts": {
 		"typecheck": "tsc --noEmit",

@@ -1,48 +1,40 @@
-locals {
-  hostnames = {
-    for key, site in local.sites :
-    key => try(site.aliases[0], aws_cloudfront_distribution.site[key].domain_name)
-  }
+output "account_id" {
+  value = var.account_id
+}
+
+output "d1_database_id" {
+  description = "deploy.sh writes this into each app's Wrangler configuration."
+  value       = cloudflare_d1_database.tejido.id
+}
+
+output "evidence_bucket" {
+  value = cloudflare_r2_bucket.evidence.name
+}
+
+output "web_hostname" {
+  value = var.web_hostname
+}
+
+output "app_hostname" {
+  value = var.app_hostname
 }
 
 output "web_url" {
   description = "The Campaign Site."
-  value       = "https://${local.hostnames.web}"
+  value       = "https://${var.web_hostname}"
 }
 
 output "app_url" {
   description = "The App."
-  value       = "https://${local.hostnames.app}"
+  value       = "https://${var.app_hostname}"
 }
 
 output "oidc_redirect_uri" {
   description = "Put this in OIDC_REDIRECT_URI and register it with Qatom, exactly."
-  value       = "https://${local.hostnames.app}/auth/callback"
+  value       = "https://${var.app_hostname}/auth/callback"
 }
 
 output "checkin_endpoint" {
   description = "The external endpoint of both catalog items in Qatom."
-  value       = "https://${local.hostnames.web}/api/checkins"
-}
-
-output "distribution_domains" {
-  description = "Point a CNAME for each alias at its distribution."
-  value       = { for key, distribution in aws_cloudfront_distribution.site : key => distribution.domain_name }
-}
-
-output "region" {
-  value = var.region
-}
-
-output "instance_id" {
-  description = "For Session Manager: aws ssm start-session --target <id>."
-  value       = aws_instance.server.id
-}
-
-output "releases_bucket" {
-  value = aws_s3_bucket.releases.bucket
-}
-
-output "env_parameter_name" {
-  value = var.env_parameter_name
+  value       = "https://${var.web_hostname}/api/checkins"
 }

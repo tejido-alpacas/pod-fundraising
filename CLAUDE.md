@@ -66,6 +66,9 @@ only when the task says so.
 - Configuration is parsed once, in `packages/config`. Do not read `process.env` anywhere else,
   and do not add a fallback or default for a missing value. In either app use
   `event.locals.ctx.config`.
+- Both apps run as Cloudflare Workers. The database (D1) and the evidence store (R2) are
+  bindings, read from `cloudflare:workers` only in each app's `src/lib/server/context.ts`. Do
+  not use the file system, and do not use `db.transaction`: D1 needs `db.batch([...])`.
 - Never log a token, a secret, or a response body that could contain one.
 - Server-only packages (`@tejido/config`, `@tejido/db`, `@tejido/qatom`) are imported only from
   `+page.server.ts`, `+server.ts`, `hooks.server.ts` or a module under a `server/` folder.

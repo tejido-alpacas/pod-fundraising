@@ -1,14 +1,14 @@
-import adapter from '@sveltejs/adapter-node';
+import adapter from '@sveltejs/adapter-cloudflare';
 import { sveltekit } from '@sveltejs/kit/vite';
-import { loadConfig } from '@tejido/config';
+import { envFilePath, loadConfig, localStateDirectory } from '@tejido/config/node';
 import type { Plugin } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 /**
- * The server parses configuration when it starts (src/hooks.server.ts). The dev server only
- * loads that file on the first request, so this checks as the dev or preview server comes up:
- * `npm run dev` refuses to start instead of failing later. Builds, type checks and tests load
- * this file too, but start no server, and so need no configuration.
+ * The Worker parses configuration on its first request (src/lib/server/context.ts). This
+ * checks the same values as the dev or preview server comes up, so `npm run dev` refuses to
+ * start instead of failing later. Builds, type checks and tests load this file too, but start
+ * no server, and so need no configuration.
  */
 function requireConfiguration(): Plugin {
 	return {
@@ -30,7 +30,16 @@ export default defineConfig({
 	plugins: [
 		requireConfiguration(),
 		sveltekit({
-			adapter: adapter(),
+			// In development the Worker's bindings are emulated by Wrangler: the database and
+			// the evidence store live in ./data at the repository root, shared by both apps,
+			// and the configuration values come from the one .env file there.
+			adapter: adapter({
+				platformProxy: {
+					configPath: 'wrangler.jsonc',
+					persist: { path: localStateDirectory() },
+					envFiles: [envFilePath()]
+				}
+			}),
 			compilerOptions: {
 				// Runes everywhere in our own code; libraries decide for themselves.
 				runes: ({ filename }) =>

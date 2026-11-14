@@ -147,8 +147,5 @@ export async function insertEntryWithDeposit(
 	entry: Entry,
 	deposit: Deposit
 ): Promise<void> {
-	await db.transaction(async (tx) => {
-		await tx.insert(entries).values(entry);
-		await tx.insert(deposits).values(deposit);
-	});
+	await db.batch([db.insert(entries).values(entry), db.insert(deposits).values(deposit)]);
 }

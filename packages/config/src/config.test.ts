@@ -2,20 +2,10 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { parseEnv } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import {
-	CONFIG_NAMES,
-	ConfigError,
-	databaseFilePath,
-	evidenceDirectory,
-	findRepositoryRoot,
-	parseConfig,
-	PLACEHOLDER
-} from './index.ts';
-
-const BASE_DIR = '/srv/tejido';
+import { CONFIG_NAMES, ConfigError, parseConfig, PLACEHOLDER } from './index.ts';
+import { envFilePath, findRepositoryRoot, localStateDirectory } from './node.ts';
 
 const valid = {
-	DATABASE_URL: 'file:./data/tejido.db',
 	SESSION_SECRET: 'session-secret-session-secret-session',
 	CHECKIN_SHARED_SECRET: 'checkin-secret-checkin-secret-checkin',
 	PAYMENT_API_URL: 'https://pay.stage.m.todaq.net',
@@ -29,7 +19,7 @@ const valid = {
 
 function problemsOf(env: Record<string, string | undefined>) {
 	try {
-		parseConfig(env, { baseDir: BASE_DIR });
+		parseConfig(env);
 	} catch (error) {
 		if (error instanceof ConfigError) return error;
 		throw error;
@@ -38,9 +28,8 @@ function problemsOf(env: Record<string, string | undefined>) {
 }
 
 describe('parseConfig', () => {
-	it('expects exactly the ten documented names', () => {
+	it('expects exactly the nine documented names', () => {
 		expect(CONFIG_NAMES).toEqual([
-			'DATABASE_URL',
 			'SESSION_SECRET',
 			'CHECKIN_SHARED_SECRET',
 			'PAYMENT_API_URL',
@@ -54,15 +43,12 @@ describe('parseConfig', () => {
 	});
 
 	it('returns every value when all are present', () => {
-		const config = parseConfig(valid, { baseDir: BASE_DIR });
-		expect(config).toEqual({ ...valid, DATABASE_URL: 'file:/srv/tejido/data/tejido.db' });
+		const config = parseConfig(valid);
+		expect(config).toEqual(valid);
 	});
 
 	it('ignores names it does not know', () => {
-		const config = parseConfig(
-			{ ...valid, PATH: '/usr/bin', HOME: '/root' },
-			{ baseDir: BASE_DIR }
-		);
+		const config = parseConfig({ ...valid, PATH: '/usr/bin', HOME: '/root' });
 		expect(Object.keys(config).sort()).toEqual([...CONFIG_NAMES].sort());
 	});
 
@@ -90,7 +76,7 @@ describe('parseConfig', () => {
 		const error = problemsOf({});
 		expect(error.problems.map((problem) => problem.name)).toEqual(CONFIG_NAMES);
 		for (const name of CONFIG_NAMES) expect(error.message).toContain(name);
-		expect(error.message).toContain('Tejido cannot start: 10 configuration values need attention.');
+		expect(error.message).toContain('Tejido cannot start: 9 configuration values need attention.');
 		expect(error.message).toContain('.env.example');
 	});
 
@@ -132,7 +118,7 @@ describe('individual values', () => {
 
 	it('PAYMENT_API_URL is an origin, stored without a trailing slash', () => {
 		const parse = (value: string) =>
-			parseConfig({ ...valid, PAYMENT_API_URL: value }, { baseDir: BASE_DIR }).PAYMENT_API_URL;
+			parseConfig({ ...valid, PAYMENT_API_URL: value }).PAYMENT_API_URL;
 
 		expect(parse('https://pay.stage.m.todaq.net/')).toBe('https://pay.stage.m.todaq.net');
 		expect(parse('http://localhost:8500')).toBe('http://localhost:8500');
@@ -165,36 +151,6 @@ describe('individual values', () => {
 	});
 });
 
-describe('DATABASE_URL', () => {
-	const parse = (value: string) =>
-		parseConfig({ ...valid, DATABASE_URL: value }, { baseDir: BASE_DIR });
-
-	it('resolves a relative path against the repository root, with or without file:', () => {
-		expect(parse('file:./data/tejido.db').DATABASE_URL).toBe('file:/srv/tejido/data/tejido.db');
-		expect(parse('data/tejido.db').DATABASE_URL).toBe('file:/srv/tejido/data/tejido.db');
-	});
-
-	it('keeps an absolute path', () => {
-		expect(parse('file:/var/lib/tejido/tejido.db').DATABASE_URL).toBe(
-			'file:/var/lib/tejido/tejido.db'
-		);
-		expect(parse('/var/lib/tejido/tejido.db').DATABASE_URL).toBe('file:/var/lib/tejido/tejido.db');
-	});
-
-	it.each([':memory:', 'file::memory:', 'libsql://example.turso.io', 'https://example.test/db'])(
-		'refuses %s: the database is a file on disk',
-		(value) => {
-			expect(problemsOf({ ...valid, DATABASE_URL: value }).problems[0]?.name).toBe('DATABASE_URL');
-		}
-	);
-
-	it('puts uploaded evidence in a folder beside the database file', () => {
-		const config = parse('file:./data/tejido.db');
-		expect(databaseFilePath(config)).toBe('/srv/tejido/data/tejido.db');
-		expect(evidenceDirectory(config)).toBe('/srv/tejido/data/evidence');
-	});
-});
-
 describe('the repository', () => {
 	const root = findRepositoryRoot(import.meta.dirname);
 
@@ -203,17 +159,24 @@ describe('the repository', () => {
 		expect(findRepositoryRoot(join(root ?? '', 'packages', 'config', 'src'))).toBe(root);
 	});
 
+	it('keeps the .env file and the local Cloudflare state at its root', () => {
+		expect(envFilePath()).toBe(join(root ?? '', '.env'));
+		expect(localStateDirectory()).toBe(join(root ?? '', 'data', 'wrangler', 'v3'));
+	});
+
+	it('ignores bindings and other values that are not strings', () => {
+		expect(parseConfig({ ...valid, DB: {}, EVIDENCE: {} })).toEqual(valid);
+	});
+
 	it('ships a .env.example that names every value and can never start the app', () => {
 		const example = parseEnv(readFileSync(join(root ?? '', '.env.example'), 'utf8'));
 
 		expect(Object.keys(example).sort()).toEqual([...CONFIG_NAMES].sort());
 
-		// Everything but the local database path is a placeholder, so copying the file
-		// without editing it is refused rather than running with a published "secret".
+		// Every value is a placeholder, so copying the file without editing it is refused
+		// rather than running with a published "secret".
 		const error = problemsOf(example);
-		expect(error.problems.map((problem) => problem.name)).toEqual(
-			CONFIG_NAMES.filter((name) => name !== 'DATABASE_URL')
-		);
+		expect(error.problems.map((problem) => problem.name)).toEqual(CONFIG_NAMES);
 		for (const { problem } of error.problems) {
 			expect(problem).toBe('still has the placeholder value from .env.example');
 		}

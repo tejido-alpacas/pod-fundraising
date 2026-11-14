@@ -41,7 +41,8 @@ npm run dev
 ```
 
 `npm run dev` first creates the local database and seeds it with the fixtures, then starts both
-apps:
+apps. Both are Cloudflare Workers; locally Wrangler emulates the database (D1) and the evidence
+store (R2) and keeps them in `./data`, so nothing here needs a Cloudflare account:
 
 - the Campaign Site at http://localhost:5173. Its index page lists every surface by track, and
   http://localhost:5173/campaigns/library-wing shows the fixture campaign from the database.
@@ -55,30 +56,31 @@ deliberate: there are no fallbacks.
 Run these from the repository root. Each one runs across the workspaces. `dev` and `start` run
 the two apps side by side, since a server never exits to let the next one begin.
 
-| Script                | What it does                                                        |
-| --------------------- | ------------------------------------------------------------------- |
-| `npm run dev`         | Prepares the database, then starts both apps                        |
-| `npm run build`       | Builds the web app for production                                   |
-| `npm test`            | Runs every test. Tests never reach the network                      |
-| `npm run lint`        | Prettier check, then ESLint                                         |
-| `npm run typecheck`   | TypeScript and Svelte type checks                                   |
-| `npm run format`      | Formats everything with Prettier                                    |
-| `npm run start`       | Runs both production builds (`npm run build` first)                 |
-| `npm run db:prepare`  | Applies migrations and seeds the fixtures if there are no campaigns |
-| `npm run db:reset`    | Deletes the database file, then migrates and seeds                  |
-| `npm run db:generate` | Writes a new migration after you change `packages/db/src/schema.ts` |
+| Script                | What it does                                                         |
+| --------------------- | -------------------------------------------------------------------- |
+| `npm run dev`         | Prepares the database, then starts both apps                         |
+| `npm run build`       | Builds both apps as Cloudflare Workers                               |
+| `npm test`            | Runs every test. Tests never reach the network                       |
+| `npm run lint`        | Prettier check, then ESLint                                          |
+| `npm run typecheck`   | TypeScript and Svelte type checks                                    |
+| `npm run format`      | Formats everything with Prettier                                     |
+| `npm run start`       | Runs both builds in Wrangler's local runtime (`npm run build` first) |
+| `npm run db:prepare`  | Applies migrations and seeds the fixtures if there are no campaigns  |
+| `npm run db:reset`    | Deletes the local database, then migrates and seeds                  |
+| `npm run db:generate` | Writes a new migration after you change `packages/db/src/schema.ts`  |
+| `infra/deploy.sh`     | Deploys both apps to Cloudflare. See `infra/README.md`               |
 
 `typecheck`, `lint`, `test` and `build` need no `.env` and no Qatom credentials. CI runs exactly
 those four.
 
 ## Configuration
 
-Configuration is parsed once at startup against one zod schema in `packages/config`. All ten
-values are required. Nothing else in the repository reads `process.env`.
+Configuration is parsed once at startup against one zod schema in `packages/config`. All nine
+values are required. Locally they come from `.env`; deployed, they are Worker secrets. Nothing
+else in the repository reads the environment.
 
 | Name                          | What it is                                                                                                                     |
 | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `DATABASE_URL`                | Our SQLite file. A relative path is resolved against the repository root                                                       |
 | `SESSION_SECRET`              | Encrypts session cookies. At least 32 characters                                                                               |
 | `CHECKIN_SHARED_SECRET`       | Qatom sends it in the `X-Tejido-Checkin-Secret` header. 32+ printable characters, no spaces                                    |
 | `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`                                           |
@@ -89,8 +91,9 @@ values are required. Nothing else in the repository reads `process.env`.
 | `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                                               |
 | `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                                                                                           |
 
-Uploaded evidence is stored in an `evidence` folder beside the database file. In production the
-Node adapter limits request bodies to 512 KB; set `BODY_SIZE_LIMIT=10M` to accept photos.
+The database and the evidence store are not configuration values. They are Cloudflare
+bindings, declared in each app's `wrangler.jsonc`: `DB` is our D1 database and `EVIDENCE` is the
+R2 bucket uploaded evidence is stored in.
 
 ## Layout
 
@@ -99,9 +102,9 @@ apps/web              the Campaign Site and the backend: creators, donors, and w
 apps/app              the App: third parties and confirmers. Deployed at app.tejido.net
 packages/contracts    what the three tracks agree on: zod schemas, types, fixtures
 packages/config       the one configuration schema
-packages/db           our database: Drizzle schema, client, migrations, seed (SQLite)
+packages/db           our database: Drizzle schema, client, migrations, seed (Cloudflare D1)
 packages/qatom        the one place that talks to Qatom
-infra                 Terraform: one server behind CloudFront. See infra/README.md
+infra                 Terraform for the D1 database and R2 bucket, and the deploy script
 ```
 
 Packages are plain TypeScript, imported as source. There is no build step for them, and a change
@@ -135,9 +138,9 @@ layout and index page, and the root configuration files.
 
 ## Two apps, one system
 
-Both apps are SvelteKit 3 with Svelte 5 and the Node adapter. They are deployed separately and
-share everything underneath: the same packages, the same database file and the same ten
-configuration values.
+Both apps are SvelteKit 3 with Svelte 5 and the Cloudflare adapter. Each is deployed as its own
+Worker, and they share everything underneath: the same packages, the same D1 database and the
+same nine configuration values.
 
 |       | Campaign Site (`apps/web`)                             | App (`apps/app`)                                    |
 | ----- | ------------------------------------------------------ | --------------------------------------------------- |
@@ -148,9 +151,12 @@ configuration values.
 - **Sign-in lives in the App.** `OIDC_REDIRECT_URI` points at it, and so does the session cookie.
   The Campaign Site has no sign-in yet; creators will need one, and a cookie set on one host is
   not sent to the other.
-- **Evidence lives in the App.** Photo URLs are on the App's origin. Both apps must see the same
-  disk, because evidence and the database are files.
-- In production each app is `node build` in its own folder with its own `PORT`.
+- **Evidence lives in the App.** Photo URLs are on the App's origin, and only the App is bound to
+  the R2 bucket behind them.
+- **Code runs in a Worker, not in Node.** `node:crypto` and `Buffer` work (the `nodejs_compat`
+  flag); the file system does not. Store files in R2. D1 has no interactive transactions:
+  writes that must land together go in one `db.batch([...])`.
+- In production each app is a Worker at its own hostname. `infra/deploy.sh` deploys both.
 
 ## The two Qatom identities
 

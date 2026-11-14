@@ -34,12 +34,6 @@ function isOriginOnly(value: string): boolean {
 	);
 }
 
-/** A SQLite file: a plain path, or the same with a `file:` prefix. Not a server, not `:memory:`. */
-function isSqliteFile(value: string): boolean {
-	const path = value.startsWith('file:') ? value.slice('file:'.length) : value;
-	return path !== '' && !path.includes(':memory:') && !/^[a-z][a-z0-9+.-]*:\/\//i.test(path);
-}
-
 /**
  * Every configuration value the system reads. There is exactly one of these schemas, and it is
  * parsed once at startup. Nothing here has a default: a missing value stops the process.
@@ -49,11 +43,7 @@ function isSqliteFile(value: string): boolean {
 export const configSchema = z
 	.object({
 		// --- Tejido's own data ---
-
-		/** Our SQLite database file. Relative paths are resolved against the repository root. */
-		DATABASE_URL: required().refine(isSqliteFile, {
-			error: 'must be the path of a SQLite file, such as file:./data/tejido.db'
-		}),
+		// The database (D1) and the evidence store (R2) are Cloudflare bindings, not values.
 
 		/** Encrypts session cookies. */
 		SESSION_SECRET: required().min(32, { error: 'must be at least 32 characters' }),

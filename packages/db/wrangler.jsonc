@@ -1,0 +1,16 @@
+// Not a deployed Worker. It gives the database commands (src/cli.ts) and the tests a D1 binding
+// through Wrangler. The id is the same placeholder as in apps/web and apps/app, so all three
+// open the same local database.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "tejido-db",
+	"compatibility_date": "2026-11-01",
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "tejido",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "drizzle"
+		}
+	]
+}

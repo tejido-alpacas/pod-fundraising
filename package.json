@@ -27,6 +27,7 @@
 		"db:generate": "npm run db:generate --workspace @tejido/db",
 		"db:migrate": "npm run db:migrate --workspace @tejido/db",
 		"db:seed": "npm run db:seed --workspace @tejido/db",
+		"db:seed:sql": "npm run --silent db:seed:sql --workspace @tejido/db",
 		"db:reset": "npm run db:reset --workspace @tejido/db"
 	},
 	"devDependencies": {
@@ -44,6 +45,7 @@
 		"vitest": "^5.1.0"
 	},
 	"allowScripts": {
-		"esbuild": false
+		"esbuild": false,
+		"workerd": false
 	}
 }

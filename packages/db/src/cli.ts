@@ -1,19 +1,23 @@
 /**
- * Database commands. Run them from the repository root:
+ * Database commands for the local D1 database. Run them from the repository root:
  *
  *     npm run db:prepare    apply migrations, and seed the fixtures if there are no campaigns
  *     npm run db:migrate    apply migrations only
  *     npm run db:seed       seed the fixtures, if there are no campaigns
- *     npm run db:reset      delete the database file, then migrate and seed
+ *     npm run db:reset      delete the local database, then migrate and seed
+ *     npm run db:seed:sql   print the fixture seed as SQL, for the deployed database
  *
- * `npm run dev` runs `db:prepare` first, so a fresh clone has data to show.
+ * `npm run dev` runs `db:prepare` first, so a fresh clone has data to show. The deployed
+ * database is migrated by infra/deploy.sh.
  */
-import { ConfigError, databaseFilePath, loadConfig } from '@tejido/config';
+import { localStateDirectory } from '@tejido/config/node';
 import { rmSync } from 'node:fs';
-import { hasCampaigns, runMigrations, seedFixtures } from './admin.ts';
-import { openDatabase, type Database } from './client.ts';
+import { join } from 'node:path';
+import { hasCampaigns, runMigrations, seedFixtures, seedFixturesSql } from './admin.ts';
+import type { Database } from './client.ts';
+import { openLocalDatabase } from './local.ts';
 
-const COMMANDS = ['prepare', 'migrate', 'seed', 'reset'] as const;
+const COMMANDS = ['prepare', 'migrate', 'seed', 'reset', 'seed-sql'] as const;
 type Command = (typeof COMMANDS)[number];
 
 function isCommand(value: string | undefined): value is Command {
@@ -32,21 +36,25 @@ async function seedIfEmpty(db: Database): Promise<void> {
 }
 
 async function main(command: Command): Promise<void> {
-	const config = loadConfig();
-	const file = databaseFilePath(config);
-
+	// Stop the dev servers first: they hold the same files open.
+	const d1Folder = join(localStateDirectory(), 'd1');
 	if (command === 'reset') {
-		for (const suffix of ['', '-wal', '-shm', '-journal']) rmSync(file + suffix, { force: true });
-		console.log(`Deleted ${file}`);
+		rmSync(d1Folder, { recursive: true, force: true });
+		console.log(`Deleted ${d1Folder}`);
 	}
 
-	const { db, close } = openDatabase(config.DATABASE_URL);
+	const { db, close } = await openLocalDatabase();
 	try {
+		if (command === 'seed-sql') {
+			// Only the SQL goes to stdout, so it can be redirected to a file.
+			console.log(seedFixturesSql(db));
+			return;
+		}
 		await runMigrations(db);
-		console.log(`Migrations applied: ${file}`);
+		console.log(`Migrations applied: ${d1Folder}`);
 		if (command !== 'migrate') await seedIfEmpty(db);
 	} finally {
-		close();
+		await close();
 	}
 }
 
@@ -59,8 +67,7 @@ if (!isCommand(command)) {
 	try {
 		await main(command);
 	} catch (error) {
-		// A configuration problem is the reader's to fix: show the message, not a stack trace.
-		console.error(error instanceof ConfigError ? `\n${error.message}\n` : error);
+		console.error(error);
 		process.exitCode = 1;
 	}
 }

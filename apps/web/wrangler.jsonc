@@ -1,0 +1,25 @@
+// The Campaign Site and backend as a Cloudflare Worker. Read by the dev server (for local D1), by the build,
+// and by infra/deploy.sh, which fills in the real database id and the hostname from Terraform.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "tejido-web",
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": { "binding": "ASSETS", "directory": ".svelte-kit/cloudflare" },
+	"compatibility_date": "2026-11-01",
+	// node:crypto and Buffer, which sessions, check-ins and evidence hashing use.
+	"compatibility_flags": ["nodejs_compat"],
+	// Served only at its own hostname, which infra/deploy.sh attaches.
+	"workers_dev": false,
+	"preview_urls": false,
+	"observability": { "enabled": true },
+	// One database for both apps. The id below is a placeholder that names the local database;
+	// it must be the same in apps/web, apps/app and packages/db.
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "tejido",
+			"database_id": "00000000-0000-0000-0000-000000000000",
+			"migrations_dir": "../../packages/db/drizzle"
+		}
+	]
+}

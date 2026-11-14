@@ -1,35 +1,19 @@
-import { createClient } from '@libsql/client';
-import { drizzle, type LibSQLDatabase } from 'drizzle-orm/libsql';
-import { mkdirSync } from 'node:fs';
-import { dirname, isAbsolute } from 'node:path';
+import type { D1Database } from '@cloudflare/workers-types';
+import { drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
 import * as schema from './schema.ts';
 
-export type Database = LibSQLDatabase<typeof schema>;
-
-/** What a query needs: the database itself, or the transaction passed to `db.transaction`. */
-export type Executor = Database | Parameters<Parameters<Database['transaction']>[0]>[0];
-
-export interface DatabaseHandle {
-	db: Database;
-	close(): void;
-}
+export type Database = DrizzleD1Database<typeof schema>;
 
 /**
- * Opens the SQLite database file at `url`, creating its folder if needed.
- *
- * `url` is the DATABASE_URL from @tejido/config: an absolute `file:` URL. A relative path is
- * refused here because it would mean a different file depending on where the process started.
- * Foreign keys are enforced on every connection.
+ * What a query needs. D1 has no interactive transactions, so this is always the database;
+ * writes that must land together go in one `db.batch([...])`, which D1 runs as a transaction.
  */
-export function openDatabase(url: string): DatabaseHandle {
-	const path = url.startsWith('file:') ? url.slice('file:'.length) : '';
-	if (!isAbsolute(path)) {
-		throw new Error(
-			'openDatabase needs an absolute file: URL. Pass DATABASE_URL from @tejido/config.'
-		);
-	}
-	mkdirSync(dirname(path), { recursive: true });
+export type Executor = Database;
 
-	const client = createClient({ url });
-	return { db: drizzle(client, { schema }), close: () => client.close() };
+/**
+ * Wraps a D1 binding (`env.DB`) for Drizzle. There is nothing to close.
+ * D1 enforces foreign keys on every query.
+ */
+export function openDatabase(d1: D1Database): Database {
+	return drizzle(d1, { schema });
 }

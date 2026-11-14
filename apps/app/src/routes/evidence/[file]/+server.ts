@@ -4,8 +4,6 @@
  */
 import { error } from '@sveltejs/kit';
 import { EVIDENCE_CONTENT_TYPES } from '@tejido/contracts';
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import type { RequestHandler } from './$types';
 
 const TYPE_BY_EXTENSION = new Map(
@@ -18,14 +16,10 @@ export const GET: RequestHandler = async ({ params, locals }) => {
 	const type = match?.[1] ? TYPE_BY_EXTENSION.get(match[1]) : undefined;
 	if (!type) error(404, 'No such evidence');
 
-	let bytes: Buffer;
-	try {
-		bytes = await readFile(join(locals.ctx.evidenceDir, params.file));
-	} catch {
-		error(404, 'No such evidence');
-	}
+	const object = await locals.ctx.evidence.get(params.file);
+	if (!object) error(404, 'No such evidence');
 
-	return new Response(new Uint8Array(bytes), {
+	return new Response(await object.arrayBuffer(), {
 		headers: {
 			'content-type': type,
 			'x-content-type-options': 'nosniff',
