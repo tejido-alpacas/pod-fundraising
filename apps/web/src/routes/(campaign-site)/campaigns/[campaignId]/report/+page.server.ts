@@ -20,7 +20,7 @@ import {
 import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
-// The final report (A5): the closing page of a campaign. Every milestone, who confirmed it,
+// The final report (A4): the closing page of a campaign. Every milestone, who confirmed it,
 // when and how strongly, the evidence behind it, and what became of the deposits.
 //
 // Donors are the readers, so nothing leaves this file as it is stored. A stored entry carries
@@ -125,7 +125,29 @@ export const load = (async ({ params, locals }) => {
 		totals.returned += row.deposits.returned;
 	}
 
+	const positionOf = new Map(milestones.map((milestone) => [milestone.id, milestone.position]));
+
 	return {
+		/** The server's date, so the page writes dates the same on the server and in the browser. */
+		today: new Date().toISOString().slice(0, 10),
+		/**
+		 * Every filing that is not simply verified: flagged, incomplete, or not yet matched to its
+		 * receipt. Oldest first. A flagged filing stays here for good: the flag is never removed.
+		 */
+		attention: entries
+			.filter((entry) => entry.status !== 'verified')
+			.toReversed()
+			.map((entry) => ({
+				entryId: entry.id,
+				status: entry.status,
+				statusReason: entry.statusReason,
+				item: entry.item,
+				claim: entry.item === 'milestone_hit' ? entry.inputs.claim : null,
+				filedAt: entry.filedAt,
+				filedBy: partyById.get(entry.partyId)?.name ?? null,
+				milestonePosition: positionOf.get(entry.milestoneId) ?? null,
+				proofPath: proofPath(campaign.id, entry.id)
+			})),
 		campaign: {
 			id: campaign.id,
 			title: campaign.title,
@@ -202,8 +224,21 @@ function milestoneView(
 		}
 	}
 
+	// The latest claim that the work is done, in the filer's own figures.
+	const latestClaim = claims.find((entry) => entry.inputs.claim !== 'confirm');
+
 	return {
 		id: milestone.id,
+		position: milestone.position,
+		/** What the party doing the work last reported as done. Null when nothing was claimed. */
+		reported: latestClaim
+			? {
+					claim: latestClaim.inputs.claim,
+					quantity: latestClaim.inputs.quantity ?? null,
+					unit: latestClaim.inputs.unit ?? null,
+					filedAt: latestClaim.filedAt
+				}
+			: null,
 		title: milestone.title,
 		description: milestone.description,
 		kind: milestone.kind,

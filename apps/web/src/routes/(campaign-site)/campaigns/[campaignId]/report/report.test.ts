@@ -176,6 +176,49 @@ describe('the final report', () => {
 			expect(row('m3-books-delivered')).toMatchObject({ confirmedBy: null, signOff: null });
 		});
 
+		it('lists every filing that is not simply verified, oldest first, with its proof page', async () => {
+			const { data } = await report();
+
+			expect(data.today).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			expect(data.attention).toEqual([
+				{
+					entryId: 'ent-m2-log-1',
+					status: 'flagged',
+					statusReason:
+						'The deposit was paid from a wallet that is not the one registered for Coral Ridge Builders.',
+					item: 'log_work',
+					claim: null,
+					filedAt: '2026-11-06T16:20:11.000Z',
+					filedBy: 'Coral Ridge Builders',
+					milestonePosition: 2,
+					proofPath: `/campaigns/${CAMPAIGN}/entries/ent-m2-log-1`
+				},
+				expect.objectContaining({
+					entryId: 'ent-m3-delivery',
+					status: 'incomplete',
+					statusReason: 'A delivery needs a quantity and a unit.',
+					claim: 'delivered',
+					milestonePosition: 3
+				}),
+				expect.objectContaining({ entryId: 'ent-m2-log-2', status: 'filed' })
+			]);
+		});
+
+		it('numbers each milestone and gives what was last reported as done on it', async () => {
+			const { data, row } = await report();
+
+			expect(data.milestones.map((milestone) => milestone.position)).toEqual([1, 2, 3]);
+			// The claim, never the confirmation filed after it.
+			expect(row('m1-foundation').reported).toEqual({
+				claim: 'completed',
+				quantity: null,
+				unit: null,
+				filedAt: '2026-10-29T15:12:40.000Z'
+			});
+			expect(row('m2-walls').reported).toBeNull();
+			expect(row('m3-books-delivered').reported).toMatchObject({ claim: 'delivered' });
+		});
+
 		it('does not call a campaign delivered because its status says so', async () => {
 			await test.db
 				.update(campaigns)
@@ -204,6 +247,31 @@ describe('the final report', () => {
 
 	describe('for a delivered campaign', () => {
 		beforeEach(deliver);
+
+		it('keeps a flagged filing on the record after the campaign is delivered', async () => {
+			const { data } = await report();
+
+			expect(data.delivered).toBe(true);
+			expect(data.attention.map((entry) => [entry.entryId, entry.status])).toContainEqual([
+				'ent-m2-log-1',
+				'flagged'
+			]);
+		});
+
+		it('gives the quantity a claim reported, in the filer’s own figures', async () => {
+			await addHit('ent-m3-claim', supplier, 'm3-books-delivered', '2026-12-01T10:00:00.000Z', {
+				claim: 'delivered',
+				quantity: 596,
+				unit: 'books'
+			});
+
+			expect((await report()).row('m3-books-delivered').reported).toEqual({
+				claim: 'delivered',
+				quantity: 596,
+				unit: 'books',
+				filedAt: '2026-12-01T10:00:00.000Z'
+			});
+		});
 
 		it('is delivered, as of the last confirmation, with nothing outstanding', async () => {
 			const { data } = await report();
