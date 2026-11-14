@@ -18,6 +18,7 @@ export {
 	milestones,
 	parties,
 	partySignInTokens,
+	refundAttempts,
 	refundDeposits,
 	refunds,
 	type RefundStatus
