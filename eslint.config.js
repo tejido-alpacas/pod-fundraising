@@ -79,6 +79,12 @@ export default defineConfig(
 		}
 	},
 
+	// The app is served from the root of its origin, so plain hrefs are correct.
+	{
+		files: ['**/*.svelte'],
+		rules: { 'svelte/no-navigation-without-resolve': 'off' }
+	},
+
 	// Configuration is parsed once, by @tejido/config. Nothing else reads process.env.
 	{
 		files: ['apps/**/*.{ts,svelte}', 'packages/**/*.ts'],
