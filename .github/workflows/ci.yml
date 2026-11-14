@@ -31,3 +31,19 @@ jobs:
       - run: npm run lint
       - run: npm test
       - run: npm run build
+
+  # Checks the Terraform in infra/ is well formed. It needs no Cloudflare credentials:
+  # validate downloads the provider and reads the configuration, and never contacts an account.
+  terraform:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+
+      - run: terraform init -backend=false -input=false
+      - run: terraform validate -no-color
