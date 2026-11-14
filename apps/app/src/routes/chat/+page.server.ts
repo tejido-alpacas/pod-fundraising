@@ -1,5 +1,5 @@
 import { getCampaign, getParty, listMilestones } from '@tejido/db';
-import { usablePersonToken } from '#lib/server/person-tokens.ts';
+import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
 import type { PageServerLoad } from './$types';
 
 // The chat page (B2): who the agent would be working for, and whether it can reach Qatom as them.
@@ -7,12 +7,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const { session } = locals;
 	if (!session) return { who: null };
 
-	const { config, db } = locals.ctx;
+	const { config, db, qatom } = locals.ctx;
 	const party = session.partyId ? await getParty(db, session.partyId) : undefined;
 	const campaign = party ? await getCampaign(db, party.campaignId) : undefined;
 	if (!party || !campaign) return { who: { email: session.email, party: null } };
 
-	const token = await usablePersonToken(db, config.SESSION_SECRET, party.id);
+	const token = await usablePersonToken(db, config.SESSION_SECRET, party.id, {
+		person: qatom.person,
+		resource: mcpResource(config.QATOM_MCP_URL)
+	});
 	const milestones = await listMilestones(db, campaign.id);
 
 	return {

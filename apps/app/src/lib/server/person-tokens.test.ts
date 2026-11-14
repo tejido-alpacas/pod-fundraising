@@ -3,15 +3,18 @@
 import { fixtures } from '@tejido/contracts/fixtures';
 import { readSealedSignInTokens } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
+import { QatomHttpError } from '@tejido/qatom';
 import type { PersonAccessToken } from '@tejido/qatom/person';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
 	forgetPersonTokens,
 	keepPersonTokens,
+	mcpResource,
 	sealPersonTokens,
 	unsealPersonTokens,
 	usablePersonToken,
-	type PersonTokens
+	type PersonTokens,
+	type TokenRefresher
 } from './person-tokens.ts';
 import { seal } from './session.ts';
 
@@ -25,10 +28,27 @@ const tokens: PersonTokens = {
 	refreshToken: 'person-refresh-token-do-not-leak',
 	expiresAtMs: NOW + 72 * HOUR
 };
+const RESOURCE = 'https://tejido.mcp.qatom.test';
+/** Every refresh Qatom was asked for, and what it answers. Refused unless a test says otherwise. */
+let refreshes: unknown[];
+let refreshAnswer: () => Promise<PersonTokens>;
+const refresher: TokenRefresher = {
+	resource: RESOURCE,
+	person: {
+		refresh: (refreshToken, options) => {
+			refreshes.push([refreshToken, options]);
+			return refreshAnswer();
+		}
+	}
+};
 const contractor = fixtures.parties[0]!;
 const supplier = fixtures.parties[1]!;
 
-beforeEach(() => void vi.useFakeTimers({ now: NOW, toFake: ['Date'] }));
+beforeEach(() => {
+	vi.useFakeTimers({ now: NOW, toFake: ['Date'] });
+	refreshes = [];
+	refreshAnswer = () => Promise.reject(new QatomHttpError('person.refresh', 400, 'invalid_grant'));
+});
 afterEach(() => void vi.useRealTimers());
 
 describe('sealed tokens', () => {
@@ -105,7 +125,7 @@ describe('tokens kept in the database', () => {
 		expect(JSON.stringify(row)).not.toContain(tokens.accessToken);
 		expect(JSON.stringify(row)).not.toContain(String(tokens.refreshToken));
 
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
 			ok: true,
 			accessToken: tokens.accessToken
 		});
@@ -114,7 +134,7 @@ describe('tokens kept in the database', () => {
 	it("are one party's only", async () => {
 		await keepPersonTokens(test.db, SECRET, contractor.id, tokens);
 
-		expect(await usablePersonToken(test.db, SECRET, supplier.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, supplier.id, refresher)).toEqual({
 			ok: false,
 			reason: 'none'
 		});
@@ -127,7 +147,7 @@ describe('tokens kept in the database', () => {
 			accessToken: 'a-newer-token' as PersonAccessToken
 		});
 
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
 			ok: true,
 			accessToken: 'a-newer-token'
 		});
@@ -138,28 +158,77 @@ describe('tokens kept in the database', () => {
 		await forgetPersonTokens(test.db, contractor.id);
 
 		expect(await readSealedSignInTokens(test.db, contractor.id)).toBeUndefined();
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
 			ok: false,
 			reason: 'none'
 		});
 	});
 
-	it('are not usable once the access token has run out, or is about to', async () => {
+	it('are renewed with the refresh token once the access token has run out, and kept', async () => {
 		await keepPersonTokens(test.db, SECRET, contractor.id, tokens);
+		const renewed: PersonTokens = {
+			accessToken: 'renewed-access-token' as PersonAccessToken,
+			refreshToken: 'renewed-refresh-token',
+			expiresAtMs: tokens.expiresAtMs! + 72 * HOUR
+		};
+		refreshAnswer = () => Promise.resolve(renewed);
+
+		vi.setSystemTime(tokens.expiresAtMs! - 60 * 1000);
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
+			ok: true,
+			accessToken: 'renewed-access-token'
+		});
+		expect(refreshes).toEqual([[tokens.refreshToken, { resource: RESOURCE }]]);
+
+		// The renewed tokens replaced the old ones, sealed, so the next reply does not refresh.
+		const row = await readSealedSignInTokens(test.db, contractor.id);
+		expect(unsealPersonTokens(row?.sealedTokens, SECRET)).toEqual(renewed);
+		expect(JSON.stringify(row)).not.toContain('renewed-access-token');
+		await usablePersonToken(test.db, SECRET, contractor.id, refresher);
+		expect(refreshes).toHaveLength(1);
+	});
+
+	it('are not usable when Qatom refuses to renew them, and what is kept is left alone', async () => {
+		await keepPersonTokens(test.db, SECRET, contractor.id, tokens);
+		const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+
+		vi.setSystemTime(tokens.expiresAtMs! + HOUR);
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
+			ok: false,
+			reason: 'expired'
+		});
+		expect(JSON.stringify(logged.mock.calls)).not.toContain(String(tokens.refreshToken));
+		logged.mockRestore();
+	});
+
+	it('names the MCP server by its origin, without the path', () => {
+		expect(mcpResource('https://tejido-example.mcp.qatom.test/mcp')).toBe(
+			'https://tejido-example.mcp.qatom.test'
+		);
+	});
+
+	it('are not usable once the access token has run out and no refresh token is kept', async () => {
+		await keepPersonTokens(test.db, SECRET, contractor.id, { ...tokens, refreshToken: null });
 
 		vi.setSystemTime(tokens.expiresAtMs! - 10 * 60 * 1000);
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toMatchObject({ ok: true });
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toMatchObject({
+			ok: true
+		});
 		vi.setSystemTime(tokens.expiresAtMs! - 60 * 1000);
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
 			ok: false,
 			reason: 'expired'
 		});
 	});
 
 	it('are not usable when Qatom never said how long the access token lasts', async () => {
-		await keepPersonTokens(test.db, SECRET, contractor.id, { ...tokens, expiresAtMs: null });
+		await keepPersonTokens(test.db, SECRET, contractor.id, {
+			...tokens,
+			refreshToken: null,
+			expiresAtMs: null
+		});
 
-		expect(await usablePersonToken(test.db, SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SECRET, contractor.id, refresher)).toEqual({
 			ok: false,
 			reason: 'expired'
 		});
@@ -168,7 +237,7 @@ describe('tokens kept in the database', () => {
 	it('are not usable under another secret', async () => {
 		await keepPersonTokens(test.db, SECRET, contractor.id, tokens);
 
-		expect(await usablePersonToken(test.db, `${SECRET}-other`, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, `${SECRET}-other`, contractor.id, refresher)).toEqual({
 			ok: false,
 			reason: 'none'
 		});

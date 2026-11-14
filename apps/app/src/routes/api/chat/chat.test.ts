@@ -6,7 +6,8 @@
 // event stream written for the test. No model, no MCP server and no Qatom is involved.
 import { fixtures } from '@tejido/contracts/fixtures';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
-import type { PersonAccessToken } from '@tejido/qatom/person';
+import { QatomHttpError } from '@tejido/qatom';
+import type { PersonAccessToken, PersonTokens } from '@tejido/qatom/person';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { readChatEvents, type ChatEvent, type ChatTurn } from '#lib/chat.ts';
 import { AGENT_MODEL, CLAUDE_MESSAGES_URL, MCP_SERVER_NAME } from '#lib/server/agent.ts';
@@ -70,8 +71,11 @@ let sent: Sent[];
 /** What the stub Claude API answers, one per request. */
 let answers: (() => Response | Promise<Response>)[];
 let logged: string;
+/** What Qatom answers when asked to refresh a person's tokens. Refused unless a test says otherwise. */
+let refresh: (refreshToken: string, options?: { resource?: string }) => Promise<PersonTokens>;
 
 beforeEach(async () => {
+	refresh = () => Promise.reject(new QatomHttpError('person.refresh', 400, 'invalid_grant'));
 	test = await createTestDatabase({ seed: true });
 	await keepPersonTokens(test.db, SESSION_SECRET, contractor.id, {
 		accessToken: ACCESS_TOKEN as PersonAccessToken,
@@ -115,7 +119,8 @@ function ask(session: Session | null, body: unknown = { messages: [said('What do
 	const locals = {
 		ctx: {
 			config: { SESSION_SECRET, ANTHROPIC_API_KEY: API_KEY, QATOM_MCP_URL: MCP_URL },
-			db: test.db
+			db: test.db,
+			qatom: { person: { refresh } }
 		},
 		session
 	};
@@ -379,7 +384,33 @@ describe('who may call it', () => {
 		expect(sent).toHaveLength(0);
 	});
 
-	it('asks the person to sign in again when their access token has run out', async () => {
+	it('renews a run-out access token with the refresh token, and carries on', async () => {
+		await keepPersonTokens(test.db, SESSION_SECRET, contractor.id, {
+			accessToken: ACCESS_TOKEN as PersonAccessToken,
+			refreshToken: REFRESH_TOKEN,
+			expiresAtMs: Date.now() - 1000
+		});
+		const asked: unknown[] = [];
+		refresh = (refreshToken, options) => {
+			asked.push([refreshToken, options]);
+			return Promise.resolve({
+				accessToken: 'renewed-access-token' as PersonAccessToken,
+				refreshToken: 'renewed-refresh-token',
+				expiresAtMs: Date.now() + 60 * 60 * 1000
+			});
+		};
+
+		const response = await ask(sessionFor(contractor));
+
+		expect(response.status).toBe(200);
+		// Qatom is asked with the kept refresh token, for the MCP server's origin.
+		expect(asked).toEqual([[REFRESH_TOKEN, { resource: 'https://tejido.mcp.qatom.test' }]]);
+		expect(sent[0]!.body.mcp_servers).toMatchObject([
+			{ authorization_token: 'renewed-access-token' }
+		]);
+	});
+
+	it('asks the person to sign in again when Qatom refuses to renew their run-out token', async () => {
 		await keepPersonTokens(test.db, SESSION_SECRET, contractor.id, {
 			accessToken: ACCESS_TOKEN as PersonAccessToken,
 			refreshToken: REFRESH_TOKEN,

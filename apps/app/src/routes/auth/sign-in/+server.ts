@@ -13,6 +13,7 @@
 import { redirect } from '@sveltejs/kit';
 import { getParty } from '@tejido/db';
 import { QatomError } from '@tejido/qatom';
+import { mcpResource } from '#lib/server/person-tokens.ts';
 import { writeSignInState } from '#lib/server/session.ts';
 import { problemPath } from '#lib/server/sign-in-problem.ts';
 import type { RequestHandler } from './$types';
@@ -35,7 +36,12 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 
 	let started;
 	try {
-		started = await qatom.person.begin();
+		// Name Tejido's Qatom MCP server and ask for long-lived access, so the tokens this
+		// sign-in returns let the App's agent act as this person there, and can be renewed.
+		started = await qatom.person.begin({
+			resource: mcpResource(config.QATOM_MCP_URL),
+			offlineAccess: true
+		});
 	} catch (cause) {
 		if (!(cause instanceof QatomError)) throw cause;
 		// A QatomError never carries a token, a header or a response body.

@@ -48,6 +48,15 @@ export interface PendingSignIn {
 	resource?: string;
 }
 
+/** A person's tokens. Never send these to the browser or write them to a log. */
+export interface PersonTokens {
+	accessToken: PersonAccessToken;
+	/** Present only when the sign-in asked for long-lived access and Qatom granted it. */
+	refreshToken: string | null;
+	/** Milliseconds since the epoch, or null if Qatom did not say. */
+	expiresAtMs: number | null;
+}
+
 declare const personToken: unique symbol;
 /**
  * An access token that acts as one person. It is a distinct type so it cannot be handed to
@@ -64,20 +73,22 @@ export interface SignedInPerson {
 	/** The `twin_hostname` claim. Refunds are sent TO this wallet. */
 	primaryWalletHostname: PrimaryWalletHostname;
 	/** Never send these to the browser or write them to a log. */
-	tokens: {
-		accessToken: PersonAccessToken;
-		refreshToken: string | null;
-		/** Milliseconds since the epoch, or null if Qatom did not say. */
-		expiresAtMs: number | null;
-	};
+	tokens: PersonTokens;
 }
 
 export interface PersonSignIn {
 	/**
 	 * Starts a sign-in. Redirect the browser to `authorizationUrl` and keep `pending`.
-	 * `resource` (RFC 8707) asks for an access token bound to one server, such as the MCP server.
+	 *
+	 * `resource` (RFC 8707) asks for an access token bound to one server: the origin of Tejido's
+	 * Qatom MCP server. Qatom's MCP servers accept only a token that was asked for this way.
+	 *
+	 * `offlineAccess` asks for a refresh token as well, so the person is not sent back to sign
+	 * in when the access token runs out. Qatom grants it only when the sign-in also asks the
+	 * person to consent, so this adds `prompt=consent`, and only if the sign-in client's
+	 * registration allows the `refresh_token` grant.
 	 */
-	begin(options?: { resource?: string }): Promise<{
+	begin(options?: { resource?: string; offlineAccess?: boolean }): Promise<{
 		authorizationUrl: string;
 		pending: PendingSignIn;
 	}>;
@@ -86,6 +97,14 @@ export interface PersonSignIn {
 	 * Throws QatomSignInError when the answer cannot be trusted or is incomplete.
 	 */
 	complete(callbackUrl: URL, pending: PendingSignIn): Promise<SignedInPerson>;
+	/**
+	 * Trades a refresh token for new tokens. Pass the same `resource` the sign-in asked for.
+	 *
+	 * Qatom may answer with a new refresh token; the one returned here is always the one to
+	 * keep. Throws QatomHttpError when Qatom refuses the refresh token (expired, already used,
+	 * or the person disconnected the app): the person then signs in again.
+	 */
+	refresh(refreshToken: string, options?: { resource?: string }): Promise<PersonTokens>;
 }
 
 const discoverySchema = z.object({
@@ -94,6 +113,7 @@ const discoverySchema = z.object({
 	token_endpoint: z.url(),
 	jwks_uri: z.url(),
 	userinfo_endpoint: z.url().optional(),
+	introspection_endpoint: z.url().optional(),
 	id_token_signing_alg_values_supported: z.array(z.string()).optional(),
 	authorization_response_iss_parameter_supported: z.boolean().optional()
 });
@@ -104,6 +124,24 @@ const tokenResponseSchema = z.object({
 	id_token: z.string().min(1),
 	refresh_token: z.string().min(1).optional(),
 	expires_in: z.number().optional()
+});
+
+/** The answer to a refresh. Unlike a sign-in, it need not carry an ID token. */
+const refreshResponseSchema = z.object({
+	access_token: z.string().min(1),
+	refresh_token: z.string().min(1).optional(),
+	expires_in: z.number().optional()
+});
+
+/**
+ * What Qatom's token introspection says about an access token (RFC 7662). `sub` is the
+ * person; Qatom adds both wallet hostnames to every person's access token.
+ */
+const introspectionSchema = z.object({
+	active: z.boolean(),
+	sub: z.string().optional(),
+	twin_hostname: z.unknown().optional(),
+	agent_twin_hostname: z.unknown().optional()
 });
 
 const jwksSchema = z.object({ keys: z.array(z.record(z.string(), z.unknown())) });
@@ -190,6 +228,47 @@ export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 		return payload;
 	}
 
+	/**
+	 * The claims of a resource-bound access token, from Qatom's token introspection. The
+	 * sign-in client authenticates with its own ID and secret and may introspect its own tokens.
+	 *
+	 * Qatom's `sub` for a person is their email address, verified when they signed in by
+	 * emailed code or passkey, so it is used as the email here.
+	 */
+	async function introspectedClaims(
+		provider: Discovery,
+		accessToken: string,
+		idClaims: JWTPayload
+	): Promise<Record<string, unknown>> {
+		if (!provider.introspection_endpoint) {
+			throw new QatomResponseError('person.discovery', 'there is no introspection endpoint');
+		}
+		const answer = introspectionSchema.safeParse(
+			await send({
+				operation: 'person.introspection',
+				method: 'POST',
+				url: provider.introspection_endpoint,
+				headers: { authorization: clientAuthorization(config) },
+				form: { token: accessToken, token_type_hint: 'access_token' },
+				timeoutMs: DEFAULT_TIMEOUT_MS
+			})
+		);
+		if (!answer.success) {
+			throw new QatomResponseError('person.introspection', 'the body is not an introspection');
+		}
+		if (!answer.data.active) {
+			throw new QatomSignInError('invalid_id_token', 'Qatom does not recognise the access token.');
+		}
+		if (answer.data.sub !== idClaims.sub) {
+			throw new QatomSignInError('invalid_id_token', 'The access token is for another person.');
+		}
+		return {
+			email: answer.data.sub,
+			twin_hostname: answer.data.twin_hostname,
+			agent_twin_hostname: answer.data.agent_twin_hostname
+		};
+	}
+
 	return {
 		async begin(options = {}) {
 			const provider = await discover();
@@ -199,18 +278,21 @@ export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 				codeVerifier: base64url(randomBytes(32)),
 				...(options.resource ? { resource: options.resource } : {})
 			};
+			const scope = options.offlineAccess ? `${SIGN_IN_SCOPES} offline_access` : SIGN_IN_SCOPES;
 
 			const url = new URL(provider.authorization_endpoint);
 			url.search = new URLSearchParams({
 				response_type: 'code',
 				client_id: config.clientId,
 				redirect_uri: config.redirectUri,
-				scope: SIGN_IN_SCOPES,
+				scope,
 				state: pending.state,
 				nonce: pending.nonce,
 				code_challenge: base64url(createHash('sha256').update(pending.codeVerifier).digest()),
 				code_challenge_method: 'S256',
-				...(pending.resource ? { resource: pending.resource } : {})
+				...(pending.resource ? { resource: pending.resource } : {}),
+				// Qatom drops `offline_access` from a sign-in that does not ask for consent.
+				...(options.offlineAccess ? { prompt: 'consent' } : {})
 			}).toString();
 
 			return { authorizationUrl: url.toString(), pending };
@@ -264,23 +346,32 @@ export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 			const idClaims = await verifyIdToken(tokens.data.id_token, provider, pending.nonce);
 			let claims: Record<string, unknown> = idClaims;
 
-			// A provider may leave scope claims out of the ID token and serve them from userinfo.
+			// Qatom leaves the scope claims out of the ID token. Where they come from depends on
+			// the access token: one bound to a resource (the MCP server) is refused by userinfo,
+			// so its claims are read by introspecting it; any other is read from userinfo.
 			const wanted = ['email', 'twin_hostname', 'agent_twin_hostname'];
-			if (wanted.some((name) => claims[name] === undefined) && provider.userinfo_endpoint) {
-				const userinfo = await send({
-					operation: 'person.userinfo',
-					method: 'GET',
-					url: provider.userinfo_endpoint,
-					headers: { authorization: `Bearer ${tokens.data.access_token}` },
-					timeoutMs: DEFAULT_TIMEOUT_MS
-				});
-				if (typeof userinfo !== 'object' || userinfo === null) {
-					throw new QatomResponseError('person.userinfo', 'the body is not an object');
+			if (wanted.some((name) => claims[name] === undefined)) {
+				if (pending.resource) {
+					claims = {
+						...(await introspectedClaims(provider, tokens.data.access_token, idClaims)),
+						...idClaims
+					};
+				} else if (provider.userinfo_endpoint) {
+					const userinfo = await send({
+						operation: 'person.userinfo',
+						method: 'GET',
+						url: provider.userinfo_endpoint,
+						headers: { authorization: `Bearer ${tokens.data.access_token}` },
+						timeoutMs: DEFAULT_TIMEOUT_MS
+					});
+					if (typeof userinfo !== 'object' || userinfo === null) {
+						throw new QatomResponseError('person.userinfo', 'the body is not an object');
+					}
+					if ((userinfo as Record<string, unknown>).sub !== idClaims.sub) {
+						throw new QatomSignInError('invalid_id_token', 'Userinfo is for another person.');
+					}
+					claims = { ...userinfo, ...idClaims };
 				}
-				if ((userinfo as Record<string, unknown>).sub !== idClaims.sub) {
-					throw new QatomSignInError('invalid_id_token', 'Userinfo is for another person.');
-				}
-				claims = { ...userinfo, ...idClaims };
 			}
 
 			if (claims.email_verified === false) {
@@ -308,6 +399,34 @@ export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 					expiresAtMs:
 						tokens.data.expires_in === undefined ? null : Date.now() + tokens.data.expires_in * 1000
 				}
+			};
+		},
+
+		async refresh(refreshToken, options = {}) {
+			const provider = await discover();
+			const tokens = refreshResponseSchema.safeParse(
+				await send({
+					operation: 'person.refresh',
+					method: 'POST',
+					url: provider.token_endpoint,
+					headers: { authorization: clientAuthorization(config) },
+					form: {
+						grant_type: 'refresh_token',
+						refresh_token: refreshToken,
+						...(options.resource ? { resource: options.resource } : {})
+					},
+					timeoutMs: DEFAULT_TIMEOUT_MS
+				})
+			);
+			if (!tokens.success) {
+				throw new QatomResponseError('person.refresh', 'access_token is missing');
+			}
+			return {
+				accessToken: tokens.data.access_token as PersonAccessToken,
+				// Qatom may rotate the refresh token. When it does not, the one we sent still stands.
+				refreshToken: tokens.data.refresh_token ?? refreshToken,
+				expiresAtMs:
+					tokens.data.expires_in === undefined ? null : Date.now() + tokens.data.expires_in * 1000
 			};
 		}
 	};

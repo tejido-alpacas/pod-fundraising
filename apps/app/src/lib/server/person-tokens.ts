@@ -18,7 +18,8 @@ import {
 	saveSealedSignInTokens,
 	type Database
 } from '@tejido/db';
-import type { PersonAccessToken, SignedInPerson } from '@tejido/qatom/person';
+import { QatomError } from '@tejido/qatom';
+import type { PersonAccessToken, PersonSignIn, SignedInPerson } from '@tejido/qatom/person';
 import { seal, unseal } from './session.ts';
 
 export type PersonTokens = SignedInPerson['tokens'];
@@ -76,6 +77,21 @@ export async function forgetPersonTokens(db: Database, partyId: string): Promise
 	await deleteSealedSignInTokens(db, partyId);
 }
 
+/**
+ * The `resource` a sign-in names so that its access token is accepted by Tejido's Qatom MCP
+ * server: that server's origin. Qatom compares origins, so the path of QATOM_MCP_URL is left out.
+ */
+export function mcpResource(mcpUrl: string): string {
+	return new URL(mcpUrl).origin;
+}
+
+/** What is needed to ask Qatom for a fresh access token. */
+export interface TokenRefresher {
+	person: Pick<PersonSignIn, 'refresh'>;
+	/** The same resource the sign-in named. See `mcpResource`. */
+	resource: string;
+}
+
 export type UsableToken =
 	| { ok: true; accessToken: PersonAccessToken }
 	/**
@@ -90,19 +106,38 @@ const EXPIRY_MARGIN_MS = 5 * 60 * 1000;
 /**
  * The access token the chat may use for this party right now.
  *
- * There is no refresh yet: `packages/qatom` has no call for it. When the access token has run
- * out the person signs in again from their invite link.
+ * When the access token has run out and a refresh token is kept, Qatom is asked for new tokens
+ * and those are kept in its place. If Qatom refuses, or no refresh token is kept, the person
+ * signs in again from their invite link.
+ *
+ * Two replies starting at the same moment can both try to refresh. Qatom honours a refresh
+ * token once, so the second is refused and that reply asks the person to sign in again.
  */
 export async function usablePersonToken(
 	db: Database,
 	secret: string,
-	partyId: string
+	partyId: string,
+	refresher: TokenRefresher
 ): Promise<UsableToken> {
 	const row = await readSealedSignInTokens(db, partyId);
 	const tokens = unsealPersonTokens(row?.sealedTokens, secret);
 	if (!tokens) return { ok: false, reason: 'none' };
-	if (tokens.expiresAtMs === null || tokens.expiresAtMs - EXPIRY_MARGIN_MS <= Date.now()) {
+
+	const fresh = tokens.expiresAtMs !== null && tokens.expiresAtMs - EXPIRY_MARGIN_MS > Date.now();
+	if (fresh) return { ok: true, accessToken: tokens.accessToken };
+	if (tokens.refreshToken === null) return { ok: false, reason: 'expired' };
+
+	let renewed: PersonTokens;
+	try {
+		renewed = await refresher.person.refresh(tokens.refreshToken, {
+			resource: refresher.resource
+		});
+	} catch (cause) {
+		if (!(cause instanceof QatomError)) throw cause;
+		// A QatomError never carries a token, a header or a response body.
+		console.error('The sign-in tokens could not be refreshed:', cause.name, cause.message);
 		return { ok: false, reason: 'expired' };
 	}
-	return { ok: true, accessToken: tokens.accessToken };
+	await keepPersonTokens(db, secret, partyId, renewed);
+	return { ok: true, accessToken: renewed.accessToken };
 }

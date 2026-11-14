@@ -10,7 +10,7 @@ import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createPersonSignIn } from '@tejido/qatom/person';
 import { createSign, generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { unsealPersonTokens, usablePersonToken } from '#lib/server/person-tokens.ts';
+import { mcpResource, unsealPersonTokens, usablePersonToken } from '#lib/server/person-tokens.ts';
 import { readSession, unseal, type Session } from '#lib/server/session.ts';
 import { cookieJar, outcome, type CookieJar, type Outcome } from '#lib/server/test-helpers.ts';
 import { GET as callback } from './callback/+server.ts';
@@ -28,11 +28,13 @@ const provider = {
 	authorization_endpoint: `${API}/v4/oidc/auth`,
 	token_endpoint: `${API}/v4/oidc/token`,
 	userinfo_endpoint: `${API}/v4/oidc/me`,
+	introspection_endpoint: `${API}/v4/oidc/token/introspection`,
 	jwks_uri: `${API}/v4/oidc/jwks`,
 	id_token_signing_alg_values_supported: ['RS256'],
 	authorization_response_iss_parameter_supported: true
 };
 
+const MCP_URL = 'https://tejido.mcp.qatom.test/mcp';
 const contractor = fixtures.parties[0]!;
 const supplier = fixtures.parties[1]!;
 
@@ -118,6 +120,10 @@ beforeEach(async () => {
 		if (url === provider.userinfo_endpoint) {
 			return json({ sub: 'qatom-user-123', ...qatom.userinfo });
 		}
+		// The sign-in names the MCP server, so claims missing from the ID token are read here.
+		if (url === provider.introspection_endpoint) {
+			return json({ active: true, sub: 'qatom-user-123', ...qatom.userinfo });
+		}
 		return Promise.reject(new Error(`unexpected request to ${url}`));
 	});
 	// The provider learns the nonce when the browser arrives at its authorization page.
@@ -137,9 +143,11 @@ type RouteEvent = Parameters<typeof signIn>[0] &
 	Parameters<typeof callback>[0] &
 	Parameters<typeof signOut>[0];
 
+const refresher = () => ({ person, resource: mcpResource(MCP_URL) });
+
 function event(url: string) {
 	const locals = {
-		ctx: { config: { SESSION_SECRET }, db: test.db, qatom: { person } },
+		ctx: { config: { SESSION_SECRET, QATOM_MCP_URL: MCP_URL }, db: test.db, qatom: { person } },
 		session: readSession(browser, SESSION_SECRET)
 	};
 	// A whole RequestEvent cannot be built outside SvelteKit; the handlers use only these parts.
@@ -401,17 +409,30 @@ describe('signing out', () => {
 		expect(session()).toBeNull();
 	});
 
+	it('asks Qatom for a token the MCP server accepts, and for long-lived access', async () => {
+		const { result } = await start(`?party=${contractor.id}`);
+		if (result.kind !== 'redirect') throw new Error('expected a redirect to Qatom');
+		const asked = new URL(result.location).searchParams;
+
+		// The MCP server is named by its origin; Qatom compares origins.
+		expect(asked.get('resource')).toBe('https://tejido.mcp.qatom.test');
+		expect(asked.get('scope')).toBe('openid profile email twin offline_access');
+		expect(asked.get('prompt')).toBe('consent');
+	});
+
 	it('deletes the tokens kept for the agent chat, so the agent can no longer act for them', async () => {
 		const { state } = await start(`?party=${contractor.id}`);
 		await comeBack(state);
-		expect(await usablePersonToken(test.db, SESSION_SECRET, contractor.id)).toMatchObject({
+		expect(
+			await usablePersonToken(test.db, SESSION_SECRET, contractor.id, refresher())
+		).toMatchObject({
 			ok: true
 		});
 
 		await outcome(() => signOut(event('http://localhost:5174/auth/sign-out')));
 
 		expect(await readSealedSignInTokens(test.db, contractor.id)).toBeUndefined();
-		expect(await usablePersonToken(test.db, SESSION_SECRET, contractor.id)).toEqual({
+		expect(await usablePersonToken(test.db, SESSION_SECRET, contractor.id, refresher())).toEqual({
 			ok: false,
 			reason: 'none'
 		});
