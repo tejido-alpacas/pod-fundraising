@@ -41,8 +41,9 @@ export const SURFACES: Surface[] = [
 		id: 'B3',
 		name: 'Evidence upload',
 		path: '/upload',
-		what: 'Stores a photo or document and returns its URL and SHA-256. POST /api/evidence already works, for a signed-in party.',
-		files: [`${R}/upload/`, `${R}/api/evidence/+server.ts`, `${R}/evidence/[file]/+server.ts`]
+		what: 'Stores a photo or document and returns its URL and SHA-256. A page for a signed-in party, and POST /api/evidence for their agent.',
+		files: [`${R}/upload/`, `${R}/api/evidence/+server.ts`, `${R}/evidence/[file]/+server.ts`],
+		working: true
 	},
 	{
 		id: 'B4',

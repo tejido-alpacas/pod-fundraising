@@ -129,6 +129,96 @@ export const deposits = sqliteTable('deposits', {
 });
 
 // ---------------------------------------------------------------------------
+// Deposit refunds (bookkeeping for transfers; not contract records)
+// ---------------------------------------------------------------------------
+
+/**
+ * Where one refund transfer stands.
+ *
+ * - `started`: the deposits are claimed and the transfer is about to be, or is being, sent.
+ *   A row left here means the server stopped part-way. Treat it like `unknown`.
+ * - `sent`: Qatom accepted the transfer. The deposits carry `refundedAt`.
+ * - `failed`: Qatom refused the transfer and nothing moved. The deposits were released and
+ *   may be refunded by a later request.
+ * - `unknown`: no usable answer came back (a timeout, a dropped connection, a server error).
+ *   The money may or may not have moved. It is never sent again by code: a person checks the
+ *   wallet and settles the row by hand.
+ */
+export type RefundStatus = 'started' | 'sent' | 'failed' | 'unknown';
+
+/**
+ * One transfer of deposits back to one party for one milestone: the row is written BEFORE the
+ * transfer is sent, so there is always a record that money may have moved.
+ */
+export const refunds = sqliteTable(
+	'refunds',
+	{
+		id: text('id').primaryKey(),
+		campaignId: text('campaign_id').notNull(),
+		milestoneId: text('milestone_id').notNull(),
+		/** The party who filed the entries, and who is being paid back. */
+		partyId: text('party_id')
+			.notNull()
+			.references(() => parties.id),
+		// The wallet the transfer was addressed to. Always a PRIMARY wallet, never an agent wallet.
+		primaryWalletHostname: text('primary_wallet_hostname').$type<PrimaryWalletHostname>().notNull(),
+		/** The digital quantity hash the ledger reported for the deposits, sent as the transfer's type. */
+		dq: text('dq').notNull(),
+		/** The total sent, in Qatom's smallest unit: the sum of the claimed deposits. */
+		amount: integer('amount').notNull(),
+		status: text('status').$type<RefundStatus>().notNull(),
+		statusReason: text('status_reason'),
+		startedAt: text('started_at').notNull(),
+		settledAt: text('settled_at')
+	},
+	(table) => [
+		foreignKey({
+			columns: [table.campaignId, table.milestoneId],
+			foreignColumns: [milestones.campaignId, milestones.id]
+		}),
+		index('refunds_milestone_idx').on(table.campaignId, table.milestoneId)
+	]
+);
+
+/**
+ * Which deposits a refund covers. The deposit is the primary key, so a deposit can belong to
+ * at most one refund at a time: this is what stops a deposit being refunded twice, even when
+ * two requests run at once. Rows are removed only when their refund is marked `failed`.
+ */
+export const refundDeposits = sqliteTable(
+	'refund_deposits',
+	{
+		depositId: text('deposit_id')
+			.primaryKey()
+			.references(() => deposits.id),
+		refundId: text('refund_id')
+			.notNull()
+			.references(() => refunds.id)
+	},
+	(table) => [index('refund_deposits_refund_idx').on(table.refundId)]
+);
+
+// ---------------------------------------------------------------------------
+// Sign-in tokens (not a contract record: only the App's server reads or writes these)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tokens Qatom returned when a party signed in, kept so the App's agent chat can reach the
+ * Qatom MCP server as that person. One row per party; a new sign-in replaces it.
+ *
+ * `sealedTokens` is opaque here. The App encrypts the tokens with a key derived from
+ * SESSION_SECRET before saving and decrypts after reading. This package never sees a token or
+ * a key, and must never be given an unsealed value.
+ */
+export const partySignInTokens = sqliteTable('party_sign_in_tokens', {
+	partyId: text('party_id')
+		.primaryKey()
+		.references(() => parties.id),
+	sealedTokens: text('sealed_tokens').notNull(),
+	updatedAt: text('updated_at').notNull()
+});
+
+// ---------------------------------------------------------------------------
 // Tables must match the contracts
 // ---------------------------------------------------------------------------
 

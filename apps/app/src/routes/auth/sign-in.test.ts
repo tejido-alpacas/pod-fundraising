@@ -5,11 +5,12 @@
 // These tests never reach the network: `fetch` is replaced, here in the test file, by a stub
 // standing in for Qatom's OIDC provider. ID tokens are signed with a key made for the test.
 import { fixtures } from '@tejido/contracts/fixtures';
-import { getParty } from '@tejido/db';
+import { getParty, readSealedSignInTokens } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createPersonSignIn } from '@tejido/qatom/person';
 import { createSign, generateKeyPairSync } from 'node:crypto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { unsealPersonTokens, usablePersonToken } from '#lib/server/person-tokens.ts';
 import { readSession, unseal, type Session } from '#lib/server/session.ts';
 import { cookieJar, outcome, type CookieJar, type Outcome } from '#lib/server/test-helpers.ts';
 import { GET as callback } from './callback/+server.ts';
@@ -176,6 +177,7 @@ const fixtureWallets = {
 async function expectNothingChanged() {
 	expect(session()).toBeNull();
 	expect(await wallets(contractor.id)).toEqual(fixtureWallets);
+	expect(await readSealedSignInTokens(test.db, contractor.id)).toBeUndefined();
 }
 
 describe('signing in from an invite', () => {
@@ -213,6 +215,28 @@ describe('signing in from an invite', () => {
 		expect(logged).toBe('');
 	});
 
+	it('keeps the tokens for the agent chat, sealed, in the database row of that party', async () => {
+		const { state } = await start(`?party=${contractor.id}`);
+		await comeBack(state);
+
+		const row = await readSealedSignInTokens(test.db, contractor.id);
+		// What is stored cannot be read without the key.
+		const stored = JSON.stringify(row);
+		const readable = Buffer.from(row?.sealedTokens ?? '', 'base64url').toString('latin1');
+		expect(stored + readable).not.toContain(ACCESS_TOKEN);
+		expect(stored + readable).not.toContain(REFRESH_TOKEN);
+		// It is not a session cookie, and a session cookie is not it.
+		expect(unseal(row?.sealedTokens, SESSION_SECRET, 'session')).toBeNull();
+		expect(unsealPersonTokens(browser.held.get('tejido_session'), SESSION_SECRET)).toBeNull();
+		// With the key, the server gets back exactly what Qatom issued.
+		expect(unsealPersonTokens(row?.sealedTokens, SESSION_SECRET)).toMatchObject({
+			accessToken: ACCESS_TOKEN,
+			refreshToken: REFRESH_TOKEN
+		});
+		// Nobody else has any.
+		expect(await readSealedSignInTokens(test.db, supplier.id)).toBeUndefined();
+	});
+
 	it('goes on to the page asked for, on this site only', async () => {
 		const first = await start(`?party=${contractor.id}&return_to=/chat`);
 		expect(await comeBack(first.state)).toMatchObject({ location: '/chat' });
@@ -246,6 +270,8 @@ describe('signing in from an invite', () => {
 
 		expect(session()).toEqual({ sub: 'qatom-user-123', email: contractor.email, partyId: null });
 		expect(await wallets(contractor.id)).toEqual(fixtureWallets);
+		// No invite, no party, so no tokens are kept for anyone.
+		expect(await readSealedSignInTokens(test.db, contractor.id)).toBeUndefined();
 	});
 });
 
@@ -373,5 +399,27 @@ describe('signing out', () => {
 
 		expect(result).toEqual({ kind: 'redirect', status: 303, location: '/' });
 		expect(session()).toBeNull();
+	});
+
+	it('deletes the tokens kept for the agent chat, so the agent can no longer act for them', async () => {
+		const { state } = await start(`?party=${contractor.id}`);
+		await comeBack(state);
+		expect(await usablePersonToken(test.db, SESSION_SECRET, contractor.id)).toMatchObject({
+			ok: true
+		});
+
+		await outcome(() => signOut(event('http://localhost:5174/auth/sign-out')));
+
+		expect(await readSealedSignInTokens(test.db, contractor.id)).toBeUndefined();
+		expect(await usablePersonToken(test.db, SESSION_SECRET, contractor.id)).toEqual({
+			ok: false,
+			reason: 'none'
+		});
+	});
+
+	it('works for someone who is not signed in', async () => {
+		const result = await outcome(() => signOut(event('http://localhost:5174/auth/sign-out')));
+
+		expect(result).toEqual({ kind: 'redirect', status: 303, location: '/' });
 	});
 });
