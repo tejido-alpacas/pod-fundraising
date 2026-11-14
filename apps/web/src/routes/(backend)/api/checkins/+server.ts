@@ -26,7 +26,8 @@ import {
 	getMilestone,
 	getParty,
 	insertEntryAdvancingMilestone,
-	insertEntryWithDeposit
+	insertEntryWithDeposit,
+	listNotPublicEvidence
 } from '@tejido/db';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { decideCheckin, describeAccepted } from '#lib/server/backend/checkin-rules.ts';
@@ -92,6 +93,10 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		party,
 		milestone,
 		evidenceOrigin: evidenceStoreOrigin(config),
+		notPublicEvidence: await listNotPublicEvidence(
+			db,
+			(inputs.photos ?? []).map((photo) => photo.sha256)
+		),
 		now
 	});
 	if (!decision.allowed) {

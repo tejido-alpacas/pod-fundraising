@@ -12,9 +12,11 @@ import {
 	deposits,
 	entries,
 	getEntry,
+	getEvidenceFile,
 	getMilestone,
 	listDeposits,
 	milestones,
+	recordEvidenceUpload,
 	refunds
 } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
@@ -309,6 +311,32 @@ async function unchangedDelivery(run: () => Promise<unknown>) {
 	await run();
 	expect(await read(DELIVERY)).toEqual(before);
 }
+
+describe('a file kept from donors', () => {
+	it('is added, but does not stand as the photo the claim owes to donors', async () => {
+		// The contractor uploaded the photo on the upload page and kept it from donors.
+		stored.set(`${sha256(PNG)}.png`, PNG);
+		await recordEvidenceUpload(test.db, {
+			sha256: sha256(PNG),
+			partyId: contractor.id,
+			choice: { visibility: 'not_public', kind: 'Site photo', reason: 'It shows the neighbours.' },
+			alreadyStored: false,
+			now: '2026-11-13T11:00:00.000Z'
+		});
+
+		const answer = await done(sessionFor(contractor), CLAIM, { pasted: PNG_FILE });
+
+		expect(answer).toMatchObject({ added: 1, complete: false });
+		expect(await read(CLAIM)).toMatchObject({
+			status: 'incomplete',
+			statusReason:
+				'A construction claim needs at least one photo that donors can see. Every photo attached is marked not public.',
+			inputs: { photos: [PNG_FILE] }
+		});
+		// Choosing the same file here does not make it public behind the uploader's back.
+		expect((await getEvidenceFile(test.db, sha256(PNG)))?.visibility).toBe('not_public');
+	});
+});
 
 describe('who may change a report', () => {
 	it('refuses someone who is not signed in', async () => {
