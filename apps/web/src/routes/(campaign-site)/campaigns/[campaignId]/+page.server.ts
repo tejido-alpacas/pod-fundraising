@@ -4,18 +4,24 @@ import {
 	formatAmount,
 	isConfirmed,
 	shownRelationship,
-	type Deposit,
+	type DepositStatus,
 	type Entry,
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
-import { getCampaign, listDeposits, listEntries, listMilestones, listParties } from '@tejido/db';
-import { depositState } from '@tejido/ui/states';
+import {
+	getCampaign,
+	listDepositStatuses,
+	listEntries,
+	listMilestones,
+	listParties
+} from '@tejido/db';
 import {
 	confirmedCount,
 	milestoneStandings,
 	todayUtc
 } from '#lib/campaign-site/server/delivery.ts';
+import { depositView } from '#lib/campaign-site/server/deposits.ts';
 import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
@@ -43,13 +49,16 @@ export const load = (async ({ params, locals, url }) => {
 		listParties(db, campaign.id),
 		listMilestones(db, campaign.id),
 		listEntries(db, campaign.id),
-		listDeposits(db, campaign.id)
+		// Every deposit with its state: held, refunded or refund outstanding.
+		listDepositStatuses(db, campaign.id)
 	]);
 	const today = todayUtc();
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
 	const milestoneById = new Map(milestones.map((milestone) => [milestone.id, milestone]));
-	const depositByEntry = new Map(deposits.map((deposit) => [deposit.entryId, deposit]));
+	const depositByEntry = new Map(
+		deposits.deposits.map((status) => [status.deposit.entryId, status])
+	);
 	const toView = (entry: Entry) =>
 		entryView(
 			entry,
@@ -138,7 +147,7 @@ function entryView(
 	entry: Entry,
 	party: Party | undefined,
 	milestone: Milestone | undefined,
-	deposit: Deposit | undefined,
+	deposit: DepositStatus | undefined,
 	campaignId: string,
 	config: Parameters<typeof sortEvidence>[2]
 ) {
@@ -181,13 +190,11 @@ function entryView(
 		 * `independent` unless recorded: an unrecorded relationship shows as stakeholder.
 		 */
 		strength: isConfirmation ? shownRelationship(party) : null,
-		/** The filing deposit paid with this entry, or null if none is on record. */
-		deposit: deposit
-			? {
-					amount: formatAmount(deposit.amount),
-					state: depositState(deposit, milestoneConfirmed)
-				}
-			: null,
+		/**
+		 * The filing deposit paid with this entry and which of its three states it is in, or null
+		 * if none is on record. The state is worked out once, in @tejido/db.
+		 */
+		deposit: deposit ? depositOf(deposit) : null,
 		filer: party
 			? {
 					name: party.name,
@@ -212,6 +219,12 @@ function entryView(
 		evidence: sortEvidence(inputs.photos, milestone?.kind, config),
 		proofPath: `/campaigns/${campaignId}/entries/${entry.id}`
 	};
+}
+
+/** What the timeline shows of a deposit: the amount as written, its state, and why. */
+function depositOf(status: DepositStatus) {
+	const { amount, state, label, outstandingMeaning } = depositView(status);
+	return { amount: formatAmount(amount), state, label, outstandingMeaning };
 }
 
 /** The newest percent complete reported on a milestone. `entries` is newest first. */

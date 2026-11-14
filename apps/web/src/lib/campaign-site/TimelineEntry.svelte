@@ -92,16 +92,18 @@
 		return null;
 	});
 
+	// "Deposit 0.10 held", "Deposit 1.00 refunded", "Deposit 1.00 · refund outstanding".
 	const DEPOSIT = {
-		'dep-held': 'held',
-		'dep-refunded': 'refunded',
-		'dep-outstanding': 'not yet refunded'
+		held: { icon: 'deposit', words: 'held' },
+		refunded: { icon: 'return', words: 'refunded' },
+		refund_outstanding: { icon: 'clock', words: '· refund outstanding' }
 	} as const;
 	const deposit = $derived(
-		entry.deposit && entry.deposit.state in DEPOSIT
+		entry.deposit
 			? {
-					def: STATES[entry.deposit.state],
-					words: `Deposit ${entry.deposit.amount} ${DEPOSIT[entry.deposit.state as keyof typeof DEPOSIT]}`
+					icon: DEPOSIT[entry.deposit.state].icon,
+					words: `Deposit ${entry.deposit.amount} ${DEPOSIT[entry.deposit.state].words}`,
+					why: entry.deposit.outstandingMeaning
 				}
 			: null
 	);
@@ -215,11 +217,13 @@
 			/>
 		{/if}
 
+		{#if deposit?.why}
+			<p class="left-out">{deposit.why}</p>
+		{/if}
+
 		<footer class="tj-entry__foot">
 			{#if deposit}
-				<span class="deposit" title={deposit.def.text}>
-					<Icon name={deposit.def.icon} size={16} />{deposit.words}
-				</span>
+				<span class="deposit"><Icon name={deposit.icon} size={16} />{deposit.words}</span>
 			{:else}
 				<span>No deposit on record</span>
 			{/if}

@@ -259,35 +259,51 @@ describe('the donor timeline', () => {
 		expect(data.milestones[0]?.strength).toBe('stakeholder');
 	});
 
-	it('gives a confirmation its strength and each entry its deposit state and milestone badge', async () => {
+	it('gives a confirmation its strength and each entry its milestone badge', async () => {
 		const data = await timeline();
 		expect(
 			data.entries.map((entry) => [
 				entry.id,
 				entry.milestonePosition,
 				entry.milestoneBadge,
-				entry.strength,
-				entry.deposit
+				entry.strength
 			])
 		).toEqual([
-			['ent-m2-log-2', 2, null, null, { amount: '0.10', state: 'dep-held' }],
+			['ent-m2-log-2', 2, null, null],
 			// An incomplete claim still moved its milestone to claimed.
-			['ent-m3-delivery', 3, 'claimed', null, { amount: '1.00', state: 'dep-held' }],
-			['ent-m2-log-1', 2, null, null, { amount: '0.10', state: 'dep-held' }],
-			['ent-m1-confirm', 1, 'confirmed', 'stakeholder', { amount: '1.00', state: 'dep-refunded' }],
-			['ent-m1-claim', 1, 'claimed', null, { amount: '1.00', state: 'dep-refunded' }]
+			['ent-m3-delivery', 3, 'claimed', null],
+			['ent-m2-log-1', 2, null, null],
+			['ent-m1-confirm', 1, 'confirmed', 'stakeholder'],
+			['ent-m1-claim', 1, 'claimed', null]
 		]);
 	});
 
-	it('says a refund is outstanding when the milestone is confirmed and the deposit is not back', async () => {
+	it('gives each entry its deposit as held, refunded or refund outstanding', async () => {
+		const data = await timeline();
+		const held = { state: 'held', label: 'Deposit held', outstandingMeaning: null };
+		const refunded = { state: 'refunded', label: 'Deposit refunded', outstandingMeaning: null };
+		expect(data.entries.map((entry) => [entry.id, entry.deposit])).toEqual([
+			['ent-m2-log-2', { amount: '0.10', ...held }],
+			['ent-m3-delivery', { amount: '1.00', ...held }],
+			['ent-m2-log-1', { amount: '0.10', ...held }],
+			['ent-m1-confirm', { amount: '1.00', ...refunded }],
+			['ent-m1-claim', { amount: '1.00', ...refunded }]
+		]);
+	});
+
+	it('says a refund is outstanding, and why, when the milestone is confirmed and the deposit is not back', async () => {
 		await test.db
 			.update(deposits)
 			.set({ refundedAt: null })
 			.where(eq(deposits.entryId, 'ent-m1-claim'));
-		expect(entryOf(await timeline(), 'ent-m1-claim').deposit).toEqual({
+		const deposit = entryOf(await timeline(), 'ent-m1-claim').deposit;
+		expect(deposit).toMatchObject({
 			amount: '1.00',
-			state: 'dep-outstanding'
+			state: 'refund_outstanding',
+			label: 'Refund outstanding'
 		});
+		// The reason is a sentence a donor can read, and names no wallet address.
+		expect(deposit?.outstandingMeaning).toEqual(expect.stringContaining('deposit'));
 	});
 
 	it('shows no deposit for an entry that has none on record', async () => {
