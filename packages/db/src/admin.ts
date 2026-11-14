@@ -7,6 +7,7 @@ import { fixtures } from '@tejido/contracts/fixtures';
 import { migrate } from 'drizzle-orm/d1/migrator';
 import { join } from 'node:path';
 import type { Database } from './client.ts';
+import { e2eFixture, type E2eFixtureInput } from './e2e-fixture.ts';
 import { campaigns, deposits, entries, milestones, parties } from './schema.ts';
 
 /** The SQL migrations written by `npm run db:generate`, committed beside this package. */
@@ -54,6 +55,40 @@ export function seedFixturesSql(db: Database): string {
 			return sql.replace(/\?/g, () => literal(params[next++])) + ';';
 		})
 		.join('\n');
+}
+
+/**
+ * The end-to-end suite's campaign as plain SQL, for the deployed database (e2e-fixture.ts).
+ * `npm run db:seed:e2e:sql` prints it; a person loads it.
+ *
+ * Safe to load more than once. A row that is already there is left exactly as it is, so a
+ * party keeps its reporter code and the wallets its sign-in linked. The one thing a second
+ * load changes is the campaign's two commodity ids, and only the ones given: that is how they
+ * are filled in once a person has created the catalog items.
+ */
+export function e2eFixtureSql(db: Database, input: E2eFixtureInput): string {
+	const fixture = e2eFixture(input);
+	const { logWorkCommodityId, milestoneHitCommodityId } = fixture.campaign;
+	const given = {
+		...(logWorkCommodityId === null ? {} : { logWorkCommodityId }),
+		...(milestoneHitCommodityId === null ? {} : { milestoneHitCommodityId })
+	};
+	const campaign = db.insert(campaigns).values(fixture.campaign);
+	return [
+		Object.keys(given).length === 0
+			? campaign.onConflictDoNothing()
+			: campaign.onConflictDoUpdate({ target: campaigns.id, set: given }),
+		db.insert(parties).values(fixture.parties).onConflictDoNothing(),
+		db.insert(milestones).values(fixture.milestones).onConflictDoNothing()
+	]
+		.map(statementSql)
+		.join('\n');
+}
+
+function statementSql(statement: { toSQL(): { sql: string; params: unknown[] } }): string {
+	const { sql, params } = statement.toSQL();
+	let next = 0;
+	return sql.replace(/\?/g, () => literal(params[next++])) + ';';
 }
 
 function literal(value: unknown): string {
