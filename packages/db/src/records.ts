@@ -7,6 +7,8 @@
 import {
 	describeDeposit,
 	entrySchema,
+	fundingSummary,
+	fundingTotalsSchema,
 	partySchema,
 	totalDeposits,
 	type AgentWalletHostname,
@@ -21,6 +23,8 @@ import {
 	type EvidenceFileRecord,
 	type EvidenceNotPublic,
 	type EvidenceVisibility,
+	type FundingSummary,
+	type FundingTotals,
 	type Milestone,
 	type MilestoneState,
 	type Party,
@@ -28,10 +32,24 @@ import {
 	type PrimaryWalletHostname,
 	type Timestamp
 } from '@tejido/contracts';
-import { and, asc, count, desc, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	notExists,
+	or,
+	sql
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Database, Executor } from './client.ts';
 import {
+	campaignFunding,
 	campaigns,
 	deposits,
 	entries,
@@ -63,6 +81,71 @@ export async function listCampaigns(db: Executor): Promise<Campaign[]> {
 export async function getCampaign(db: Executor, id: string): Promise<Campaign | undefined> {
 	const [row] = await db.select().from(campaigns).where(eq(campaigns.id, id)).limit(1);
 	return row;
+}
+
+// --- Funding ---
+
+/**
+ * What a page may show of a campaign's funding: its goal, and the totals of the last read of
+ * its donation ledger, or "not known" with the reason. Totals only; nothing here, and nothing
+ * stored, identifies a donor. This reads our database and never calls Qatom.
+ */
+export async function getFundingSummary(
+	db: Executor,
+	campaign: Pick<Campaign, 'id' | 'fundingGoal' | 'donationCommodityId'>
+): Promise<FundingSummary> {
+	const [row] = await db
+		.select({
+			raised: campaignFunding.raised,
+			donations: campaignFunding.donations,
+			readAt: campaignFunding.readAt
+		})
+		.from(campaignFunding)
+		.where(eq(campaignFunding.campaignId, campaign.id))
+		.limit(1);
+	return fundingSummary(campaign, row ?? null);
+}
+
+/**
+ * Stores the totals of one read of a campaign's donation ledger, replacing the last read's,
+ * and in the same write moves the campaign from `funding` to `funded` when it has a goal and
+ * the amount raised reaches it. Both land, or neither does.
+ *
+ * Safe to repeat: the same totals stored twice leave the same row, and a campaign that is
+ * already `funded`, or in any status other than `funding`, is not touched. No status moves
+ * backwards, whatever the totals say, and a campaign with no goal is never moved.
+ *
+ * The condition is the rule in `statusAfterFunding` (@tejido/contracts), written as SQL so it
+ * is checked against the row as it is at the moment of the write.
+ */
+export async function recordFundingTotals(
+	db: Database,
+	campaignId: string,
+	totals: FundingTotals
+): Promise<{ becameFunded: boolean }> {
+	const { raised, donations, readAt } = fundingTotalsSchema.parse(totals);
+	const [, moved] = await db.batch([
+		db
+			.insert(campaignFunding)
+			.values({ campaignId, raised, donations, readAt })
+			.onConflictDoUpdate({
+				target: campaignFunding.campaignId,
+				set: { raised, donations, readAt }
+			}),
+		db
+			.update(campaigns)
+			.set({ status: 'funded' })
+			.where(
+				and(
+					eq(campaigns.id, campaignId),
+					eq(campaigns.status, 'funding'),
+					// NULL is not less than anything, so a campaign without a goal never matches.
+					lte(campaigns.fundingGoal, raised)
+				)
+			)
+			.returning({ id: campaigns.id })
+	]);
+	return { becameFunded: moved.length > 0 };
 }
 
 // --- Parties ---
