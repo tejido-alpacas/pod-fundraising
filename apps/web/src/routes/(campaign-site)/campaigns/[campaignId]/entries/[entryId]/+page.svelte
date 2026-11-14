@@ -1,7 +1,31 @@
 <script lang="ts">
 	import { formatAmount } from '@tejido/contracts';
-	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
-	import { partyLabel } from '#lib/campaign-site/labels.ts';
+	import { Banner, EvidenceTile, Icon, STATES, StatusBadge } from '@tejido/ui';
+	import Assurance from '#lib/campaign-site/Assurance.svelte';
+	import Crumbs from '#lib/campaign-site/Crumbs.svelte';
+	import DepositRow from '#lib/campaign-site/DepositRow.svelte';
+	import PartyIdentity from '#lib/campaign-site/PartyIdentity.svelte';
+	import ProofReceipt from '#lib/campaign-site/ProofReceipt.svelte';
+	import {
+		CLAIM_REPORTED,
+		WORK_STATUS_REPORTED,
+		confirmationAnswer,
+		count,
+		countWord,
+		day,
+		entryKind,
+		evidenceCount,
+		filingKey,
+		fullDay,
+		headline,
+		lowerFirst,
+		milestoneStatus,
+		overdueLabel,
+		stamp,
+		time,
+		type Answer,
+		type DepositStateKey
+	} from '#lib/campaign-site/display.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -10,491 +34,519 @@
 	const filed = $derived(data.filed);
 	const receipt = $derived(data.receipt);
 	const filer = $derived(data.filer);
+	const milestone = $derived(data.milestone);
+	const today = $derived(data.today);
 
-	/** A receipt time is shown to the second: it is what a donor compares. */
-	const when = (timestamp: string) =>
-		new Date(timestamp).toLocaleString('en-GB', {
-			day: 'numeric',
-			month: 'short',
-			year: 'numeric',
-			hour: '2-digit',
-			minute: '2-digit',
-			second: '2-digit',
-			timeZone: 'UTC',
-			timeZoneName: 'short'
-		});
+	const base = $derived(`/campaigns/${data.campaign.id}`);
+	const milestoneHref = $derived(`${base}/milestones/${milestone.id}`);
 
-	const words = (value: string) => value.replaceAll('_', ' ');
+	const kind = $derived(entryKind(filed.item, filed.item === 'milestone_hit' ? filed.claim : null));
+	const filing = $derived(filingKey(entry.status));
+	// This entry is filed on the milestone, so the milestone is never "not started" here.
+	const status = $derived(milestoneStatus(milestone.state, true));
+	const filerRole = $derived(lowerFirst(filer.title));
 
-	// The same words and badge shapes as the donor timeline, so the two pages read as one site.
-	const STATUS_LABEL = {
-		verified: 'Verified',
-		filed: 'Filed, not yet verified',
-		incomplete: 'Incomplete',
-		flagged: 'Flagged'
+	// ---- Evidence -------------------------------------------------------------------------
+
+	const LEFT_OUT = {
+		not_in_our_store:
+			'It isn’t a file held by Tejido, so we couldn’t verify that it belongs to this project.',
+		hash_mismatch:
+			'Its fingerprint doesn’t match the file we hold, so we couldn’t verify that it is the file that was filed.',
+		picture_on_documents_only: 'It’s a picture, and this milestone takes documents only.'
 	} as const;
 
-	const heading = $derived(
-		filed.item === 'log_work'
-			? 'Work log'
-			: filed.claim === 'confirm'
-				? 'Confirmation'
-				: `Milestone claim: ${words(filed.claim)}`
+	const files = $derived({
+		photos: data.evidence.filter((file) => file.state === 'shown' && file.kind === 'photo').length,
+		documents: data.evidence.filter((file) => file.state === 'shown' && file.kind === 'document')
+			.length,
+		leftOut: data.evidence.filter((file) => file.state === 'left_out').length
+	});
+	/** Files the party who filed them marked not public. Donors are told what and why. */
+	const notPublic = $derived(data.evidence.filter((file) => file.state === 'not_public').length);
+	const shownCount = $derived(files.photos + files.documents);
+	/** Whether every left-out file was left out because it could not be verified. */
+	const unverifiedOnly = $derived(
+		data.evidence.every(
+			(file) => file.state !== 'left_out' || file.reason !== 'picture_on_documents_only'
+		)
+	);
+	const firstCaption = $derived(
+		data.evidence.flatMap((file) =>
+			file.state === 'shown' && file.caption ? [file.caption] : []
+		)[0] ?? null
 	);
 
-	const hasReceipt = $derived(receipt.twistId !== null);
-	const leftOut = $derived(data.evidence.filter((file) => file.state !== 'shown').length);
+	// ---- The deposit ----------------------------------------------------------------------
+
+	const deposit = $derived(data.deposit);
+	// The state comes from the server, which reads it from what is recorded. It is never worked
+	// out again here.
+	const DEPOSIT_KEY = {
+		held: 'dep-held',
+		refunded: 'dep-refunded',
+		refund_outstanding: 'dep-outstanding'
+	} as const;
+	const depositState = $derived<DepositStateKey | null>(
+		deposit === null ? null : DEPOSIT_KEY[deposit.state]
+	);
+
+	// ---- The three questions --------------------------------------------------------------
+
+	const QUESTION_1 = 'Was the filing recorded correctly?';
+	const recorded = $derived<Answer>(
+		entry.status === 'verified'
+			? {
+					tone: 'record',
+					icon: 'receipt-check',
+					question: QUESTION_1,
+					answer: 'Yes · receipt verified',
+					detail:
+						'Recorded and matched to its public receipt, paid from the registered wallet. This shows the filing happened. It doesn’t prove the work.'
+				}
+			: entry.status === 'flagged'
+				? {
+						tone: 'critical',
+						icon: 'receipt-flag',
+						question: QUESTION_1,
+						answer: 'Recorded, but flagged',
+						detail: `The receipt exists. The wallet that paid doesn’t match the ${filerRole}’s.`
+					}
+				: entry.status === 'incomplete'
+					? {
+							tone: 'attention',
+							icon: 'receipt-missing',
+							question: QUESTION_1,
+							answer: 'Saved, but incomplete',
+							detail:
+								receipt.twistId === null
+									? 'Something this milestone needs is missing, and it hasn’t been matched to its public receipt yet.'
+									: 'Its receipt exists, but something this milestone needs is missing.'
+						}
+					: {
+							tone: 'neutral',
+							icon: 'receipt-clock',
+							question: QUESTION_1,
+							answer: 'Receipt pending',
+							detail: 'Filed with Tejido. We haven’t matched it to its public receipt yet.'
+						}
+	);
+	const evidenced = $derived<Answer>({
+		tone: 'neutral',
+		icon: shownCount > 0 ? (files.photos > 0 ? 'image' : 'file-text') : 'excluded',
+		question: 'Is there evidence of the work?',
+		answer:
+			evidenceCount(files, notPublic > 0 ? '' : 'No files attached') +
+			(notPublic > 0
+				? `${shownCount + files.leftOut > 0 ? ', ' : ''}${count(notPublic, 'file')} not public`
+				: ''),
+		detail:
+			data.evidence.length === 0
+				? 'Nothing was attached to this entry. It is the filer’s account only.'
+				: firstCaption
+					? `The filer describes ${shownCount === 1 ? 'it' : 'the first'} as “${firstCaption}”.`
+					: shownCount > 0
+						? 'Each file is shown below with its fingerprint.'
+						: 'No attached file could be shown. Each is listed below with the reason.'
+	});
+	const confirmedBy = $derived(
+		milestone.state === 'confirmed_creator'
+			? `the organizer, ${data.campaign.creatorName}`
+			: data.confirmer
+				? `${data.confirmer.name}, ${lowerFirst(data.confirmer.title)}`
+				: null
+	);
+	const confirmation = $derived(
+		confirmationAnswer(
+			'Has someone confirmed the milestone?',
+			{
+				position: milestone.position,
+				status,
+				strength: milestone.strength,
+				confirmedAt: milestone.confirmedAt,
+				confirmedBy,
+				confirmer: data.confirmer
+			},
+			today
+		)
+	);
+
+	// ---- What happened --------------------------------------------------------------------
+
+	interface Happened {
+		at: string;
+		title: string;
+		text: string;
+		open?: boolean;
+	}
+	const events = $derived.by(() => {
+		const happened: Happened[] = [
+			{
+				at: entry.filedAt,
+				title: 'Filed with Tejido',
+				text:
+					data.evidence.length === 0
+						? `${kind} with no files`
+						: `${kind} with ${count(data.evidence.length, 'file')}${
+								files.leftOut > 0 ? `, ${files.leftOut} left out` : ''
+							}`
+			}
+		];
+		if (receipt.stampedAt) {
+			happened.push({
+				at: receipt.stampedAt,
+				title: 'Deposit paid and recorded on the public ledger',
+				text:
+					(deposit ? `${formatAmount(deposit.amount)} USD-TDN ` : 'Paid ') +
+					(receipt.walletsMatch === false
+						? `from a wallet not registered to the ${filerRole}`
+						: receipt.walletsMatch
+							? 'from the registered wallet'
+							: 'by the filer')
+			});
+		}
+		if (entry.updatedAt !== entry.filedAt) {
+			happened.push({
+				at: entry.updatedAt,
+				title: 'Record last updated',
+				text: `Its filing status is now “${STATES[filing].label}”`,
+				open: entry.status === 'flagged' || entry.status === 'incomplete'
+			});
+		}
+		if (milestone.confirmedAt) {
+			happened.push({
+				at: milestone.confirmedAt,
+				title: `Milestone ${milestone.position} confirmed`,
+				text: milestone.strength ? STATES[milestone.strength].label : 'Confirmed'
+			});
+		}
+		if (deposit?.refundedAt) {
+			happened.push({
+				at: deposit.refundedAt,
+				title: 'Deposit refunded',
+				text: `${formatAmount(deposit.amount)} USD-TDN returned to the filer`
+			});
+		}
+		return happened.sort((a, b) => a.at.localeCompare(b.at));
+	});
+
+	const milestoneWhen = $derived(
+		milestone.confirmed && milestone.confirmedAt
+			? `Confirmed ${day(milestone.confirmedAt, today)}`
+			: `Due ${day(milestone.dueDate, today)}${
+					milestone.percentReported === null
+						? ''
+						: ` · ${milestone.percentReported}% complete, as reported`
+				}`
+	);
 </script>
 
-<svelte:head><title>{heading} · proof · {data.campaign.title} · Tejido</title></svelte:head>
+<svelte:head>
+	<title>{kind}, {fullDay(entry.filedAt)} · {data.campaign.title} · Tejido</title>
+</svelte:head>
 
-<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current={null} />
+<div class="tj-page">
+	<div class="tj-section" style:gap="var(--space-5)">
+		<Crumbs
+			items={[
+				{ label: data.campaign.title, href: base },
+				// "Updates" is the campaign's timeline, where this entry is listed.
+				{ label: 'Updates', href: base },
+				{ label: `${kind}, ${day(entry.filedAt, today)}` }
+			]}
+		/>
 
-<p class="eyebrow">Proof of one entry</p>
-<h1>{heading}</h1>
-<p class="muted">
-	{data.milestone.title} · filed by {filer.name}, {filer.title} · {when(entry.filedAt)}
-</p>
+		<div class="tj-pagehead">
+			<p class="text-eyebrow">{kind} · Milestone {milestone.position} · {milestone.title}</p>
+			<h1>{headline(filed.summary)}</h1>
+			<p class="tj-pagehead__meta">
+				Filed by {filer.name}, {filerRole}, on
+				<time datetime={entry.filedAt}>{fullDay(entry.filedAt)} at {time(entry.filedAt)}</time>
+			</p>
+			<div class="tj-badges">
+				<StatusBadge state={filing} />
+				<StatusBadge state={status} label="Milestone {STATES[status].label.toLowerCase()}" />
+				{#if milestone.daysLate > 0}
+					<StatusBadge state="overdue" label={overdueLabel(milestone.daysLate)} />
+				{/if}
+				{#if depositState}<StatusBadge state={depositState} />{/if}
+			</div>
+		</div>
 
-<!-- What the status means, in full. A flag is the first thing a donor must see. -->
-<section class="verdict status-{entry.status}" aria-label="Status of this entry">
-	<p class="verdict-title">
-		<span class="pill status-{entry.status}">
-			<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-				{#if entry.status === 'verified'}
-					<path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2.2" />
-				{:else if entry.status === 'flagged'}
-					<path d="M8 1.5l7 12.5H1z" fill="none" stroke="currentColor" stroke-width="1.6" />
-					<path d="M8 6v4M8 11.4v1.4" stroke="currentColor" stroke-width="1.8" />
-				{:else if entry.status === 'incomplete'}
-					<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6" />
-					<path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" />
+		{#if entry.status === 'flagged'}
+			<Banner
+				tone="critical"
+				icon="receipt-flag"
+				role="note"
+				title="This filing was recorded, but the payment came from a different wallet."
+			>
+				The deposit came from a wallet that isn’t the one registered for {filer.name}. There can be
+				ordinary reasons, like paying from a new phone, but we can’t link this filing to the
+				{filerRole} with certainty. The report itself may still be accurate.
+			</Banner>
+		{:else if entry.status === 'incomplete'}
+			<Banner
+				tone="attention"
+				icon="receipt-missing"
+				role="note"
+				title={entry.statusReason ?? 'Something this milestone needs is missing.'}
+			>
+				This entry is saved, and what it says is shown below. {filer.name} can add what is missing without
+				paying again.
+			</Banner>
+		{/if}
+
+		<Assurance
+			label="What is known about this entry"
+			answers={[recorded, evidenced, confirmation]}
+		/>
+	</div>
+
+	<div class="tj-split">
+		<div class="tj-section" style:gap="var(--space-8)">
+			<section class="tj-section" aria-labelledby="reported">
+				<h2 class="tj-section__title" id="reported">What was reported</h2>
+				<div class="tj-quote">
+					<blockquote class="summary">{filed.summary}</blockquote>
+					<div class="tj-entry__facts">
+						{#if filed.item === 'log_work'}
+							{#if filed.period}<span><Icon name="calendar" size={16} />{filed.period}</span>{/if}
+							{#if filed.status}
+								<span>
+									<Icon name={filed.status === 'on_track' ? 'check' : 'alert-circle'} size={16} />
+									{WORK_STATUS_REPORTED[filed.status]}
+								</span>
+							{/if}
+							<!-- The reporter's own figure. Tejido never computes a delivery percentage. -->
+							{#if filed.percentComplete !== null}
+								<span>{filed.percentComplete}% complete, as reported</span>
+							{/if}
+						{:else}
+							<span>
+								<Icon name={filed.claim === 'confirm' ? 'users' : 'flag'} size={16} />
+								{filed.claim === 'confirm'
+									? `Confirms milestone ${milestone.position}`
+									: CLAIM_REPORTED[filed.claim]}
+							</span>
+							{#if filed.quantity !== null}
+								<span>
+									<Icon name="package" size={16} />{filed.quantity}{filed.unit
+										? ` ${filed.unit}`
+										: ''}, as reported
+								</span>
+							{/if}
+							{#if filed.amountSpent !== null}
+								<span>Amount spent, as reported: {filed.amountSpent}</span>
+							{/if}
+						{/if}
+						{#if filed.location}<span><Icon name="map-pin" size={16} />{filed.location}</span>{/if}
+					</div>
+					<PartyIdentity
+						name={filer.name}
+						role={filer.title}
+						relationship={filer.relationship}
+						reason={filer.relationshipReason}
+					/>
+				</div>
+			</section>
+
+			<section class="tj-section" aria-labelledby="evidence">
+				<div class="tj-section__head">
+					<h2 class="tj-section__title" id="evidence">Evidence</h2>
+					<p class="tj-section__sub">
+						{data.evidence.length === 0
+							? 'No files were submitted'
+							: `${countWord(data.evidence.length, 'file')} ${
+									data.evidence.length === 1 ? 'was' : 'were'
+								} submitted`}
+					</p>
+				</div>
+				{#if data.evidence.length === 0}
+					<p class="tj-help">
+						No photos or documents were attached to this entry. What was reported above is the
+						filer’s own account.
+					</p>
 				{:else}
-					<circle
-						cx="8"
-						cy="8"
-						r="6"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.6"
-						stroke-dasharray="2.6 2.1"
+					<div class="tj-evidence">
+						{#each data.evidence as file, index (index)}
+							{#if file.state === 'left_out'}
+								<EvidenceTile
+									kind="excluded"
+									caption="Attached file · not counted"
+									reason={LEFT_OUT[file.reason]}
+									fingerprint={file.sha256}
+								/>
+							{:else if file.state === 'not_public'}
+								<EvidenceTile
+									kind="private"
+									caption={file.kind}
+									reason="{file.reason} Only the party who filed it and this campaign’s confirmers can open it."
+									fingerprint={file.sha256}
+								/>
+							{:else if file.kind === 'photo'}
+								<EvidenceTile
+									kind="photo"
+									src={file.url}
+									href={file.url}
+									caption={file.caption ?? 'Photo, no caption given'}
+									fingerprint={file.sha256}
+								/>
+							{:else}
+								<EvidenceTile
+									kind="document"
+									href={file.url}
+									caption={file.caption ?? 'Document, no caption given'}
+									fingerprint={file.sha256}
+								/>
+							{/if}
+						{/each}
+					</div>
+					<p class="tj-help">
+						{countWord(shownCount, 'file')}
+						{shownCount === 1 ? 'was' : 'were'} included.
+						{#if notPublic > 0}
+							{countWord(notPublic, 'file')}
+							{notPublic === 1 ? 'is' : 'are'} kept off this page by the party who filed
+							{notPublic === 1 ? 'it' : 'them'}.
+						{/if}
+						{#if files.leftOut > 0}
+							{countWord(files.leftOut, 'file')}
+							{files.leftOut === 1 ? 'was' : 'were'} left out{unverifiedOnly
+								? ` because we couldn’t verify that ${
+										files.leftOut === 1 ? 'it' : 'they'
+									} belonged to this project.`
+								: '. The reason is given with each.'}
+						{/if}
+						{#if data.documentsOnly}
+							This milestone takes documents only, so no pictures are shown on it.
+						{/if}
+					</p>
+					<details class="tj-disclosure check">
+						<summary>How to check a file yourself <Icon name="chevron-down" size={18} /></summary>
+						<div class="tj-disclosure__body">
+							<p class="tj-help">
+								Download the file and work out its fingerprint: <code class="tj-id"
+									>shasum -a 256 file</code
+								>
+								on a Mac or Linux,
+								<code class="tj-id">certutil -hashfile file SHA256</code> on Windows. Compare it with
+								the full fingerprint under Technical details in the receipt. If every character matches,
+								it is exactly the file that was filed.
+							</p>
+						</div>
+					</details>
+				{/if}
+			</section>
+
+			<section class="tj-section" aria-labelledby="happened">
+				<div class="tj-section__head">
+					<h2 class="tj-section__title" id="happened">What happened</h2>
+					<p class="tj-section__sub">Times are UTC</p>
+				</div>
+				<ol class="tj-events">
+					{#each events as event, index (index)}
+						<li class={{ 'is-open': event.open }}>
+							<time datetime={event.at}>{stamp(event.at, today)}</time>
+							<p><strong>{event.title}</strong><span>{event.text}</span></p>
+						</li>
+					{/each}
+				</ol>
+			</section>
+		</div>
+
+		<div class="tj-split__side">
+			<ProofReceipt
+				status={entry.status}
+				entryId={entry.id}
+				item={filed.item}
+				filedAt={entry.filedAt}
+				{receipt}
+				filer={filer.name}
+				milestone={{ position: milestone.position, title: milestone.title }}
+				files={data.evidence.map((file) => ({
+					label:
+						file.state === 'left_out'
+							? 'left out'
+							: file.state === 'not_public'
+								? 'not public'
+								: (file.caption ?? file.kind),
+					sha256: file.sha256
+				}))}
+			/>
+
+			{#if deposit && depositState}
+				<DepositRow what="Filing deposit" amount={deposit.amount} states={[depositState]}>
+					Paid by the filer to record this entry.
+					{#if depositState === 'dep-refunded'}
+						Returned to the filer{deposit.refundedAt
+							? ` on ${day(deposit.refundedAt, today)}`
+							: ''}, after milestone {milestone.position} was confirmed.
+					{:else if depositState === 'dep-held'}
+						Returned when milestone {milestone.position} is confirmed.
+						{#if entry.status === 'flagged'}
+							A deposit on a flagged filing isn’t sent back until a person has looked at it.
+						{/if}
+					{:else}
+						{deposit.outstandingMeaning ??
+							`Milestone ${milestone.position} is confirmed and this refund hasn’t arrived yet.`}
+						Donations are not affected.
+					{/if}
+					It isn’t a donation or a payment for the work.
+				</DepositRow>
+			{/if}
+
+			<div class="tj-card">
+				<p class="text-eyebrow">Milestone {milestone.position}</p>
+				<p class="tj-msrow__title">{milestone.title}</p>
+				<div class="tj-msstatus">
+					<StatusBadge state={status} />
+					{#if milestone.daysLate > 0}
+						<StatusBadge state="overdue" label={overdueLabel(milestone.daysLate)} />
+					{/if}
+					<span class="tj-msstatus__when">{milestoneWhen}</span>
+				</div>
+				{#if data.confirmer}
+					<p class="tj-help">
+						{milestone.state === 'confirmed_creator'
+							? 'Named to confirm it. The organizer signed it off instead.'
+							: milestone.confirmed
+								? 'Confirmed by'
+								: 'Confirms this milestone'}
+					</p>
+					<PartyIdentity
+						name={data.confirmer.name}
+						role={data.confirmer.title}
+						relationship={data.confirmer.relationship}
+						reason={data.confirmer.relationshipReason}
 					/>
 				{/if}
-			</svg>
-			{STATUS_LABEL[entry.status]}
-		</span>
-	</p>
-	{#if entry.status === 'verified'}
-		<p>
-			Qatom’s ledger has a payment for this entry, and it was paid from the wallet registered for
-			{filer.name}. That is the receipt below.
-		</p>
-	{:else if entry.status === 'flagged'}
-		<p class="reason"><strong>{entry.statusReason ?? 'This entry has been flagged.'}</strong></p>
-		<p>
-			Qatom’s ledger has a payment for this entry, but it did not come from the wallet registered
-			for {filer.name}. So the receipt below does not show that {filer.name} filed it. Treat this entry
-			with care.
-		</p>
-	{:else if entry.status === 'incomplete'}
-		<p class="reason">
-			<strong>{entry.statusReason ?? 'Something this milestone requires is missing.'}</strong>
-		</p>
-		<p>
-			The entry was saved, but it is missing something this milestone requires. The filer can add it
-			without paying again.
-			{#if hasReceipt}
-				Its payment has been matched to Qatom’s ledger and came from the wallet registered for
-				{filer.name}.
-			{:else}
-				It has not been matched to Qatom’s ledger yet, so there is no receipt to show yet.
-			{/if}
-		</p>
-	{:else}
-		<p>
-			This entry has been saved, but it has not been matched to Qatom’s ledger yet. That does not
-			mean it is false: matching happens after filing, and the receipt appears here once it is done.
-			{#if receipt.registeredWallet === null}
-				{filer.name} has not linked a Qatom wallet yet, and an entry cannot be matched until they have.
-			{/if}
-		</p>
-	{/if}
-</section>
-
-<div class="sections">
-	<section class="card">
-		<h2>The receipt</h2>
-		{#if hasReceipt}
-			<dl>
-				<dt>Transaction id</dt>
-				<dd><code>{receipt.twistId}</code></dd>
-				<dt>Stamped by Qatom</dt>
-				<dd>
-					{#if receipt.stampedAt}
-						<time datetime={receipt.stampedAt}>{when(receipt.stampedAt)}</time>
-					{:else}
-						Not recorded
-					{/if}
-				</dd>
-				<dt>Wallet that paid</dt>
-				<dd>
-					{#if receipt.payingWallet}<code>{receipt.payingWallet}</code>{:else}Not recorded{/if}
-				</dd>
-				<dt>Wallet registered for {filer.name}</dt>
-				<dd>
-					{#if receipt.registeredWallet}
-						<code>{receipt.registeredWallet}</code>
-					{:else}
-						None registered
-					{/if}
-				</dd>
-				<dt>Do the two match?</dt>
-				<dd>
-					{#if receipt.walletsMatch === true}
-						<strong class="yes">Yes.</strong> The wallet that paid is the wallet registered for
-						{filer.name}.
-						{#if entry.status === 'flagged'}
-							They were not the same when this entry was matched to the ledger, which is why it is
-							flagged; the registered wallet is different now.
-						{/if}
-					{:else if receipt.walletsMatch === false}
-						<strong class="no">No.</strong> The wallet that paid is not the wallet registered for
-						{filer.name}.
-						{#if entry.status === 'verified' || entry.status === 'incomplete'}
-							They were the same when this entry was matched to the ledger; the registered wallet is
-							different now.
-						{/if}
-					{:else}
-						They cannot be compared: one of the two wallets is not on record.
-					{/if}
-				</dd>
-			</dl>
-			<p class="muted">
-				Qatom is the payment service Tejido uses. The transaction id and time come from Qatom’s
-				ledger, not from the filer. They show that this wallet paid to file this entry, and when.
-				They do not show that what was written is true.
-			</p>
-		{:else}
-			<p>
-				No receipt yet. This entry has not been matched to a transaction in Qatom’s ledger, so there
-				is no transaction id, stamp time or paying wallet to show.
-			</p>
-			<dl>
-				<dt>Wallet registered for {filer.name}</dt>
-				<dd>
-					{#if receipt.registeredWallet}
-						<code>{receipt.registeredWallet}</code>
-					{:else}
-						None registered yet
-					{/if}
-				</dd>
-			</dl>
-		{/if}
-	</section>
-
-	<section class="card">
-		<h2>What was filed</h2>
-		<dl>
-			<dt>Kind of entry</dt>
-			<dd>
-				{#if filed.item === 'log_work'}
-					Work log, a routine progress report
-				{:else if filed.claim === 'confirm'}
-					Confirmation that a milestone is done
-				{:else}
-					Claim that a milestone is done
-				{/if}
-			</dd>
-			<dt>Milestone</dt>
-			<dd>
-				<a href="/campaigns/{data.campaign.id}/milestones#{data.milestone.id}"
-					>{data.milestone.title}</a
-				>
-			</dd>
-			<dt>Filed by</dt>
-			<dd>
-				{filer.name}, {filer.title} ({partyLabel(filer)}){filer.relationshipReason
-					? ` ${filer.relationshipReason}`
-					: ''}
-			</dd>
-			<dt>Filed</dt>
-			<dd><time datetime={entry.filedAt}>{when(entry.filedAt)}</time></dd>
-			{#if filed.item === 'milestone_hit'}
-				<dt>Claim</dt>
-				<dd>{words(filed.claim)}</dd>
-			{/if}
-			<dt>Summary</dt>
-			<dd class="summary">{filed.summary}</dd>
-			{#if filed.item === 'log_work'}
-				<dt>Status of the work</dt>
-				<dd class:muted={filed.status === null}>
-					{filed.status ? words(filed.status) : 'Not given'}
-				</dd>
-				<dt>Period</dt>
-				<dd class:muted={filed.period === null}>{filed.period ?? 'Not given'}</dd>
-				<dt>Percent complete</dt>
-				<dd class:muted={filed.percentComplete === null}>
-					{filed.percentComplete === null ? 'Not given' : `${filed.percentComplete}%`}
-				</dd>
-			{:else}
-				<dt>Quantity</dt>
-				<dd class:muted={filed.quantity === null}>{filed.quantity ?? 'Not given'}</dd>
-				<dt>Unit</dt>
-				<dd class:muted={filed.unit === null}>{filed.unit ?? 'Not given'}</dd>
-				<dt>Amount spent</dt>
-				<dd class:muted={filed.amountSpent === null}>{filed.amountSpent ?? 'Not given'}</dd>
-			{/if}
-			<dt>Location</dt>
-			<dd class:muted={filed.location === null}>{filed.location ?? 'Not given'}</dd>
-			<dt>Photos or documents</dt>
-			<dd class:muted={data.evidence.length === 0}>
-				{data.evidence.length === 0 ? 'None attached' : `${data.evidence.length} attached, below`}
-			</dd>
-		</dl>
-	</section>
-
-	<section class="card">
-		<h2>The deposit</h2>
-		{#if data.deposit}
-			<p>
-				{filer.name} paid a deposit of <strong>{formatAmount(data.deposit.amount)}</strong> to file this
-				entry.
-			</p>
-			{#if data.deposit.refund === 'returned'}
-				<p>
-					<strong class="yes">Returned.</strong> It was sent back to {filer.name}
-					{#if data.deposit.refundedAt}
-						on <time datetime={data.deposit.refundedAt}>{when(data.deposit.refundedAt)}</time>
-					{/if}
-					after the milestone was confirmed.
-				</p>
-			{:else if data.deposit.refund === 'being_returned'}
-				<p>
-					<strong>Not confirmed as returned.</strong> A refund was started, and we have no record yet
-					that it went through.
-				</p>
-			{:else if data.deposit.refund === 'outcome_unknown'}
-				<p>
-					<strong>Not confirmed as returned.</strong> A refund was sent, but no answer came back, so we
-					do not know whether it arrived. It needs a person to check, and it will not be sent a second
-					time.
-				</p>
-			{:else}
-				<p>
-					<strong>Held, not refunded.</strong>
-					{#if entry.status === 'flagged'}
-						Deposits on flagged entries are not sent back until a person has looked at them.
-					{:else if !data.milestone.confirmed}
-						Deposits are sent back when the milestone is confirmed. This one is not confirmed yet.
-					{:else if !hasReceipt}
-						The milestone is confirmed, but a deposit is only sent back once its entry has been
-						matched to Qatom’s ledger.
-					{:else}
-						The milestone is confirmed and the refund has not been sent yet.
-					{/if}
-				</p>
-			{/if}
-		{:else}
-			<p>No deposit is on record for this entry.</p>
-		{/if}
-	</section>
-
-	<section class="card">
-		<h2>Evidence</h2>
-		{#if data.evidence.length === 0}
-			<p class="muted">No photos or documents were attached to this entry.</p>
-		{:else}
-			<p>
-				To check a file, download it, work out its SHA-256 (<code>shasum -a 256 file</code> on a Mac
-				or Linux, <code>certutil -hashfile file SHA256</code> on Windows) and compare it with the one
-				shown here: if every character matches, it is exactly the file that was filed.
-			</p>
-			{#if data.documentsOnly}
-				<p class="muted">This milestone takes documents only, so no pictures are shown on it.</p>
-			{/if}
-			{#if leftOut > 0}
-				<p class="left-out">
-					{leftOut === 1 ? '1 attached file is' : `${leftOut} attached files are`} not shown here, for
-					the reason given beside {leftOut === 1 ? 'it' : 'each'}.
-				</p>
-			{/if}
-			<ul class="evidence">
-				{#each data.evidence as file, index (index)}
-					<li>
-						{#if file.state === 'shown'}
-							{#if file.kind === 'photo'}
-								<a href={file.url}>
-									<img src={file.url} alt={file.caption ?? 'Evidence photo'} loading="lazy" />
-								</a>
-							{/if}
-							<p>
-								<strong>{file.caption ?? (file.kind === 'photo' ? 'Photo' : 'Document')}</strong>
-								· <a href={file.url} download>download the {file.kind}</a>
-							</p>
-						{:else if file.state === 'not_public'}
-							<p><strong>Not public: {file.kind}</strong></p>
-							<p class="left-out">
-								{file.reason} Only the party who filed it and this campaign’s confirmers can open it.
-							</p>
-						{:else}
-							<p><strong>Attached file</strong></p>
-							<p class="left-out">{file.sentence}</p>
-						{/if}
-						<p class="hash">
-							<span class="muted">{file.state === 'left_out' ? 'SHA-256 as filed' : 'SHA-256'}</span
-							>
-							<code>{file.sha256}</code>
-						</p>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</section>
+				<a class="tj-link--standalone" href={milestoneHref}>
+					View milestone {milestone.position}
+					<Icon name="arrow-right" size={18} />
+				</a>
+			</div>
+		</div>
+	</div>
 </div>
 
-<p class="muted back">
-	<a class="tap" href="/campaigns/{data.campaign.id}">Back to the timeline</a>
-</p>
-
 <style>
-	.muted {
-		color: var(--muted);
-		font-size: 0.9rem;
+	/* In the sidebar the receipt is narrow, so its rows stack as they do on a phone: an
+	   identifier keeps its own line instead of wrapping beside its label. */
+	@container (min-width: 900px) {
+		.tj-split__side :global(.tj-kv__row) {
+			grid-template-columns: minmax(0, 1fr);
+			gap: 2px;
+		}
 	}
-	.sections {
-		display: grid;
-		gap: 0.75rem;
-		max-width: 46rem;
-	}
-	.card,
-	.verdict {
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 0.9rem 1rem;
-	}
-	.card h2 {
-		margin-top: 0;
-	}
-	.card p,
-	.verdict p {
-		margin: 0.4rem 0;
-	}
-	.verdict {
-		max-width: 46rem;
-		box-sizing: border-box;
-		margin: 1rem 0 0.75rem;
-		border-left-width: 5px;
-		border-left-color: var(--muted);
-	}
-	.verdict.status-verified {
-		border-left-color: var(--a);
-	}
-	.verdict.status-incomplete {
-		border-left-color: var(--c);
-	}
-	.verdict.status-flagged {
-		border: 2px solid var(--warn);
-		border-left-width: 8px;
-	}
-	.verdict-title {
-		font-size: 1.1rem;
-	}
-	.pill {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		font-size: 0.85rem;
-		font-weight: 650;
-		line-height: 1.3;
-		border-radius: 999px;
-		padding: 2px 11px 2px 8px;
-		border: 1.5px dashed currentColor;
-		color: var(--muted);
-		white-space: nowrap;
-	}
-	.pill svg {
-		flex: none;
-	}
-	.pill.status-verified {
-		border: 1.5px solid var(--a);
-		background: var(--a);
-		color: #fff;
-	}
-	.pill.status-incomplete {
-		color: var(--c);
-	}
-	.pill.status-flagged {
-		border: 1.5px solid var(--warn);
-		background: var(--warn);
-		color: #fff;
-	}
-	.reason {
-		color: var(--warn);
-	}
-	.left-out {
-		color: var(--c);
-	}
-	.status-incomplete .reason {
-		color: var(--c);
-	}
-	.yes {
-		color: var(--a);
-	}
-	.no {
-		color: var(--warn);
-	}
-	dl {
-		display: grid;
-		grid-template-columns: minmax(8rem, 13rem) 1fr;
-		gap: 0.45rem 1rem;
-		margin: 0.5rem 0;
-	}
-	dt {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	dd {
-		margin: 0;
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
+	/* The filer's words keep their own line breaks. */
 	.summary {
 		white-space: pre-line;
+		overflow-wrap: anywhere;
 	}
-	.evidence {
-		list-style: none;
-		padding: 0;
-		margin: 0.75rem 0 0;
-		display: grid;
-		gap: 0.75rem;
-	}
-	.evidence li {
-		border-top: 1px solid var(--line);
-		padding-top: 0.75rem;
-	}
-	.evidence img {
-		display: block;
-		max-width: 100%;
-		max-height: 22rem;
-		border-radius: 6px;
-		border: 1px solid var(--line);
-	}
-	.hash code {
-		display: block;
-		margin-top: 0.2rem;
-		padding: 0.35rem 0.5rem;
-	}
-	.back {
-		margin-top: 1rem;
-	}
-	@media (max-width: 34rem) {
-		dl {
-			grid-template-columns: 1fr;
-			gap: 0.1rem;
-		}
-		dd {
-			margin-bottom: 0.5rem;
-		}
+	/* A disclosure standing on its own, outside the receipt. */
+	.check {
+		border: var(--border-hair) solid var(--border);
+		border-radius: var(--radius-lg);
+		background: var(--surface);
 	}
 </style>

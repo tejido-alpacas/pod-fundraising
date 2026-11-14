@@ -14,6 +14,7 @@ const contractor = fixtures.parties[0]!;
 /** What the page is sent about one milestone. */
 interface Row {
 	id: string;
+	position: number;
 	state: string;
 	strength: string | null;
 	confirmedAt: string | null;
@@ -92,6 +93,13 @@ describe('the milestone status page', () => {
 			['m2-walls', 'open'],
 			['m3-books-delivered', 'claimed']
 		]);
+	});
+
+	it('numbers each milestone and sends the server’s date for writing dates', async () => {
+		const { data, rows } = await status();
+
+		expect(data.today).toBe('2026-11-14');
+		expect(rows.map((row) => row.position)).toEqual([1, 2, 3]);
 	});
 
 	it('shows the strength of a confirmation from how the confirmer relates to the project', async () => {

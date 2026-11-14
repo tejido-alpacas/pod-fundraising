@@ -1,610 +1,492 @@
 <script lang="ts">
-	import { formatAmount, type MilestoneState } from '@tejido/contracts';
+	import { formatAmount } from '@tejido/contracts';
+	import { Banner, EmptyState, Icon, StatusBadge } from '@tejido/ui';
 	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
-	import EntryStatus from '#lib/campaign-site/EntryStatus.svelte';
+	import DepositRow from '#lib/campaign-site/DepositRow.svelte';
 	import {
-		CLAIM_LABEL,
-		MILESTONE_STATE_LABEL,
-		PARTY_ROLE_LABEL,
-		milestoneLabel,
-		milestoneMeaning,
-		partyLabel,
-		strengthSummary,
-		formatDate,
-		formatDateTime
-	} from '#lib/campaign-site/labels.ts';
+		CLAIM_REPORTED,
+		STRENGTH_SHORT,
+		count,
+		day,
+		daysBetween,
+		entryKind,
+		fullDay,
+		list,
+		lowerFirst,
+		milestoneStatus,
+		overdueLabel,
+		type DepositStateKey
+	} from '#lib/campaign-site/display.ts';
+	import { strengthSummary } from '#lib/campaign-site/labels.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
-	const campaignPath = $derived(`/campaigns/${data.campaign.id}`);
+	const today = $derived(data.today);
 	const totals = $derived(data.totals);
-	const held = $derived(totals.paid - totals.returned);
+	const base = $derived(`/campaigns/${data.campaign.id}`);
+	const milestonePath = (id: string) => `${base}/milestones/${id}`;
 
-	const words = (value: string) => value.replaceAll('_', ' ');
-	const count = (n: number, one: string, many: string) => (n === 1 ? `1 ${one}` : `${n} ${many}`);
+	// ---- Each milestone, in the design system's vocabulary --------------------------------
+
+	const rows = $derived(
+		data.milestones.map((milestone) => {
+			const status = milestoneStatus(milestone.state, milestone.entryCount > 0);
+			return {
+				milestone,
+				status,
+				// Overdue: the due date has passed and nobody has confirmed it. Nothing else is assumed.
+				daysLate:
+					!milestone.confirmed && milestone.dueDate < today
+						? daysBetween(milestone.dueDate, today)
+						: 0,
+				/** How many days after its due date it was confirmed. Zero when on time. */
+				confirmedLate: milestone.confirmedAt
+					? Math.max(0, daysBetween(milestone.dueDate, milestone.confirmedAt))
+					: 0,
+				/** Deposits whose refund is outstanding, each with the reason. Read from the server. */
+				outstanding: milestone.depositStates.filter(
+					(deposit) => deposit.state === 'refund_outstanding'
+				)
+			};
+		})
+	);
+
+	// ---- Deposits: held, refunded, refund outstanding -------------------------------------
+
+	// The three states come from the server, which reads them from what is recorded.
+	const held = $derived(totals.held);
+	const outstanding = $derived(totals.outstanding);
+	const depositStates = $derived<DepositStateKey[]>([
+		...(totals.refunded > 0 ? (['dep-refunded'] as const) : []),
+		...(outstanding > 0 ? (['dep-outstanding'] as const) : []),
+		...(held > 0 ? (['dep-held'] as const) : [])
+	]);
+	const refundsSent = $derived(
+		rows.flatMap((row) =>
+			row.milestone.refunds
+				.filter((refund) => refund.outcome === 'sent')
+				.map((refund) => ({ ...refund, position: row.milestone.position }))
+		)
+	);
+
+	// ---- Open items, and issues and corrections -------------------------------------------
+
+	const filingOf = (
+		item: 'log_work' | 'milestone_hit',
+		claim: (typeof data.attention)[0]['claim']
+	) => entryKind(item, claim).toLowerCase();
+	const onMilestone = (position: number | null) =>
+		position === null ? '' : ` on milestone ${position}`;
+
+	/** What is still waiting on someone. A flagged filing is not one of these: it never clears. */
+	const openItems = $derived([
+		...data.attention
+			.filter((entry) => entry.status === 'incomplete')
+			.map((entry) => `an incomplete filing${onMilestone(entry.milestonePosition)}`),
+		...data.attention
+			.filter((entry) => entry.status === 'filed')
+			.map(
+				(entry) =>
+					`a filing${onMilestone(entry.milestonePosition)} not yet matched to its public receipt`
+			),
+		...rows.flatMap((row) =>
+			row.outstanding.map(
+				(deposit) =>
+					`a filing deposit refund of ${formatAmount(deposit.amount)} USD-TDN on milestone ${row.milestone.position}`
+			)
+		)
+	]);
+
+	interface Issue {
+		/** Null for something with no single moment: it is listed last, as open. */
+		at: string | null;
+		title: string;
+		text: string;
+		href?: string;
+		open?: boolean;
+	}
+	const issues = $derived.by(() => {
+		const found: Issue[] = [];
+		for (const entry of data.attention) {
+			const what = `${entry.filedBy ?? 'A filer not on record'}’s ${filingOf(entry.item, entry.claim)}${onMilestone(entry.milestonePosition)}.`;
+			if (entry.status === 'flagged') {
+				found.push({
+					at: entry.filedAt,
+					title: 'A filing was paid from a different wallet',
+					text: `${what} The report itself may still be accurate. The filing stays flagged on the record.`,
+					href: entry.proofPath
+				});
+			} else if (entry.status === 'incomplete') {
+				found.push({
+					at: entry.filedAt,
+					title: 'A filing is incomplete',
+					text: `${what} ${entry.statusReason ?? 'Something its milestone needs is missing.'} The filer can add it without paying again.`,
+					href: entry.proofPath,
+					open: true
+				});
+			} else {
+				found.push({
+					at: entry.filedAt,
+					title: 'A filing hasn’t been matched to its public receipt yet',
+					text: what,
+					href: entry.proofPath,
+					open: true
+				});
+			}
+		}
+		for (const { milestone, daysLate, confirmedLate, outstanding: refundsOwed } of rows) {
+			const name = `Milestone ${milestone.position}, ${milestone.title},`;
+			if (milestone.confirmedAt && confirmedLate > 0) {
+				found.push({
+					at: milestone.confirmedAt,
+					title: `${name} was confirmed ${count(confirmedLate, 'day')} after its due date`,
+					text: `Due ${day(milestone.dueDate, today)}, confirmed ${day(milestone.confirmedAt, today)}.`,
+					href: milestonePath(milestone.id)
+				});
+			}
+			if (milestone.state === 'confirmed_creator') {
+				found.push({
+					at: milestone.confirmedAt,
+					title: `${name} was signed off by the organizer`,
+					text: 'No confirmer answered in the waiting period, so the organizer confirmed it. That is a participant confirmation.',
+					href: milestonePath(milestone.id),
+					open: milestone.confirmedAt === null ? false : undefined
+				});
+			}
+			if (daysLate > 0) {
+				found.push({
+					at: null,
+					title: `${name} is overdue by ${count(daysLate, 'day')}`,
+					text: `Due ${day(milestone.dueDate, today)}. Not confirmed.`,
+					href: milestonePath(milestone.id),
+					open: true
+				});
+			}
+			for (const deposit of refundsOwed) {
+				found.push({
+					at: null,
+					title: `Refund outstanding on milestone ${milestone.position}`,
+					text: `A filing deposit of ${formatAmount(deposit.amount)} USD-TDN. ${deposit.outstandingMeaning ?? 'It hasn’t been returned to its filer yet.'} Donations are not affected.`,
+					href: `${base}/entries/${deposit.entryId}`,
+					open: true
+				});
+			}
+		}
+		const dated = found
+			.filter((issue): issue is Issue & { at: string } => issue.at !== null)
+			.sort((a, b) => a.at.localeCompare(b.at));
+		return [...dated, ...found.filter((issue) => issue.at === null)];
+	});
+
+	const overdue = $derived(rows.filter((row) => row.daysLate > 0).length);
 </script>
 
-{#snippet stateBadge(state: MilestoneState, label: string = MILESTONE_STATE_LABEL[state])}
-	<span class="badge state-{state}">
-		<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
-			{#if state === 'confirmed_independent'}
-				<path d="M1.5 8.7l2.8 2.8 5-6.5" fill="none" stroke="currentColor" stroke-width="2" />
-				<path d="M8 11.5l1 1 5.5-7.500" fill="none" stroke="currentColor" stroke-width="2" />
-			{:else if state === 'confirmed_creator'}
-				<path d="M3 8.5l3.2 3.2L13 4.8" fill="none" stroke="currentColor" stroke-width="2.2" />
-			{:else if state === 'claimed'}
-				<circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.6" />
-				<path d="M8 2a6 6 0 0 1 0 12z" fill="currentColor" />
-			{:else}
-				<circle
-					cx="8"
-					cy="8"
-					r="6"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="1.6"
-					stroke-dasharray="2.6 2.1"
-				/>
-			{/if}
-		</svg>
-		{label}
-	</span>
-{/snippet}
+<svelte:head><title>Delivery report · {data.campaign.title} · Tejido</title></svelte:head>
 
-<svelte:head><title>Final report · {data.campaign.title} · Tejido</title></svelte:head>
+<div class="tj-page" style:gap="var(--space-6)">
+	<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current="report" />
 
-<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current="report" />
-
-<h1>
-	{data.delivered
-		? 'Delivered'
-		: totals.milestones === 0
-			? 'Nothing to report yet'
-			: 'Not finished yet'}
-</h1>
-
-{#if data.delivered}
-	<section class="verdict delivered" aria-label="Where this campaign stands">
-		<p class="verdict-title">
-			Every milestone of this campaign is confirmed{#if data.deliveredAt}. The last one was
-				confirmed on
-				<time datetime={data.deliveredAt}>{formatDateTime(data.deliveredAt)}</time>{/if}.
+	<div class="tj-pagehead">
+		<p class="text-eyebrow">
+			Delivery report ·
+			{data.delivered && data.deliveredAt ? fullDay(data.deliveredAt) : `as of ${fullDay(today)}`}
 		</p>
-		<p>
-			How they were confirmed: {strengthSummary(totals.byStrength)}. This says how each person who
-			confirmed relates to the project. It describes a relationship and is not a score.
-			{#if totals.byCreator > 0}
-				{totals.byCreator} of them
-				{totals.byCreator === 1 ? 'was' : 'were'} confirmed by the campaign’s creator, because the named
-				confirmer did not answer.
-			{/if}
+		<h1>{data.campaign.title}</h1>
+		<p class="tj-pagehead__meta">
+			{data.delivered
+				? 'The final account of what was delivered and what is still open.'
+				: 'Not the final report yet. This is what has been delivered so far and what is still outstanding.'}
 		</p>
-	</section>
-{:else}
-	<section class="verdict unfinished" aria-label="Where this campaign stands">
-		{#if totals.milestones === 0}
-			<p class="verdict-title">No milestones have been set for this campaign yet.</p>
-			<p>Once they are, this page will show each milestone, who confirmed it and how strongly.</p>
+	</div>
+
+	{#if totals.milestones === 0}
+		<EmptyState icon="list" title="Nothing to report yet">
+			No milestones have been set for this campaign. Once they are, this page shows each one, who
+			confirmed it and what is still open.
+		</EmptyState>
+	{:else}
+		{#if data.delivered}
+			<Banner
+				tone={openItems.length > 0 ? 'attention' : 'confirmed'}
+				icon={openItems.length > 0 ? 'flag' : 'ms-confirmed'}
+				role="note"
+				title={openItems.length > 0
+					? `Delivered, with ${count(openItems.length, 'open item')}`
+					: 'Delivered'}
+			>
+				All {count(totals.milestones, 'milestone')}
+				{totals.milestones === 1 ? 'is' : 'are'} confirmed{data.deliveredAt
+					? `, the last on ${day(data.deliveredAt, today)}`
+					: ''}: {strengthSummary(totals.byStrength)}.
+				{#if openItems.length > 0}Still open: {list(openItems)}.{/if}
+			</Banner>
 		{:else}
-			<p class="verdict-title">
-				This campaign is not finished. {totals.confirmed} of {count(
-					totals.milestones,
-					'milestone',
-					'milestones'
-				)}
+			<Banner
+				tone={overdue > 0 ? 'critical' : 'progress'}
+				icon={overdue > 0 ? 'ms-overdue' : 'ms-in-progress'}
+				role="note"
+				title="Not delivered yet"
+			>
+				{totals.confirmed} of {count(totals.milestones, 'milestone')}
 				{totals.confirmed === 1 ? 'is' : 'are'} confirmed.
-			</p>
-			<p>Still outstanding:</p>
-			<ul>
-				{#each data.outstanding as milestone (milestone.id)}
-					<li>
-						<a href="#{milestone.id}">{milestone.title}</a>, due {formatDate(milestone.dueDate)}.
-						{#if milestone.state === 'claimed'}
-							Reported as done{milestone.owner ? ` by ${milestone.owner.name}` : ''}, and waiting
-							for
-							{milestone.namedConfirmer ? milestone.namedConfirmer.name : 'its confirmer'} to confirm
-							it.
-						{:else}
-							Not reported as done yet{milestone.owner ? `. Owed by ${milestone.owner.name}` : ''}.
-						{/if}
+				{count(data.outstanding.length, 'milestone')}
+				{data.outstanding.length === 1 ? 'is' : 'are'} still outstanding{overdue > 0
+					? `, ${overdue} of them overdue`
+					: ''}.
+				{#if openItems.length > 0}Also open: {list(openItems)}.{/if}
+			</Banner>
+		{/if}
+
+		<div class="tj-figs">
+			<div class="tj-fig">
+				<p class="tj-fig__k">Milestones</p>
+				<p class="tj-fig__v">{totals.confirmed} of {totals.milestones}</p>
+				<p class="tj-fig__s">Confirmed</p>
+			</div>
+			<div class="tj-fig">
+				<p class="tj-fig__k">Open items</p>
+				<p class="tj-fig__v">{openItems.length}</p>
+				<p class="tj-fig__s">
+					{openItems.length === 0
+						? 'Nothing is waiting on anyone'
+						: 'Listed under Issues and corrections'}
+				</p>
+			</div>
+			<div class="tj-fig">
+				<p class="tj-fig__k">Deposits refunded</p>
+				<p class="tj-fig__v">{formatAmount(totals.refunded)}</p>
+				<p class="tj-fig__s">USD-TDN of {formatAmount(totals.paid)} paid by filers</p>
+			</div>
+			<div class="tj-fig">
+				<p class="tj-fig__k">Deposits not returned</p>
+				<p class="tj-fig__v">{formatAmount(held + outstanding)}</p>
+				<p class="tj-fig__s">
+					{formatAmount(held)} held · {formatAmount(outstanding)} refund outstanding
+				</p>
+			</div>
+		</div>
+	{/if}
+
+	<section class="tj-section" aria-labelledby="goal">
+		<h2 class="tj-section__title" id="goal">The original goal</h2>
+		<div class="tj-quote">
+			{#if data.campaign.summary}
+				<blockquote class="summary">{data.campaign.summary}</blockquote>
+			{/if}
+			<div class="tj-entry__facts">
+				{#if data.campaign.beneficiary}
+					<span><Icon name="users" size={16} />For {lowerFirst(data.campaign.beneficiary)}</span>
+				{/if}
+				<span><Icon name="user" size={16} />Organized by {data.campaign.creatorName}</span>
+			</div>
+		</div>
+	</section>
+
+	{#if !data.delivered && data.outstanding.length > 0}
+		<section class="tj-section" aria-labelledby="outstanding">
+			<h2 class="tj-section__title" id="outstanding">Still outstanding</h2>
+			<ul class="tj-checklist">
+				{#each rows.filter((row) => !row.milestone.confirmed) as { milestone, status, daysLate } (milestone.id)}
+					<li class={{ 'is-missing': daysLate > 0 }}>
+						<Icon name={daysLate > 0 ? 'alert-circle' : 'clock'} />
+						<span>
+							Milestone {milestone.position}, {milestone.title}:
+							{#if status === 'claimed'}
+								reported as done{milestone.owner ? ` by ${milestone.owner.name}` : ''}, waiting for
+								{milestone.namedConfirmer?.name ?? 'its confirmer'} to confirm it.
+							{:else}
+								not reported as done yet{milestone.owner
+									? `. ${milestone.owner.name} does the work`
+									: ''}.
+							{/if}
+							{daysLate > 0
+								? `Overdue by ${count(daysLate, 'day')}.`
+								: `Due ${day(milestone.dueDate, today)}.`}
+						</span>
 					</li>
 				{/each}
 			</ul>
-			<p class="muted">
-				This page becomes the final report once every milestone is confirmed. What is confirmed so
-				far is below.
+		</section>
+	{/if}
+
+	{#if rows.length > 0}
+		<section class="tj-section" aria-labelledby="delivered">
+			<h2 class="tj-section__title" id="delivered">Planned and delivered</h2>
+			<div class="tj-outcome">
+				{#each rows as { milestone, status, daysLate, confirmedLate } (milestone.id)}
+					<div class="tj-outcome__row" id={milestone.id}>
+						<p class="tj-outcome__title">
+							<span class="tj-muted">{milestone.position} ·</span>
+							<a class="tj-link tj-link--quiet" href={milestonePath(milestone.id)}
+								>{milestone.title}</a
+							>
+						</p>
+						<dl class="tj-outcome__cmp">
+							<div>
+								<dt>Planned</dt>
+								<dd>
+									{milestone.description ? `${milestone.description} ` : ''}By {day(
+										milestone.dueDate,
+										today
+									)}.
+								</dd>
+							</div>
+							<div>
+								{#if milestone.confirmed}
+									<dt>Delivered</dt>
+									<dd>
+										{#if milestone.reported && milestone.reported.quantity !== null}
+											{milestone.reported.quantity}{milestone.reported.unit
+												? ` ${milestone.reported.unit}`
+												: ''}, as reported.
+										{/if}
+										Confirmed{milestone.confirmedAt
+											? ` ${day(milestone.confirmedAt, today)}`
+											: ''}{confirmedLate > 0 ? `, ${count(confirmedLate, 'day')} late` : ''}.
+									</dd>
+								{:else}
+									<dt>Reported</dt>
+									<dd>
+										{#if milestone.reported && milestone.reported.claim !== 'confirm'}
+											{CLAIM_REPORTED[milestone.reported.claim]}{milestone.reported.quantity ===
+											null
+												? ''
+												: `: ${milestone.reported.quantity}${milestone.reported.unit ? ` ${milestone.reported.unit}` : ''}`},
+											{day(milestone.reported.filedAt, today)}. Not confirmed.
+										{:else}
+											Not reported as done.
+										{/if}
+									</dd>
+								{/if}
+							</div>
+						</dl>
+						<div class="tj-badges">
+							<StatusBadge state={status} />
+							{#if daysLate > 0}<StatusBadge state="overdue" label={overdueLabel(daysLate)} />{/if}
+							{#if milestone.strength}
+								<StatusBadge
+									state={milestone.strength}
+									label={STRENGTH_SHORT[milestone.strength]}
+									plain
+								/>
+							{/if}
+						</div>
+						<p class="tj-help">
+							{#if milestone.confirmedBy}
+								Confirmed by {milestone.confirmedBy.who === 'creator'
+									? 'the organizer, '
+									: ''}{milestone.confirmedBy.name}{milestone.confirmedBy.title
+									? `, ${lowerFirst(milestone.confirmedBy.title)}`
+									: ''}.
+								{milestone.confirmedBy.relationshipReason ?? ''}
+								{#if milestone.signOff}
+									<a class="tj-link" href={milestone.signOff.proofPath}>View the confirmation</a>
+								{/if}
+							{:else if milestone.confirmed}
+								Who confirmed it is not on record.
+							{:else if milestone.namedConfirmer}
+								To be confirmed by {milestone.namedConfirmer.name}, {lowerFirst(
+									milestone.namedConfirmer.title
+								)}.
+							{/if}
+						</p>
+					</div>
+				{/each}
+			</div>
+			<p class="tj-help">
+				Open a milestone for its evidence, its history and the receipt of every filing. Tejido
+				records what was reported and who confirmed it. It doesn’t inspect the work itself.
 			</p>
+		</section>
+	{/if}
+
+	<section class="tj-section" aria-labelledby="issues">
+		<div class="tj-section__head">
+			<h2 class="tj-section__title" id="issues">Issues and corrections</h2>
+			{#if issues.length > 0}<p class="tj-section__sub">Dates are UTC</p>{/if}
+		</div>
+		{#if issues.length === 0}
+			<p class="tj-help">
+				No issues or corrections are on record: no flagged or incomplete filing, no late milestone
+				and no refund outstanding.
+			</p>
+		{:else}
+			<ol class="tj-events">
+				{#each issues as issue, index (index)}
+					<li class={{ 'is-open': issue.open }}>
+						{#if issue.at}
+							<time datetime={issue.at}>{day(issue.at, today)}</time>
+						{:else}
+							<time>Open</time>
+						{/if}
+						<div>
+							<p>
+								<strong>{issue.title}</strong>
+								<span>{issue.text}</span>
+							</p>
+							{#if issue.href}
+								<a class="tj-link--standalone" href={issue.href}>
+									{issue.href.includes('/entries/') ? 'View proof' : 'View milestone'}<span
+										class="tj-vh"
+									>
+										for “{issue.title}”</span
+									>
+									<Icon name="arrow-right" size={18} />
+								</a>
+							{/if}
+						</div>
+					</li>
+				{/each}
+			</ol>
 		{/if}
 	</section>
-{/if}
 
-<section class="card summary" aria-label="The campaign in brief">
-	{#if data.campaign.summary}<p>{data.campaign.summary}</p>{/if}
-	<dl class="facts">
-		{#if data.campaign.beneficiary}
-			<dt>For</dt>
-			<dd>{data.campaign.beneficiary}</dd>
-		{/if}
-		<dt>Created by</dt>
-		<dd>{data.campaign.creatorName}</dd>
-		<dt>Milestones</dt>
-		<dd>
-			{totals.milestones === 0
-				? 'None set yet'
-				: `${totals.confirmed} of ${totals.milestones} confirmed`}
-		</dd>
-		<dt>Work logs filed</dt>
-		<dd>{totals.workLogs}</dd>
-		<dt>Deposits</dt>
-		<dd>
-			{#if totals.entries === 0}
-				<span class="muted">None paid.</span>
+	<section class="tj-section" aria-label="Filing deposits">
+		<DepositRow what="Filing deposits" amount={totals.paid} states={depositStates}>
+			{#if totals.paid === 0}
+				No filing deposits have been paid on this campaign.
+			{:else if totals.refunded === totals.paid}
+				All filing deposits are refunded.
 			{:else}
-				{formatAmount(totals.paid)} paid by the people filing · {formatAmount(totals.returned)}
-				returned
-				{#if held > 0}· {formatAmount(held)} still held{/if}
-			{/if}
-		</dd>
-		{#if totals.flagged > 0}
-			<dt>Flagged entries</dt>
-			<dd>
-				<strong class="warn">{totals.flagged}</strong> · paid from a wallet that is not the one
-				registered for the party. <a href={campaignPath}>See them on the timeline</a>
-			</dd>
-		{/if}
-	</dl>
-</section>
-
-<ol class="milestones">
-	{#each data.milestones as milestone, index (milestone.id)}
-		<li class="card state-{milestone.state}" id={milestone.id}>
-			<header>
-				<h2><span class="number">{index + 1}.</span> {milestone.title}</h2>
-				<p class="standing">{@render stateBadge(milestone.state, milestoneLabel(milestone))}</p>
-				<p class="means">{milestoneMeaning(milestone)}</p>
-			</header>
-
-			{#if milestone.description}<p>{milestone.description}</p>{/if}
-
-			<dl class="facts">
-				<dt>Confirmed by</dt>
-				<dd>
-					{#if milestone.confirmedBy}
-						<strong>{milestone.confirmedBy.name}</strong>{milestone.confirmedBy.title
-							? `, ${milestone.confirmedBy.title}`
-							: ''}
-						<span class="muted">
-							({milestone.confirmedBy.who === 'creator'
-								? 'the campaign’s creator'
-								: partyLabel({
-										role: 'confirmer',
-										relationship: milestone.confirmedBy.relationship
-									})}){milestone.confirmedBy.relationshipReason
-								? ` ${milestone.confirmedBy.relationshipReason}`
-								: ''}
-						</span>
-					{:else if milestone.confirmed}
-						<span class="muted">The confirmer is not on record.</span>
-					{:else}
-						<strong class="pending">Not confirmed yet.</strong>
-						{#if milestone.namedConfirmer}
-							<span class="muted">
-								Named to confirm it: {milestone.namedConfirmer.name}, {milestone.namedConfirmer
-									.title}
-								({partyLabel(milestone.namedConfirmer)}){milestone.namedConfirmer.relationshipReason
-									? ` ${milestone.namedConfirmer.relationshipReason}`
-									: ''}
-							</span>
-						{/if}
-					{/if}
-				</dd>
-				{#if milestone.confirmed}
-					<dt>Confirmed</dt>
-					<dd>
-						{#if milestone.confirmedAt}
-							<time datetime={milestone.confirmedAt}>{formatDateTime(milestone.confirmedAt)}</time>
-						{:else}
-							<span class="muted">The time is not on record.</span>
-						{/if}
-					</dd>
-					<dt>Receipt of the sign-off</dt>
-					<dd>
-						{#if milestone.signOff}
-							{#if milestone.signOff.twistId}
-								Transaction <code>{milestone.signOff.twistId}</code>
-								{#if milestone.signOff.payingWallet}
-									paid from <code>{milestone.signOff.payingWallet}</code>
-								{/if}
-							{:else}
-								<span class="muted">Not matched to the payment ledger yet.</span>
-							{/if}
-							· <a href={milestone.signOff.proofPath}>see the proof</a>
-						{:else}
-							<span class="muted">No confirmation entry is on record for this milestone.</span>
-						{/if}
-					</dd>
+				{formatAmount(totals.refunded)} of {formatAmount(totals.paid)} USD-TDN is refunded.
+				{#if held > 0}
+					{formatAmount(held)} is held until its milestone is confirmed.
 				{/if}
-				<dt>Work done by</dt>
-				<dd>
-					{#if milestone.owner}
-						{milestone.owner.name}, {milestone.owner.title}
-						<span class="muted">({PARTY_ROLE_LABEL[milestone.owner.role]})</span>
-					{:else}
-						<span class="muted">Not on record</span>
-					{/if}
-				</dd>
-				<dt>Kind · due</dt>
-				<dd>
-					{words(milestone.kind)} ·
-					<time datetime={milestone.dueDate}>{formatDate(milestone.dueDate)}</time>
-				</dd>
-				<dt>Work logs</dt>
-				<dd>
-					{#if milestone.workLogs === 0}
-						<span class="muted">None filed on this milestone.</span>
-					{:else}
-						{count(milestone.workLogs, 'work log', 'work logs')} filed ·
-						<a href={campaignPath}>read them on the timeline</a>
-					{/if}
-					{#if milestone.flaggedCount > 0}
-						<br />
-						<strong class="warn">
-							{count(milestone.flaggedCount, 'entry', 'entries')} on this milestone
-							{milestone.flaggedCount === 1 ? 'is' : 'are'} flagged.
-						</strong>
-					{/if}
-				</dd>
-				<dt>Deposits</dt>
-				<dd>
-					{#if milestone.entryCount === 0}
-						<span class="muted">None paid.</span>
-					{:else}
-						{formatAmount(milestone.deposits.paid)} paid · {formatAmount(
-							milestone.deposits.returned
-						)} returned
-						{#if milestone.deposits.returned < milestone.deposits.paid}
-							· {formatAmount(milestone.deposits.paid - milestone.deposits.returned)} still held
-						{/if}
-						{#if milestone.deposits.lastRefundedAt}
-							<span class="muted">
-								· last sent back
-								<time datetime={milestone.deposits.lastRefundedAt}
-									>{formatDateTime(milestone.deposits.lastRefundedAt)}</time
-								>
-							</span>
-						{/if}
-					{/if}
-					{#if milestone.refunds.length > 0}
-						<ul class="refunds">
-							{#each milestone.refunds as refund, refundIndex (refundIndex)}
-								<li>
-									{formatAmount(refund.amount)}
-									{refund.outcome === 'sent' ? 'sent back' : 'refund started'}
-									to {refund.to ?? 'a party not on record'}, at wallet
-									<code>{refund.wallet}</code>
-									{#if refund.outcome === 'sent'}
-										{#if refund.at}
-											on <time datetime={refund.at}>{formatDateTime(refund.at)}</time>
-										{/if}
-									{:else}
-										<strong class="pending">· not confirmed as arrived</strong>
-									{/if}
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				</dd>
-			</dl>
-
-			<h3>The evidence behind it</h3>
-			{#if milestone.evidence.length === 0}
-				<p class="muted">Nobody has filed a claim or a confirmation on this milestone.</p>
-			{:else}
-				<ul class="evidence">
-					{#each milestone.evidence as entry (entry.entryId)}
-						<li>
-							<div class="top">
-								<EntryStatus status={entry.status} />
-								<strong>
-									{entry.kind === 'confirmation'
-										? 'Confirmation'
-										: `Milestone claim: ${CLAIM_LABEL[entry.claim]}`}
-								</strong>
-								<span class="muted">
-									{#if entry.filedBy}· {entry.filedBy.name}{/if}
-									· <time datetime={entry.filedAt}>{formatDateTime(entry.filedAt)}</time>
-								</span>
-							</div>
-							<p class="said">{entry.summary}</p>
-
-							{#if entry.files.photos.length > 0}
-								<ul class="photos">
-									{#each entry.files.photos as photo (photo.url)}
-										<li>
-											<figure>
-												<a href={entry.proofPath}>
-													<img
-														src={photo.url}
-														alt={photo.caption ?? 'Photo filed as evidence, with no caption'}
-														loading="lazy"
-														decoding="async"
-													/>
-												</a>
-												{#if photo.caption}<figcaption>{photo.caption}</figcaption>{/if}
-											</figure>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							{#if entry.files.documents.length > 0}
-								<ul class="documents">
-									{#each entry.files.documents as document (document.url)}
-										<li>
-											<a href={document.url}>{document.caption ?? 'Document'}</a>
-											<span class="muted">(PDF)</span>
-										</li>
-									{/each}
-								</ul>
-							{/if}
-							{#each entry.files.notPublic as file (file.sha256)}
-								<p class="left-out">Not public: {file.kind}. {file.reason}</p>
-							{/each}
-							{#if entry.files.leftOut > 0}
-								<p class="left-out">
-									{entry.files.leftOut === 1
-										? '1 attached file is not shown'
-										: `${entry.files.leftOut} attached files are not shown`}, because
-									{entry.files.leftOut === 1 ? 'it' : 'they'} could not be verified. Tejido shows a photo
-									or document only when it can check that it is the file that was filed.
-								</p>
-							{:else if entry.files.files.length === 0}
-								<p class="muted">No photos or documents were attached.</p>
-							{/if}
-
-							<p class="proof">
-								<a class="tap" href={entry.proofPath}>See the proof behind this entry</a>
-							</p>
-						</li>
-					{/each}
-				</ul>
+				{#if outstanding > 0}
+					{formatAmount(outstanding)} hasn’t been returned yet. Each is listed above with the reason.
+				{/if}
 			{/if}
-		</li>
-	{/each}
-</ol>
-
-<p class="muted note">
-	A confirmation shows that a second person, paying from their own wallet, signed the milestone off.
-	It does not prove by itself that what was written is true; the proof page behind each entry shows
-	exactly what is and is not checked.
-</p>
-
-<p class="muted back">
-	<a class="tap" href={campaignPath}>Back to the timeline</a>
-</p>
+			Filing deposits are paid by the people who file and refunded to them, never from donations. Donations
+			are not affected.
+		</DepositRow>
+		{#if refundsSent.length > 0}
+			<ol class="tj-events">
+				{#each refundsSent as refund, index (index)}
+					<li>
+						{#if refund.at}
+							<time datetime={refund.at}>{day(refund.at, today)}</time>
+						{:else}
+							<time>Sent</time>
+						{/if}
+						<p>
+							<strong>Deposit refund sent</strong>
+							<span>
+								{formatAmount(refund.amount)} USD-TDN to {refund.to ?? 'a filer not on record'}, for
+								milestone {refund.position}
+							</span>
+						</p>
+					</li>
+				{/each}
+			</ol>
+		{/if}
+	</section>
+</div>
 
 <style>
-	.muted {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	.warn {
-		color: var(--warn);
-	}
-	.pending {
-		color: var(--c);
-	}
-	.verdict,
-	.card {
-		max-width: 46rem;
-		box-sizing: border-box;
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 0.9rem 1rem;
-	}
-	.verdict {
-		margin: 1rem 0 0.75rem;
-		border-left-width: 8px;
-	}
-	.verdict.delivered {
-		border: 2px solid var(--a);
-		border-left-width: 8px;
-	}
-	.verdict.unfinished {
-		border: 2px solid var(--c);
-		border-left-width: 8px;
-	}
-	.verdict p {
-		margin: 0.3rem 0;
-	}
-	.verdict ul {
-		margin: 0.3rem 0;
-		padding-left: 1.2rem;
-	}
-	.verdict-title {
-		font-weight: 700;
-		font-size: 1.1rem;
-	}
-	.delivered .verdict-title {
-		color: var(--a);
-	}
-	.unfinished .verdict-title {
-		color: var(--c);
-	}
+	/* The organizer's words keep their own line breaks. */
 	.summary {
-		margin-bottom: 0.75rem;
-	}
-	.summary p {
-		margin: 0 0 0.5rem;
-	}
-	.milestones {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: grid;
-		gap: 0.75rem;
-	}
-	.milestones > .card {
-		border-left: 5px solid var(--line);
-		scroll-margin-top: 1rem;
-	}
-	.card.state-confirmed_independent {
-		border-left-color: var(--a);
-	}
-	.card.state-confirmed_creator,
-	.card.state-claimed {
-		border-left-color: var(--c);
-	}
-	.card h2 {
-		margin: 0;
-	}
-	.card h3 {
-		font-size: 1rem;
-		margin: 1rem 0 0.4rem;
-	}
-	.card p {
-		margin: 0.4rem 0;
-	}
-	.number {
-		color: var(--muted);
-		font-weight: 400;
-	}
-	.standing {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.4rem;
-	}
-	.means {
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	.badge {
-		display: inline-flex;
-		align-items: center;
-		gap: 0.3rem;
-		font-size: 0.85rem;
-		font-weight: 650;
-		line-height: 1.3;
-		border-radius: 999px;
-		padding: 2px 11px 2px 8px;
-		border: 1.5px dashed currentColor;
-		color: var(--muted);
-		white-space: nowrap;
-	}
-	.badge svg {
-		flex: none;
-	}
-	/* Strongest: filled. Creator: a solid outline. Reported only: dashed. Open: dashed grey. */
-	.badge.state-confirmed_independent {
-		border: 1.5px solid var(--a);
-		background: var(--a);
-		color: #fff;
-	}
-	.badge.state-confirmed_creator {
-		border: 1.5px solid var(--c);
-		color: var(--c);
-	}
-	.badge.state-claimed {
-		color: var(--c);
-	}
-	.facts {
-		display: grid;
-		grid-template-columns: minmax(7rem, 10rem) 1fr;
-		gap: 0.45rem 1rem;
-		margin: 0.75rem 0 0;
-	}
-	.facts dt {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	.facts dd {
-		margin: 0;
-		min-width: 0;
-		overflow-wrap: anywhere;
-	}
-	.refunds {
-		margin: 0.3rem 0 0;
-		padding-left: 1.2rem;
-		font-size: 0.9rem;
-	}
-	.evidence {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: grid;
-	}
-	.evidence > li {
-		padding: 0.6rem 0;
-		border-top: 1px solid var(--line);
-		min-width: 0;
-	}
-	.top {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: baseline;
-		gap: 0.25rem 0.6rem;
-	}
-	.said {
 		white-space: pre-line;
 		overflow-wrap: anywhere;
-	}
-	.photos {
-		list-style: none;
-		padding: 0;
-		margin: 0.6rem 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
-		gap: 0.6rem;
-	}
-	figure {
-		margin: 0;
-	}
-	img {
-		display: block;
-		width: 100%;
-		aspect-ratio: 4 / 3;
-		object-fit: cover;
-		border-radius: 6px;
-		background: var(--line);
-		/* The caption text shown if the picture cannot be loaded. */
-		font-size: 0.8rem;
-		color: var(--muted);
-	}
-	figcaption {
-		font-size: 0.85rem;
-		color: var(--muted);
-		margin-top: 0.25rem;
-	}
-	.documents {
-		margin: 0.6rem 0;
-		padding-left: 1.2rem;
-		font-size: 0.95rem;
-	}
-	.left-out {
-		font-size: 0.9rem;
-		color: var(--c);
-		border-left: 3px dashed var(--c);
-		padding-left: 0.6rem;
-	}
-	.proof {
-		font-size: 0.95rem;
-		font-weight: 600;
-	}
-	.note {
-		max-width: 46rem;
-		margin-top: 1rem;
-	}
-	.back {
-		margin-top: 1rem;
-	}
-	@media (max-width: 34rem) {
-		.facts {
-			grid-template-columns: 1fr;
-			gap: 0.1rem;
-		}
-		.facts dd {
-			margin-bottom: 0.5rem;
-		}
 	}
 </style>
