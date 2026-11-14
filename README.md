@@ -68,7 +68,7 @@ the two apps side by side, since a server never exits to let the next one begin.
 | `npm run db:prepare`  | Applies migrations and seeds the fixtures if there are no campaigns  |
 | `npm run db:reset`    | Deletes the local database, then migrates and seeds                  |
 | `npm run db:generate` | Writes a new migration after you change `packages/db/src/schema.ts`  |
-| `infra/deploy.sh`     | Deploys both apps to Cloudflare. See `infra/README.md`               |
+| `infra/deploy.sh`     | Deploys both apps. GitHub runs it on every merge to `main`           |
 
 `typecheck`, `lint`, `test` and `build` need no `.env` and no Qatom credentials. CI runs exactly
 those four.

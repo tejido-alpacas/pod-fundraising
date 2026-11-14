@@ -49,3 +49,118 @@ jobs:
       - run: terraform fmt -check -diff -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
+
+  # Releases to the live site. Runs only when `main` changes (a merged pull request), and only
+  # after both jobs above are green. On every other branch it shows as skipped.
+  #
+  # It does not create the database or the evidence bucket: a person does that once with
+  # Terraform. See infra/README.md for the one-time setup and for what to do when this fails.
+  deploy:
+    needs: [check, terraform]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # One deploy at a time. A deploy that has started is never cancelled; later ones wait.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    env:
+      # Where the two apps are served. infra/deploy.sh reads these.
+      TEJIDO_WEB_HOSTNAME: tejido.net
+      TEJIDO_APP_HOSTNAME: app.tejido.net
+      # The four configuration values that are not secret. The other six come from GitHub
+      # Actions secrets, in the steps that need them.
+      PAYMENT_API_URL: https://pay.m.todaq.net
+      QATOM_MCP_URL: https://tejido-csierzpa.mcp.m.todaq.net/mcp
+      OIDC_CLIENT_ID: tejido.net
+      OIDC_REDIRECT_URI: https://app.tejido.net/auth/callback
+    steps:
+      # First, before anything is built or touched: stop if a secret is not set. Prints names,
+      # never values.
+      - name: Check that every secret is set
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          CHECKIN_SHARED_SECRET: ${{ secrets.CHECKIN_SHARED_SECRET }}
+          OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
+          QATOM_ACCOUNT_CLIENT_ID: ${{ secrets.QATOM_ACCOUNT_CLIENT_ID }}
+          QATOM_ACCOUNT_CLIENT_SECRET: ${{ secrets.QATOM_ACCOUNT_CLIENT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          missing=()
+          for name in CLOUDFLARE_API_TOKEN CLOUDFLARE_ACCOUNT_ID SESSION_SECRET \
+            CHECKIN_SHARED_SECRET OIDC_CLIENT_SECRET QATOM_ACCOUNT_CLIENT_ID \
+            QATOM_ACCOUNT_CLIENT_SECRET ANTHROPIC_API_KEY; do
+            [[ -n ${!name} ]] || missing+=("$name")
+          done
+          if ((${#missing[@]})); then
+            echo "::error::Not deployed. These GitHub Actions secrets are not set: ${missing[*]}. Add them under Settings, Secrets and variables, Actions. See infra/README.md."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Terraform's state is on one person's machine, so CI cannot read its outputs. It looks
+      # the database up by name instead, and checks the bucket is there. Both only read.
+      - name: Find the live database and bucket
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          databases=$(npx wrangler d1 list --json)
+          id=$(jq -r '.[] | select(.name == "tejido") | .uuid' <<<"$databases")
+          if [[ -z $id ]]; then
+            echo "::error::Not deployed. There is no D1 database named tejido in the Cloudflare account. Run Terraform first, see infra/README.md."
+            exit 1
+          fi
+          if ! npx wrangler r2 bucket info tejido-evidence >/dev/null; then
+            echo "::error::Not deployed. The R2 bucket tejido-evidence does not exist, or the API token cannot read it. Run Terraform first, see infra/README.md."
+            exit 1
+          fi
+          echo "TEJIDO_D1_DATABASE_ID=$id" >> "$GITHUB_ENV"
+
+      # JSON, not an env file: Wrangler expands $NAME inside env files, which would corrupt a
+      # secret that contains a dollar sign. jq reads the values from the environment, so none
+      # appears in a command line or in the log.
+      - name: Write the configuration for the Workers
+        env:
+          SESSION_SECRET: ${{ secrets.SESSION_SECRET }}
+          CHECKIN_SHARED_SECRET: ${{ secrets.CHECKIN_SHARED_SECRET }}
+          OIDC_CLIENT_SECRET: ${{ secrets.OIDC_CLIENT_SECRET }}
+          QATOM_ACCOUNT_CLIENT_ID: ${{ secrets.QATOM_ACCOUNT_CLIENT_ID }}
+          QATOM_ACCOUNT_CLIENT_SECRET: ${{ secrets.QATOM_ACCOUNT_CLIENT_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          umask 077
+          jq -n '{
+            SESSION_SECRET: env.SESSION_SECRET,
+            CHECKIN_SHARED_SECRET: env.CHECKIN_SHARED_SECRET,
+            PAYMENT_API_URL: env.PAYMENT_API_URL,
+            QATOM_MCP_URL: env.QATOM_MCP_URL,
+            OIDC_CLIENT_ID: env.OIDC_CLIENT_ID,
+            OIDC_CLIENT_SECRET: env.OIDC_CLIENT_SECRET,
+            OIDC_REDIRECT_URI: env.OIDC_REDIRECT_URI,
+            QATOM_ACCOUNT_CLIENT_ID: env.QATOM_ACCOUNT_CLIENT_ID,
+            QATOM_ACCOUNT_CLIENT_SECRET: env.QATOM_ACCOUNT_CLIENT_SECRET,
+            ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY
+          }' > "$RUNNER_TEMP/tejido-secrets.json"
+
+      # Builds both apps, applies new database migrations, then replaces the two Workers. A
+      # failed build or migration stops it before either Worker is replaced. Never seeds.
+      - name: Build, migrate and deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: infra/deploy.sh --secrets "$RUNNER_TEMP/tejido-secrets.json"
+
+      - name: Remove the configuration file
+        if: always()
+        run: rm -f "$RUNNER_TEMP/tejido-secrets.json"

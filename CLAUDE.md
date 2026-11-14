@@ -26,8 +26,10 @@ blocks the task, stop and say so. Do not look for a way around it.
 
 ## Branches, worktrees and pull requests
 
-`main` is what gets deployed and what everyone else builds on. Nothing reaches it except
-through a pull request whose checks are green. GitHub does not enforce this for us (the plan
+`main` is what gets deployed and what everyone else builds on. **Merging a pull request into
+`main` releases it to the live site**: GitHub deploys every change to `main` by itself, a few
+minutes after the merge (see `infra/README.md`). So the merge rules in step 5 are what protect
+production. Nothing reaches `main` except through a pull request whose checks are green. GitHub does not enforce this for us (the plan
 has no branch protection), so you enforce it. Your person may not know what a branch or a pull
 request is; do these steps for them and explain as you go.
 
@@ -112,8 +114,9 @@ These have no exceptions inside a task. Only the person, asking for exactly this
 message, changes them.
 
 - **Never deploy or touch anything live.** Do not run `infra/deploy.sh`, `terraform apply` or
-  `destroy`, `wrangler deploy`, `wrangler secret`, or any Wrangler command with `--remote`. A
-  person deploys. Local commands (`npm run dev`, `npm run db:prepare`) are fine.
+  `destroy`, `wrangler deploy`, `wrangler secret`, or any Wrangler command with `--remote`.
+  GitHub deploys when a pull request is merged into `main`; you never do, and you never re-run
+  or trigger the deploy job. Local commands (`npm run dev`, `npm run db:prepare`) are fine.
   `.claude/settings.json` denies these commands in Claude Code. A denied command is not an
   obstacle to work around: do not rephrase it, wrap it in a script, or edit that file.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
