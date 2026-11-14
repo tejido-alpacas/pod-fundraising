@@ -11,10 +11,12 @@ import {
 	type Deposit,
 	type Entry,
 	type Milestone,
+	type MilestoneState,
 	type Party,
-	type PrimaryWalletHostname
+	type PrimaryWalletHostname,
+	type Timestamp
 } from '@tejido/contracts';
-import { and, asc, desc, eq } from 'drizzle-orm';
+import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Database, Executor } from './client.ts';
 import { campaigns, deposits, entries, milestones, parties } from './schema.ts';
 
@@ -148,4 +150,64 @@ export async function insertEntryWithDeposit(
 	deposit: Deposit
 ): Promise<void> {
 	await db.batch([db.insert(entries).values(entry), db.insert(deposits).values(deposit)]);
+}
+
+/** A milestone moving from one state to the next because of an entry. */
+export interface MilestoneAdvance {
+	from: MilestoneState;
+	to: MilestoneState;
+	/** Set when the milestone becomes confirmed. */
+	confirmedAt: Timestamp | null;
+}
+
+/**
+ * Saves an entry and its deposit and, in the same batch, moves the entry's milestone to its
+ * next state. All three are written, or none.
+ *
+ * The milestone moves only if it is still in `advance.from`, so two entries arriving at once
+ * cannot both move it. Answers whether this entry was the one that did.
+ */
+export async function insertEntryAdvancingMilestone(
+	db: Database,
+	entry: Entry,
+	deposit: Deposit,
+	advance: MilestoneAdvance
+): Promise<boolean> {
+	const [, , moved] = await db.batch([
+		db.insert(entries).values(entry),
+		db.insert(deposits).values(deposit),
+		db
+			.update(milestones)
+			.set({ state: advance.to, confirmedAt: advance.confirmedAt })
+			.where(
+				and(
+					eq(milestones.campaignId, entry.campaignId),
+					eq(milestones.id, entry.milestoneId),
+					eq(milestones.state, advance.from)
+				)
+			)
+			.returning({ id: milestones.id })
+	]);
+	return moved.length > 0;
+}
+
+/** How many work logs a party has filed on a milestone. */
+export async function countWorkLogs(
+	db: Executor,
+	campaignId: string,
+	milestoneId: string,
+	partyId: string
+): Promise<number> {
+	const [row] = await db
+		.select({ total: count() })
+		.from(entries)
+		.where(
+			and(
+				eq(entries.campaignId, campaignId),
+				eq(entries.milestoneId, milestoneId),
+				eq(entries.partyId, partyId),
+				eq(entries.item, 'log_work')
+			)
+		);
+	return row?.total ?? 0;
 }
