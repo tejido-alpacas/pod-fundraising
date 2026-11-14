@@ -3,7 +3,7 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Entry, LogWorkEntry, MilestoneHitEntry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, entries, milestones } from '@tejido/db';
+import { campaigns, entries, evidenceFiles, milestones } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { load } from './+page.server.ts';
@@ -248,15 +248,18 @@ describe('the donor timeline', () => {
 describe('evidence on the timeline', () => {
 	it('shows none of the seeded files, which are not in our evidence store', async () => {
 		const data = await timeline();
-		expect(entryOf(data, 'ent-m1-claim').evidence).toEqual({
+		expect(entryOf(data, 'ent-m1-claim').evidence).toMatchObject({
 			photos: [],
 			documents: [],
+			notPublic: [],
 			leftOut: 2
 		});
 		expect(entryOf(data, 'ent-m1-confirm').evidence).toEqual({
 			photos: [],
 			documents: [],
-			leftOut: 0
+			notPublic: [],
+			leftOut: 0,
+			files: []
 		});
 		expect(JSON.stringify(data)).not.toContain('evidence.tejido.example');
 	});
@@ -283,11 +286,23 @@ describe('evidence on the timeline', () => {
 		});
 
 		const data = await timeline();
-		expect(entryOf(data, 'ent-evidence').evidence).toEqual({
+		const sorted = entryOf(data, 'ent-evidence').evidence;
+		expect(sorted).toMatchObject({
 			photos: [{ url: photo.url, sha256: photo.sha256, caption: 'North wall' }],
 			documents: [{ url: document.url, sha256: document.sha256, caption: null }],
+			notPublic: [],
 			leftOut: 3
 		});
+		// Every file keeps its place, with its state and, when left out, the reason.
+		expect(sorted.files.map((file) => [file.state, 'reason' in file ? file.reason : null])).toEqual(
+			[
+				['shown', null],
+				['shown', null],
+				['left_out', 'not_in_our_store'],
+				['left_out', 'hash_mismatch'],
+				['left_out', 'not_in_our_store']
+			]
+		);
 		const sent = JSON.stringify(data);
 		expect(sent).not.toContain('elsewhere.example');
 		expect(sent).not.toContain('auth/callback');
@@ -321,12 +336,53 @@ describe('evidence on the timeline', () => {
 		});
 
 		const data = await timeline();
-		expect(entryOf(data, 'ent-fees').evidence).toEqual({
+		expect(entryOf(data, 'ent-fees').evidence).toMatchObject({
 			photos: [],
 			documents: [{ url: receipt.url, sha256: receipt.sha256, caption: 'Fee receipt' }],
+			notPublic: [],
 			leftOut: 1
 		});
 		expect(JSON.stringify(data)).not.toContain('A pupil at the school gate');
+	});
+
+	it('tells donors what a not-public file is and why, and never sends its address', async () => {
+		const photo = evidence('jpg', 'a', 'North wall');
+		const classList = evidence('pdf', 'b', 'Class list for form 3, with every name');
+		await addWorkLog('ent-private', { inputs: { photos: [photo, classList] } });
+		await test.db.insert(evidenceFiles).values({
+			sha256: classList.sha256,
+			uploadedByPartyId: contractor.id,
+			visibility: 'not_public',
+			notPublicKind: 'Class list',
+			notPublicReason: 'It has pupils’ names on it.',
+			createdAt: '2026-11-14T08:00:00.000Z',
+			updatedAt: '2026-11-14T08:00:00.000Z'
+		});
+
+		const data = await timeline();
+		expect(entryOf(data, 'ent-private').evidence).toEqual({
+			photos: [{ url: photo.url, sha256: photo.sha256, caption: 'North wall' }],
+			documents: [],
+			notPublic: [
+				{ kind: 'Class list', reason: 'It has pupils’ names on it.', sha256: classList.sha256 }
+			],
+			leftOut: 0,
+			files: [
+				{ state: 'shown', kind: 'photo', ...photo, caption: 'North wall' },
+				{
+					state: 'not_public',
+					kind: 'Class list',
+					reason: 'It has pupils’ names on it.',
+					sha256: classList.sha256
+				}
+			]
+		});
+		// Nothing a donor's browser receives can fetch the file: not its address, not its
+		// file name, and not the caption filed with it.
+		const sent = JSON.stringify(data);
+		expect(sent).not.toContain(classList.url);
+		expect(sent).not.toContain(`${classList.sha256}.pdf`);
+		expect(sent).not.toContain('with every name');
 	});
 });
 

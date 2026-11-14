@@ -70,7 +70,13 @@ const account = () =>
 
 const ledgerAnswer: Answer = {
 	json: {
-		commodity: { hash: 'abc123', descriptor: 'Library wing log work', cost: 100, dq: '41dq' },
+		commodity: {
+			hash: 'abc123',
+			descriptor: 'Library wing log work',
+			cost: 100,
+			dq: '41dq',
+			hostname: 'item.micro.biz.todaq.net'
+		},
 		calculation: {
 			totalAmount: 200,
 			transactionCount: 3,
@@ -225,13 +231,14 @@ describe('the ledger', () => {
 		});
 	});
 
-	it('returns twistId, timestamp, amount, paying and receiving address for each sale', async () => {
+	it('returns twistId, timestamp, amount, both addresses and any commodity named, for each sale', async () => {
 		answer(tokenAnswer(), ledgerAnswer);
 		const ledger = await account().listCommodityTransactions('abc123');
 
 		expect(ledger).toEqual({
 			commodityHash: 'abc123',
 			dq: '41dq',
+			twinHostname: 'item.micro.biz.todaq.net',
 			incompleteTransactions: 1,
 			transactions: [
 				{
@@ -239,16 +246,28 @@ describe('the ledger', () => {
 					timestamp: '2026-11-13T17:02:10.000Z',
 					amount: 100,
 					payingAddress: 'payer.micro.biz.todaq.net',
-					receivingAddress: 'item.micro.biz.todaq.net'
+					receivingAddress: 'item.micro.biz.todaq.net',
+					commodityHash: 'abc123'
 				},
 				{
 					twistId: '41cc',
 					timestamp: '2026-11-06T16:20:03.000Z',
 					amount: 100,
 					payingAddress: 'https://other.micro.biz.todaq.net',
-					receivingAddress: 'item.micro.biz.todaq.net'
+					receivingAddress: 'item.micro.biz.todaq.net',
+					commodityHash: null
 				}
 			]
+		});
+	});
+
+	it('says so when the ledger does not name the twin that owns the commodity', async () => {
+		answer(tokenAnswer(), {
+			json: { commodity: { dq: '41dq' }, calculation: { transactions: [] } }
+		});
+
+		expect(await account().listCommodityTransactions('abc123')).toMatchObject({
+			twinHostname: null
 		});
 	});
 

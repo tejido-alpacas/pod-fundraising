@@ -362,10 +362,17 @@ describe('records', () => {
 		expect(isRefunded({ refundedAt: '2026-10-30T09:45:00.000Z' })).toBe(true);
 	});
 
-	it('the evidence upload answers { url, sha256 }', () => {
-		const answer = { url: 'https://tejido.example/evidence/a.jpg', sha256: SHA256 };
+	it('the evidence upload answers { url, sha256, visibility }', () => {
+		const answer = {
+			url: 'https://tejido.example/evidence/a.jpg',
+			sha256: SHA256,
+			visibility: 'public'
+		};
 		expect(evidenceUploadResponseSchema.parse(answer)).toEqual(answer);
 		expect(evidenceUploadResponseSchema.safeParse({ url: answer.url }).success).toBe(false);
+		expect(
+			evidenceUploadResponseSchema.safeParse({ url: answer.url, sha256: SHA256 }).success
+		).toBe(false);
 	});
 
 	it('a check-in answer is either accepted or refused', () => {
@@ -565,6 +572,8 @@ describe('fixtures', () => {
 	it('point at the two catalog items the owner created', () => {
 		expect(campaign.logWorkCommodityId).toBe(3152);
 		expect(campaign.milestoneHitCommodityId).toBe(3153);
+		// The donation item has not been created yet. See funding.test.ts.
+		expect(campaign.donationCommodityId).toBeNull();
 	});
 
 	it('cannot move money or reach a real person', () => {

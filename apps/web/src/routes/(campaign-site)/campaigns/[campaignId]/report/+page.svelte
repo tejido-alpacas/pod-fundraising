@@ -347,6 +347,9 @@
 									{/each}
 								</ul>
 							{/if}
+							{#each entry.files.notPublic as file (file.sha256)}
+								<p class="left-out">Not public: {file.kind}. {file.reason}</p>
+							{/each}
 							{#if entry.files.leftOut > 0}
 								<p class="left-out">
 									{entry.files.leftOut === 1
@@ -355,7 +358,7 @@
 									{entry.files.leftOut === 1 ? 'it' : 'they'} could not be verified. Tejido shows a photo
 									or document only when it can check that it is the file that was filed.
 								</p>
-							{:else if entry.files.photos.length + entry.files.documents.length === 0}
+							{:else if entry.files.files.length === 0}
 								<p class="muted">No photos or documents were attached.</p>
 							{/if}
 
