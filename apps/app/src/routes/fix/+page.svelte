@@ -27,7 +27,7 @@
 	const files = (count: number) => (count === 1 ? '1 file' : `${count} files`);
 </script>
 
-<svelte:head><title>Fix an incomplete report · Tejido App</title></svelte:head>
+<svelte:head><title>Fix an incomplete report · Tejido</title></svelte:head>
 
 <article>
 	<p class="eyebrow">Incomplete reports</p>
@@ -53,6 +53,7 @@
 				</p>
 				{#if done.stillMissing}<p>Still missing: {done.stillMissing}</p>{/if}
 			{/if}
+			<p><a class="way" href="/">Back to your campaign</a></p>
 		</div>
 	{/if}
 	{#if form?.refused && form.entryId === null}
@@ -64,13 +65,16 @@
 			You are not signed in, so your reports cannot be shown. Open the invite link you were sent and
 			sign in with Qatom from there. Then come back to this page.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else if data.viewer === 'no_party'}
 		<p class="note">
 			You are signed in as {data.email}, but not on a campaign, so there are no reports to show.
 			Open the invite link you were sent and sign in from there. Then come back to this page.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else if data.entries.length === 0}
 		<p class="note">None of your reports is incomplete. There is nothing to add.</p>
+		{#if !form?.done}<p><a class="way" href="/">Back to your campaign</a></p>{/if}
 	{:else}
 		<ul>
 			{#each data.entries as entry (entry.id)}
@@ -165,6 +169,11 @@
 	.summary {
 		color: var(--muted);
 	}
+	.way {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+	}
 	.note {
 		border-left: 3px solid var(--line);
 		padding-left: 0.75rem;
@@ -203,10 +212,12 @@
 		padding: 0;
 		margin: 1.5rem 0 0;
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1rem;
 	}
 	li,
 	form {
+		min-width: 0;
 		background: var(--surface);
 		border: 1px solid var(--line);
 		border-radius: 8px;
@@ -236,12 +247,14 @@
 	}
 	form {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1rem;
 		margin: 1rem 0 0.75rem;
 		background: var(--bg);
 	}
 	label {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 0.2rem;
 	}
 	label > span:first-child,

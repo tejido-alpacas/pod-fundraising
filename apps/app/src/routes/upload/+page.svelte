@@ -126,7 +126,7 @@
 	}
 </script>
 
-<svelte:head><title>Upload evidence · Tejido App</title></svelte:head>
+<svelte:head><title>Upload evidence · Tejido</title></svelte:head>
 
 {#snippet copyButton(what: string, text: string)}
 	{#if enhanced}
@@ -149,11 +149,13 @@
 			You are not signed in, so you cannot upload yet. Open the invite link you were sent and sign
 			in with Qatom from there. Then come back to this page.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else if data.viewer === 'no_party'}
 		<p class="note">
 			You are signed in as {data.email}, but not on a campaign, so you cannot upload yet. Open the
 			invite link you were sent and sign in from there. Then come back to this page.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else}
 		<form
 			bind:this={picker}
@@ -276,6 +278,12 @@
 				{/each}
 			</ul>
 
+			<p class="next">
+				Next, give these to your agent. If your report is open in another tab, go back to it and
+				paste the block there. If you have not started one,
+				<a href="/chat">file a report</a>.
+			</p>
+
 			{#if distinct > 1}
 				<section class="all">
 					<h2>All {distinct} files, for your agent</h2>
@@ -298,6 +306,14 @@
 		max-width: 44rem;
 	}
 	.lede {
+		color: var(--muted);
+	}
+	.way {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+	}
+	.next {
 		color: var(--muted);
 	}
 	.note {
@@ -325,11 +341,13 @@
 	}
 	form {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 1rem;
 		margin: 1.5rem 0;
 	}
 	label {
 		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		gap: 0.2rem;
 	}
 	label > span:first-child {
