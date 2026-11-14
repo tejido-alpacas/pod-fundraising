@@ -5,10 +5,17 @@
  * event per line, as the agent's reply is produced. Nothing here ever carries a token.
  */
 
+import type { ReportFormProblems, ReportFormValues } from './report-form.ts';
+
 /** One thing somebody said. The page keeps the conversation; the server keeps none of it. */
 export interface ChatTurn {
 	role: 'user' | 'assistant';
 	text: string;
+	/**
+	 * Set when the person sent the report form instead of typing (see `report-form.ts`). Then
+	 * `text` is empty, and the server writes the message the agent reads from these values.
+	 */
+	form?: ReportFormValues;
 }
 
 export interface ChatRequest {
@@ -32,6 +39,8 @@ export type ChatEvent =
 export interface ChatRefusal {
 	error: string;
 	message: string;
+	/** With `invalid_form`: one plain sentence for each part of the report form to fix. */
+	fields?: ReportFormProblems;
 }
 
 /**

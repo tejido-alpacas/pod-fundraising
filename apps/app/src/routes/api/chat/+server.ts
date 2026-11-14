@@ -5,6 +5,10 @@
  * conversation so far, ending with what the person just said. The answer is a stream of lines,
  * one JSON event per line (see `#lib/chat.ts`).
  *
+ * A turn of the person's may carry `form` instead of text: the report form from the chat page
+ * (see `#lib/report-form.ts`). It is checked here and reaches the agent as a message. Sending a
+ * form files nothing: only the agent calls a campaign tool, and only after the person says yes.
+ *
  * Only a signed-in party may call it. The reply is produced by the model on our server, which
  * reaches Tejido's Qatom MCP server with that party's own Qatom sign-in. The server keeps no
  * conversation: the page sends it each time.
@@ -18,6 +22,8 @@ import {
 	unavailableMessage
 } from '#lib/server/agent.ts';
 import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
+import { checkReportForm, reportFormMessage } from '#lib/server/report-form.ts';
+import type { ReportFormProblems } from '#lib/report-form.ts';
 import {
 	CHAT_MAX_TURN_CHARACTERS,
 	CHAT_MAX_TURNS,
@@ -31,18 +37,31 @@ function refuse(status: number, error: string, message: string): Response {
 	return json({ error, message } satisfies ChatRefusal, { status });
 }
 
+/** A turn as it arrived. A report form on it has not been checked yet. */
+interface ArrivedTurn {
+	role: ChatTurn['role'];
+	text: string;
+	form?: unknown;
+}
+
 /** The conversation, if the body is one we accept. */
-function conversation(body: unknown): ChatTurn[] | null {
+function conversation(body: unknown): ArrivedTurn[] | null {
 	if (typeof body !== 'object' || body === null) return null;
 	const { messages } = body as { messages?: unknown };
 	if (!Array.isArray(messages) || messages.length === 0 || messages.length > CHAT_MAX_TURNS) {
 		return null;
 	}
-	const turns: ChatTurn[] = [];
+	const turns: ArrivedTurn[] = [];
 	for (const message of messages as unknown[]) {
 		if (typeof message !== 'object' || message === null) return null;
-		const { role, text } = message as { role?: unknown; text?: unknown };
+		const { role, text, form } = message as { role?: unknown; text?: unknown; form?: unknown };
 		if (role !== 'user' && role !== 'assistant') return null;
+		if (form !== undefined) {
+			// A report form stands in for the person's words: theirs only, and no text beside it.
+			if (role !== 'user' || text !== '') return null;
+			turns.push({ role, text: '', form });
+			continue;
+		}
 		if (typeof text !== 'string' || text.trim() === '' || text.length > CHAT_MAX_TURN_CHARACTERS) {
 			return null;
 		}
@@ -51,6 +70,20 @@ function conversation(body: unknown): ChatTurn[] | null {
 	// A conversation starts with the person and ends with what they just said.
 	if (turns[0]?.role !== 'user' || turns.at(-1)?.role !== 'user') return null;
 	return turns;
+}
+
+const UNREADABLE = `The conversation could not be read. A message can be at most ${CHAT_MAX_TURN_CHARACTERS} characters; if this chat has grown very long, reload the page to start a new one.`;
+
+function refuseForm(fields: ReportFormProblems): Response {
+	return json(
+		{
+			error: 'invalid_form',
+			message:
+				'Some of the form needs fixing before it can go to the agent. Nothing was sent and nothing was filed.',
+			fields
+		} satisfies ChatRefusal,
+		{ status: 400 }
+	);
 }
 
 const SIGN_IN_AGAIN =
@@ -84,13 +117,29 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	} catch {
 		return refuse(400, 'invalid_request', 'The message could not be read. Send it again.');
 	}
-	const turns = conversation(body);
-	if (!turns) {
-		return refuse(
-			400,
-			'invalid_request',
-			`The conversation could not be read. A message can be at most ${CHAT_MAX_TURN_CHARACTERS} characters; if this chat has grown very long, reload the page to start a new one.`
-		);
+	const arrived = conversation(body);
+	if (!arrived) return refuse(400, 'invalid_request', UNREADABLE);
+
+	// Each report form becomes the message the agent reads, or the request stops here: before
+	// the person's token is fetched and before anything is sent to the model.
+	const milestones = await listMilestones(db, campaign.id);
+	const turns: ChatTurn[] = [];
+	for (const [index, { role, text, form }] of arrived.entries()) {
+		if (form === undefined) {
+			turns.push({ role, text });
+			continue;
+		}
+		const latest = index === arrived.length - 1;
+		const checked = checkReportForm(form, {
+			party,
+			milestones,
+			evidenceOrigin: url.origin,
+			latest
+		});
+		if (!checked.ok) {
+			return latest ? refuseForm(checked.problems) : refuse(400, 'invalid_request', UNREADABLE);
+		}
+		turns.push({ role, text: reportFormMessage(checked.report, checked.milestone) });
 	}
 
 	const token = await usablePersonToken(db, config.SESSION_SECRET, party.id, {
@@ -102,7 +151,7 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	const system = systemPrompt({
 		party,
 		campaign,
-		milestones: await listMilestones(db, campaign.id),
+		milestones,
 		uploadPageUrl: `${url.origin}/upload`,
 		today: new Date().toISOString().slice(0, 10)
 	});

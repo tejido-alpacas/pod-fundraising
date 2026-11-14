@@ -37,6 +37,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 					.map((milestone) => ({
 						id: milestone.id,
 						title: milestone.title,
+						/** The report form shows the fields this type of milestone needs. */
+						kind: milestone.kind,
 						dueDate: milestone.dueDate,
 						state: milestone.state,
 						part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const)
