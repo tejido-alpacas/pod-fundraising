@@ -38,6 +38,13 @@ export const ENTRY_STATUS: Record<EntryStatus, { label: string; meaning: string 
 	}
 };
 
+/**
+ * The three states of a deposit ("Deposit held", "Deposit refunded", "Refund outstanding") and
+ * the sentence for each reason a refund is outstanding. The words are agreed in the contracts
+ * so the App says the same; the server loads already send `label` with every deposit.
+ */
+export { DEPOSIT_STATE_LABEL, REFUND_OUTSTANDING_MEANING } from '@tejido/contracts';
+
 /** How strongly a milestone is confirmed, in the words of the brief. */
 export const MILESTONE_STATE_LABEL: Record<MilestoneState, string> = {
 	open: 'Not yet claimed',

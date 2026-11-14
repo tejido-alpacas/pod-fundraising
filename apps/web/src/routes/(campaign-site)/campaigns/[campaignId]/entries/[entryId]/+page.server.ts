@@ -1,14 +1,8 @@
+import { depositView, type DepositView } from '#lib/campaign-site/server/deposits.ts';
 import { checkEvidence, evidenceStoreOrigin } from '#lib/server/backend/evidence.ts';
 import { error } from '@sveltejs/kit';
 import { isConfirmed, type Entry, type MilestoneKind, type Photo } from '@tejido/contracts';
-import {
-	getCampaign,
-	getEntry,
-	getMilestone,
-	getParty,
-	listDeposits,
-	listUnrefundedDeposits
-} from '@tejido/db';
+import { getCampaign, getEntry, getMilestone, getParty, listDepositStatuses } from '@tejido/db';
 import { sameTwin } from '@tejido/qatom';
 import type { PageServerLoad } from './$types';
 
@@ -102,36 +96,30 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const [milestone, filer, deposits] = await Promise.all([
 		getMilestone(db, campaign.id, entry.milestoneId),
 		getParty(db, entry.partyId),
-		listDeposits(db, campaign.id)
+		listDepositStatuses(db, campaign.id, { entryId: entry.id })
 	]);
 	// The database requires both, so their absence is a fault of ours, not a missing page.
 	if (!milestone || !filer) error(500, 'This entry is missing its milestone or its filer');
 
-	// The deposit, and where its refund stands.
-	const paid = deposits.find((deposit) => deposit.entryId === entry.id);
-	let deposit: {
-		amount: number;
-		refund: 'returned' | 'held' | 'being_returned' | 'outcome_unknown';
-		refundedAt: string | null;
-	} | null = null;
+	// The deposit, and which of the three states it is in. `refund` is the older, finer wording
+	// the page was written against; `state` and `label` are the ones to show.
+	const [paid] = deposits.deposits;
+	let deposit:
+		(DepositView & { refund: 'returned' | 'held' | 'being_returned' | 'outcome_unknown' }) | null =
+		null;
 	if (paid) {
-		if (paid.refundedAt !== null) {
-			deposit = { amount: paid.amount, refund: 'returned', refundedAt: paid.refundedAt };
-		} else {
-			const unrefunded = await listUnrefundedDeposits(db, campaign.id, milestone.id);
-			const claim = unrefunded.find((row) => row.deposit.id === paid.id)?.claim ?? null;
-			deposit = {
-				amount: paid.amount,
-				// A refund left `started` has not recorded an answer: `unknown` in all but name.
-				refund:
-					claim === null
-						? 'held'
-						: claim.status === 'unknown'
-							? 'outcome_unknown'
-							: 'being_returned',
-				refundedAt: null
-			};
-		}
+		deposit = {
+			...depositView(paid),
+			refund:
+				paid.state === 'refunded'
+					? 'returned'
+					: paid.outstandingReason === 'outcome_unknown'
+						? 'outcome_unknown'
+						: // A refund left `started` has not recorded an answer.
+							paid.outstandingReason === 'in_progress'
+							? 'being_returned'
+							: 'held'
+		};
 	}
 
 	// The receipt. The agent wallet is the one deposits are paid from, so it is the one the
