@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6ad94ef1-1e00-44ea-93f3-3ccaf0d62b49",
+  "id": "b4dc46e7-beab-46b5-a427-3f4cb218c191",
   "prevId": "5d66a878-6740-484f-b635-cd83540f7635",
   "tables": {
     "campaigns": {
@@ -548,180 +548,41 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "refund_deposits": {
-      "name": "refund_deposits",
+    "party_sign_in_tokens": {
+      "name": "party_sign_in_tokens",
       "columns": {
-        "deposit_id": {
-          "name": "deposit_id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "refund_id": {
-          "name": "refund_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "refund_deposits_refund_idx": {
-          "name": "refund_deposits_refund_idx",
-          "columns": [
-            "refund_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "refund_deposits_deposit_id_deposits_id_fk": {
-          "name": "refund_deposits_deposit_id_deposits_id_fk",
-          "tableFrom": "refund_deposits",
-          "tableTo": "deposits",
-          "columnsFrom": [
-            "deposit_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "refund_deposits_refund_id_refunds_id_fk": {
-          "name": "refund_deposits_refund_id_refunds_id_fk",
-          "tableFrom": "refund_deposits",
-          "tableTo": "refunds",
-          "columnsFrom": [
-            "refund_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "refunds": {
-      "name": "refunds",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "campaign_id": {
-          "name": "campaign_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "milestone_id": {
-          "name": "milestone_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
         "party_id": {
           "name": "party_id",
           "type": "text",
-          "primaryKey": false,
+          "primaryKey": true,
           "notNull": true,
           "autoincrement": false
         },
-        "primary_wallet_hostname": {
-          "name": "primary_wallet_hostname",
+        "sealed_tokens": {
+          "name": "sealed_tokens",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
           "autoincrement": false
         },
-        "dq": {
-          "name": "dq",
+        "updated_at": {
+          "name": "updated_at",
           "type": "text",
           "primaryKey": false,
           "notNull": true,
-          "autoincrement": false
-        },
-        "amount": {
-          "name": "amount",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status": {
-          "name": "status",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "status_reason": {
-          "name": "status_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "started_at": {
-          "name": "started_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "settled_at": {
-          "name": "settled_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
           "autoincrement": false
         }
       },
-      "indexes": {
-        "refunds_milestone_idx": {
-          "name": "refunds_milestone_idx",
-          "columns": [
-            "campaign_id",
-            "milestone_id"
-          ],
-          "isUnique": false
-        }
-      },
+      "indexes": {},
       "foreignKeys": {
-        "refunds_party_id_parties_id_fk": {
-          "name": "refunds_party_id_parties_id_fk",
-          "tableFrom": "refunds",
+        "party_sign_in_tokens_party_id_parties_id_fk": {
+          "name": "party_sign_in_tokens_party_id_parties_id_fk",
+          "tableFrom": "party_sign_in_tokens",
           "tableTo": "parties",
           "columnsFrom": [
             "party_id"
           ],
           "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "refunds_campaign_id_milestone_id_milestones_campaign_id_id_fk": {
-          "name": "refunds_campaign_id_milestone_id_milestones_campaign_id_id_fk",
-          "tableFrom": "refunds",
-          "tableTo": "milestones",
-          "columnsFrom": [
-            "campaign_id",
-            "milestone_id"
-          ],
-          "columnsTo": [
-            "campaign_id",
             "id"
           ],
           "onDelete": "no action",

@@ -7,16 +7,19 @@
 import {
 	entrySchema,
 	type AgentWalletHostname,
+	type Amount,
 	type Campaign,
 	type Deposit,
 	type Entry,
+	type EntryStatus,
 	type Milestone,
 	type MilestoneState,
 	type Party,
 	type PrimaryWalletHostname,
 	type Timestamp
 } from '@tejido/contracts';
-import { and, asc, count, desc, eq, inArray, isNull } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { alias } from 'drizzle-orm/sqlite-core';
 import type { Database, Executor } from './client.ts';
 import {
 	campaigns,
@@ -24,6 +27,7 @@ import {
 	entries,
 	milestones,
 	parties,
+	partySignInTokens,
 	refundDeposits,
 	refunds,
 	type RefundStatus
@@ -95,6 +99,61 @@ export async function linkPartyWallets(
 			primaryWalletHostname: wallets.primaryWalletHostname
 		})
 		.where(eq(parties.id, partyId));
+}
+
+// --- Sign-in tokens (sealed) ---
+
+/**
+ * A party's Qatom sign-in tokens as the database holds them: sealed.
+ *
+ * `sealedTokens` is an opaque string. Sealing (encrypting with a key derived from
+ * SESSION_SECRET) and unsealing are the App's job, in its own server code. Nothing in this
+ * package can read a token, and none of these functions may be given one in the clear.
+ */
+export interface SealedSignInTokens {
+	partyId: string;
+	/** Already sealed by the caller. Never a token, and never JSON holding one. */
+	sealedTokens: string;
+	updatedAt: Timestamp;
+}
+
+/**
+ * Saves a party's sealed sign-in tokens. A party has one row: a later save replaces the
+ * earlier one. The caller seals the tokens first; this stores the string as given.
+ */
+export async function saveSealedSignInTokens(
+	db: Executor,
+	record: SealedSignInTokens
+): Promise<void> {
+	await db
+		.insert(partySignInTokens)
+		.values(record)
+		.onConflictDoUpdate({
+			target: partySignInTokens.partyId,
+			set: { sealedTokens: record.sealedTokens, updatedAt: record.updatedAt }
+		});
+}
+
+/** A party's sealed sign-in tokens, still sealed. The caller unseals them. */
+export async function readSealedSignInTokens(
+	db: Executor,
+	partyId: string
+): Promise<SealedSignInTokens | undefined> {
+	const [row] = await db
+		.select()
+		.from(partySignInTokens)
+		.where(eq(partySignInTokens.partyId, partyId))
+		.limit(1);
+	return row;
+}
+
+/** Forgets a party's sealed sign-in tokens. Answers whether there was a row to delete. */
+export async function deleteSealedSignInTokens(db: Executor, partyId: string): Promise<boolean> {
+	const deleted = await db
+		.delete(partySignInTokens)
+		.where(eq(partySignInTokens.partyId, partyId))
+		.returning({ partyId: partySignInTokens.partyId });
+	return deleted.length > 0;
 }
 
 // --- Milestones ---
@@ -198,6 +257,101 @@ export async function insertEntryAdvancingMilestone(
 			.returning({ id: milestones.id })
 	]);
 	return moved.length > 0;
+}
+
+// --- Reconciliation ---
+
+/** An entry not yet matched to Qatom's ledger, with what the reconciler needs to match it. */
+export interface UnreconciledEntry {
+	entry: Entry;
+	/** The party the entry's reporter code named. Its agent wallet is the payer we expect. */
+	party: Party;
+	/** The deposit paid on the entry. */
+	depositAmount: Amount;
+}
+
+/** A campaign's entries that have no ledger transaction yet, oldest first. */
+export async function listUnreconciledEntries(
+	db: Executor,
+	campaignId: string
+): Promise<UnreconciledEntry[]> {
+	const rows = await db
+		.select({ entry: entries, party: parties, depositAmount: deposits.amount })
+		.from(entries)
+		.innerJoin(parties, eq(parties.id, entries.partyId))
+		.innerJoin(deposits, eq(deposits.entryId, entries.id))
+		.where(and(eq(entries.campaignId, campaignId), isNull(entries.twistId)))
+		.orderBy(asc(entries.filedAt), asc(entries.id));
+	return rows.map((row) => ({ ...row, entry: toEntry(row.entry) }));
+}
+
+// D1 allows 100 bound values in one statement.
+const TWIST_IDS_PER_QUERY = 90;
+
+/** Which of these ledger transactions already prove an entry, in any campaign. */
+export async function listUsedTwistIds(db: Executor, twistIds: string[]): Promise<Set<string>> {
+	const used = new Set<string>();
+	for (let start = 0; start < twistIds.length; start += TWIST_IDS_PER_QUERY) {
+		const rows = await db
+			.select({ twistId: entries.twistId })
+			.from(entries)
+			.where(inArray(entries.twistId, twistIds.slice(start, start + TWIST_IDS_PER_QUERY)));
+		for (const row of rows) if (row.twistId !== null) used.add(row.twistId);
+	}
+	return used;
+}
+
+/** What the reconciler records on an entry once it has found the entry's ledger transaction. */
+export interface EntryStamp {
+	entryId: string;
+	twistId: string;
+	/** The paying address exactly as the ledger reports it. */
+	payingWallet: string;
+	/** The ledger's own timestamp for the deposit. */
+	stampedAt: Timestamp;
+	status: EntryStatus;
+	statusReason: string | null;
+	updatedAt: Timestamp;
+}
+
+/**
+ * Records ledger transactions on entries, all in one batch: every stamp is written, or none.
+ *
+ * A stamp is skipped, not an error, when its entry already has a transaction or its
+ * transaction already proves another entry. So one transaction stamps at most one entry, and
+ * recording the same stamps twice changes nothing. Answers the ids of the entries it stamped.
+ */
+export async function stampEntries(db: Database, stamps: EntryStamp[]): Promise<string[]> {
+	const stamped = alias(entries, 'stamped');
+	const updates = stamps.map((stamp) =>
+		db
+			.update(entries)
+			.set({
+				twistId: stamp.twistId,
+				payingWallet: stamp.payingWallet,
+				stampedAt: stamp.stampedAt,
+				status: stamp.status,
+				statusReason: stamp.statusReason,
+				updatedAt: stamp.updatedAt
+			})
+			.where(
+				and(
+					eq(entries.id, stamp.entryId),
+					isNull(entries.twistId),
+					notExists(
+						db
+							.select({ found: sql`1` })
+							.from(stamped)
+							.where(eq(stamped.twistId, stamp.twistId))
+					)
+				)
+			)
+			.returning({ id: entries.id })
+	);
+	const [first, ...rest] = updates;
+	if (!first) return [];
+	const results = await db.batch([first, ...rest]);
+	return results.flatMap((rows) => rows.map((row) => row.id));
 }
 
 /** How many work logs a party has filed on a milestone. */

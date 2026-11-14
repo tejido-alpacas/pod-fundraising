@@ -199,6 +199,26 @@ export const refundDeposits = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Sign-in tokens (not a contract record: only the App's server reads or writes these)
+// ---------------------------------------------------------------------------
+
+/**
+ * The tokens Qatom returned when a party signed in, kept so the App's agent chat can reach the
+ * Qatom MCP server as that person. One row per party; a new sign-in replaces it.
+ *
+ * `sealedTokens` is opaque here. The App encrypts the tokens with a key derived from
+ * SESSION_SECRET before saving and decrypts after reading. This package never sees a token or
+ * a key, and must never be given an unsealed value.
+ */
+export const partySignInTokens = sqliteTable('party_sign_in_tokens', {
+	partyId: text('party_id')
+		.primaryKey()
+		.references(() => parties.id),
+	sealedTokens: text('sealed_tokens').notNull(),
+	updatedAt: text('updated_at').notNull()
+});
+
+// ---------------------------------------------------------------------------
 // Tables must match the contracts
 // ---------------------------------------------------------------------------
 
