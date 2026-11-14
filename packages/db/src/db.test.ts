@@ -3,11 +3,13 @@ import { fixtures } from '@tejido/contracts/fixtures';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { hasCampaigns, runMigrations, seedFixtures, seedFixturesSql } from './admin.ts';
 import {
+	countWorkLogs,
 	findPartyByReporterCode,
 	getCampaign,
 	getEntry,
 	getMilestone,
 	getParty,
+	insertEntryAdvancingMilestone,
 	insertEntryWithDeposit,
 	linkPartyWallets,
 	listCampaigns,
@@ -142,6 +144,55 @@ describe('writing', () => {
 
 		await expect(insertEntryWithDeposit(test.db, stray, deposit)).rejects.toThrow();
 		expect(await getEntry(test.db, entry.id)).toBeUndefined();
+	});
+
+	it('moves the milestone to its next state together with the entry', async () => {
+		const moved = await insertEntryAdvancingMilestone(test.db, entry, deposit, {
+			from: 'open',
+			to: 'claimed',
+			confirmedAt: null
+		});
+
+		expect(moved).toBe(true);
+		expect(await getEntry(test.db, entry.id)).toEqual(entry);
+		expect(await getMilestone(test.db, fixtures.campaign.id, 'm2-walls')).toMatchObject({
+			state: 'claimed',
+			confirmedAt: null
+		});
+	});
+
+	it('saves the entry but leaves a milestone that is not in the expected state', async () => {
+		// m2-walls is open, so nothing can take it from claimed to confirmed.
+		const moved = await insertEntryAdvancingMilestone(test.db, entry, deposit, {
+			from: 'claimed',
+			to: 'confirmed_independent',
+			confirmedAt: now
+		});
+
+		expect(moved).toBe(false);
+		expect(await getEntry(test.db, entry.id)).toEqual(entry);
+		expect(await getMilestone(test.db, fixtures.campaign.id, 'm2-walls')).toMatchObject({
+			state: 'open',
+			confirmedAt: null
+		});
+	});
+
+	it('moves no milestone when the entry cannot be saved', async () => {
+		const clash = { ...deposit, id: fixtures.deposits[0]?.id ?? '' };
+		const advance = { from: 'open', to: 'claimed', confirmedAt: null } as const;
+
+		await expect(insertEntryAdvancingMilestone(test.db, entry, clash, advance)).rejects.toThrow();
+		expect(await getEntry(test.db, entry.id)).toBeUndefined();
+		expect((await getMilestone(test.db, fixtures.campaign.id, 'm2-walls'))?.state).toBe('open');
+	});
+
+	it('counts the work logs one party has filed on one milestone', async () => {
+		const { id } = fixtures.campaign;
+
+		expect(await countWorkLogs(test.db, id, 'm2-walls', party?.id ?? '')).toBe(2);
+		// The contractor's entries on the foundation are milestone hits, not work logs.
+		expect(await countWorkLogs(test.db, id, 'm1-foundation', party?.id ?? '')).toBe(0);
+		expect(await countWorkLogs(test.db, id, 'm2-walls', fixtures.parties[1]?.id ?? '')).toBe(0);
 	});
 
 	it('refuses a second deposit on one entry, and a twist id used twice', async () => {

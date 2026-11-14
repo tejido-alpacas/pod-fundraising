@@ -20,8 +20,17 @@ import {
 	type Deposit,
 	type Entry
 } from '@tejido/contracts';
-import { findPartyByReporterCode, getMilestone, insertEntryWithDeposit } from '@tejido/db';
+import {
+	countWorkLogs,
+	findPartyByReporterCode,
+	getMilestone,
+	getParty,
+	insertEntryAdvancingMilestone,
+	insertEntryWithDeposit
+} from '@tejido/db';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { decideCheckin, describeAccepted } from '#lib/server/backend/checkin-rules.ts';
+import { evidenceStoreOrigin } from '#lib/server/backend/evidence.ts';
 import type { RequestHandler } from './$types';
 
 function refuse(status: number, body: Omit<CheckinRefused, 'accepted'>) {
@@ -75,12 +84,22 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		});
 	}
 
-	// TODO(Track C): the rules a schema cannot express go here. May this party report on this
-	// milestone? Does a `confirm` come from the named confirmer? Does a delivery have quantity
-	// and unit (if not: status `incomplete`)? Is the slot open? Then advance the milestone state.
-
-	// 4. Save the entry and the deposit that was paid with it.
+	// 4. The rules a schema cannot express: who may file this, what is missing, and whether
+	//    the milestone moves on. They live in #lib/server/backend/checkin-rules.ts.
 	const now = new Date().toISOString();
+	const decision = decideCheckin({
+		checkin: parsed,
+		party,
+		milestone,
+		evidenceOrigin: evidenceStoreOrigin(config),
+		now
+	});
+	if (!decision.allowed) {
+		const { httpStatus, ...refusal } = decision.refusal;
+		return refuse(httpStatus, refusal);
+	}
+
+	// 5. Save the entry and the deposit that was paid with it, and move the milestone on.
 	const entry = {
 		id: `ent_${randomUUID()}`,
 		campaignId: party.campaignId,
@@ -88,8 +107,8 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		partyId: party.id,
 		item,
 		inputs,
-		status: 'filed',
-		statusReason: null,
+		status: decision.status,
+		statusReason: decision.statusReason,
 		payingWallet: null,
 		twistId: null,
 		filedAt: now,
@@ -102,17 +121,38 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		amount: DEPOSIT_AMOUNT[item],
 		refundedAt: null
 	};
-	await insertEntryWithDeposit(db, entry, deposit);
+	let advanced = false;
+	let state = milestone.state;
+	if (decision.advance) {
+		advanced = await insertEntryAdvancingMilestone(db, entry, deposit, decision.advance);
+		// If another entry moved the milestone first, read where it stands now.
+		state = advanced
+			? decision.advance.to
+			: ((await getMilestone(db, party.campaignId, milestone.id))?.state ?? state);
+	} else {
+		await insertEntryWithDeposit(db, entry, deposit);
+	}
 
-	// 5. Say what was accepted.
-	const what = item === 'log_work' ? 'work log' : `milestone hit (${parsed.inputs.claim})`;
+	// 6. Say what was accepted and what is still owed.
+	const confirmer = await getParty(db, milestone.confirmerPartyId);
 	return json({
 		accepted: true,
 		entry_id: entry.id,
 		item,
 		milestone_id: milestone.id,
-		status: 'filed',
+		status: decision.status,
 		deposit: formatAmount(deposit.amount),
-		message: `Accepted: ${what} for "${milestone.title}" filed by ${party.name}. The ${formatAmount(deposit.amount)} deposit is returned when the milestone is confirmed.`
+		message: describeAccepted({
+			checkin: parsed,
+			party,
+			milestone,
+			status: decision.status,
+			owed: decision.owed,
+			state,
+			advanced,
+			workLogNumber: await countWorkLogs(db, party.campaignId, milestone.id, party.id),
+			confirmerName: confirmer?.name ?? 'its confirmer',
+			deposit: deposit.amount
+		})
 	} satisfies CheckinAccepted);
 };
