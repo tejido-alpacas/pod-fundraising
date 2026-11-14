@@ -1,5 +1,4 @@
 import { getContext, initContext } from '#lib/server/context.ts';
-import { readSession } from '#lib/server/session.ts';
 import type { Handle, ServerInit } from '@sveltejs/kit/hooks';
 import { building } from '$app/env';
 
@@ -14,6 +13,5 @@ export const init: ServerInit = () => {
 
 export const handle: Handle = async ({ event, resolve }) => {
 	event.locals.ctx = getContext();
-	event.locals.session = readSession(event.cookies, event.locals.ctx.config.SESSION_SECRET);
 	return resolve(event);
 };

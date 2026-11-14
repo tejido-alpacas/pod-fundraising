@@ -20,7 +20,7 @@
 	<h2>Where the work goes</h2>
 	<ul>
 		{#each here.files as file (file)}
-			<li><code>{file.startsWith('packages/') ? file : `apps/web/${file}`}</code></li>
+			<li><code>{file}</code></li>
 		{/each}
 	</ul>
 

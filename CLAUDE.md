@@ -24,12 +24,17 @@ Work only in the home of the track you were asked to work on. Do not edit anothe
 | Track             | Home                                                                                 |
 | ----------------- | ------------------------------------------------------------------------------------ |
 | A · Campaign Site | `apps/web/src/routes/(campaign-site)/`, `apps/web/src/lib/campaign-site/`            |
-| B · App           | `apps/web/src/routes/(app)/`, `apps/web/src/lib/app/`                                |
+| B · App           | `apps/app/`, the whole app                                                           |
 | C · Backend       | `apps/web/src/routes/(backend)/`, `apps/web/src/lib/server/backend/`, `packages/db/` |
 
-Shared files (`packages/contracts`, `packages/config`, `packages/qatom`, `hooks.server.ts`,
-`src/lib/server/context.ts`, `src/lib/server/session.ts`, root layout and index, root config)
-change only when the task says so.
+There are two apps. `apps/web` is the Campaign Site and the backend. `apps/app` is the App for
+third parties and confirmers, deployed separately at app.tejido.net; sign-in, sessions and
+evidence live there. They share the packages, the database and the configuration, and never
+import from each other.
+
+Shared files (`packages/contracts`, `packages/config`, `packages/qatom`, and in `apps/web`:
+`hooks.server.ts`, `src/lib/server/context.ts`, the root layout and index; root config) change
+only when the task says so.
 
 ## Contracts
 
@@ -59,7 +64,7 @@ change only when the task says so.
 
 - No secrets in the repository. `.env` is ignored; `.env.example` holds names and placeholders.
 - Configuration is parsed once, in `packages/config`. Do not read `process.env` anywhere else,
-  and do not add a fallback or default for a missing value. In the web app use
+  and do not add a fallback or default for a missing value. In either app use
   `event.locals.ctx.config`.
 - Never log a token, a secret, or a response body that could contain one.
 - Server-only packages (`@tejido/config`, `@tejido/db`, `@tejido/qatom`) are imported only from
@@ -67,7 +72,7 @@ change only when the task says so.
 
 ## Conventions
 
-- Relative imports carry the `.ts` extension. In the web app, `#lib/...` replaces `$lib/...`.
+- Relative imports carry the `.ts` extension. In the apps, `#lib/...` replaces `$lib/...`.
 - Packages are imported as TypeScript source. There is no build step for them. Use only syntax
   Node can strip: no enums, no parameter properties, no namespaces.
 - This is SvelteKit 3: configuration is in `vite.config.ts`, hook types come from

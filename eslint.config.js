@@ -17,13 +17,13 @@ const SERVER_ONLY_PACKAGES = [
 	'@tejido/qatom/*'
 ];
 
-// The files in the web app that are guaranteed to run on the server only.
+// The files in the two apps that are guaranteed to run on the server only.
 const WEB_SERVER_FILES = [
-	'apps/web/src/**/server/**',
-	'apps/web/src/**/*.server.ts',
-	'apps/web/src/**/+server.ts',
-	'apps/web/src/hooks.server.ts',
-	'apps/web/src/**/*.test.ts'
+	'apps/*/src/**/server/**',
+	'apps/*/src/**/*.server.ts',
+	'apps/*/src/**/+server.ts',
+	'apps/*/src/hooks.server.ts',
+	'apps/*/src/**/*.test.ts'
 ];
 
 export default defineConfig(
@@ -90,8 +90,8 @@ export default defineConfig(
 		files: ['apps/**/*.{ts,svelte}', 'packages/**/*.ts'],
 		ignores: [
 			'packages/config/**',
-			'apps/web/vite.config.ts',
-			'apps/web/src/lib/server/context.ts',
+			'apps/*/vite.config.ts',
+			'apps/*/src/lib/server/context.ts',
 			'**/*.test.ts'
 		],
 		rules: {
@@ -108,7 +108,7 @@ export default defineConfig(
 
 	// The merchant account's credentials, the database and the Qatom client never reach the browser.
 	{
-		files: ['apps/web/src/**/*.{ts,svelte}'],
+		files: ['apps/*/src/**/*.{ts,svelte}'],
 		ignores: WEB_SERVER_FILES,
 		rules: {
 			'@typescript-eslint/no-restricted-imports': [

@@ -24,6 +24,9 @@ function requireConfiguration(): Plugin {
 }
 
 export default defineConfig({
+	// The Campaign Site is 5173 and the App 5174.
+	server: { port: 5173, strictPort: true },
+	preview: { port: 5173, strictPort: true },
 	plugins: [
 		requireConfiguration(),
 		sveltekit({

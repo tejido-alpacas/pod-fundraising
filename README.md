@@ -40,26 +40,30 @@ Replace every `replace-me` in `.env` with a real value (see [Configuration](#con
 npm run dev
 ```
 
-`npm run dev` first creates the local database and seeds it with the fixtures, then starts the
-app at http://localhost:5173. The index page lists every surface by track. The donor timeline at
-http://localhost:5173/campaigns/library-wing shows the fixture campaign from the database.
+`npm run dev` first creates the local database and seeds it with the fixtures, then starts both
+apps:
+
+- the Campaign Site at http://localhost:5173. Its index page lists every surface by track, and
+  http://localhost:5173/campaigns/library-wing shows the fixture campaign from the database.
+- the App at http://localhost:5174, for third parties and confirmers.
 
 The app refuses to start, naming each problem, if a configuration value is missing. That is
 deliberate: there are no fallbacks.
 
 ## Scripts
 
-Run these from the repository root. Each one runs across the workspaces.
+Run these from the repository root. Each one runs across the workspaces. `dev` and `start` run
+the two apps side by side, since a server never exits to let the next one begin.
 
 | Script                | What it does                                                        |
 | --------------------- | ------------------------------------------------------------------- |
-| `npm run dev`         | Prepares the database, then starts the dev server                   |
+| `npm run dev`         | Prepares the database, then starts both apps                        |
 | `npm run build`       | Builds the web app for production                                   |
 | `npm test`            | Runs every test. Tests never reach the network                      |
 | `npm run lint`        | Prettier check, then ESLint                                         |
 | `npm run typecheck`   | TypeScript and Svelte type checks                                   |
 | `npm run format`      | Formats everything with Prettier                                    |
-| `npm run start`       | Runs the production build (`npm run build` first)                   |
+| `npm run start`       | Runs both production builds (`npm run build` first)                 |
 | `npm run db:prepare`  | Applies migrations and seeds the fixtures if there are no campaigns |
 | `npm run db:reset`    | Deletes the database file, then migrates and seeds                  |
 | `npm run db:generate` | Writes a new migration after you change `packages/db/src/schema.ts` |
@@ -72,18 +76,18 @@ those four.
 Configuration is parsed once at startup against one zod schema in `packages/config`. All ten
 values are required. Nothing else in the repository reads `process.env`.
 
-| Name                          | What it is                                                                                         |
-| ----------------------------- | -------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`                | Our SQLite file. A relative path is resolved against the repository root                           |
-| `SESSION_SECRET`              | Encrypts session cookies. At least 32 characters                                                   |
-| `CHECKIN_SHARED_SECRET`       | Qatom sends it in the `X-Tejido-Checkin-Secret` header. 32+ printable characters, no spaces        |
-| `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`               |
-| `QATOM_MCP_URL`               | Tejido's managed MCP server on Qatom                                                               |
-| `OIDC_CLIENT_ID`              | **Identity 1.** The sign-in client registration                                                    |
-| `OIDC_REDIRECT_URI`           | **Identity 1.** Locally `http://localhost:5173/auth/callback`. Must match the registration exactly |
-| `QATOM_ACCOUNT_CLIENT_ID`     | **Identity 2.** Tejido's merchant account                                                          |
-| `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                   |
-| `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                                                               |
+| Name                          | What it is                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `DATABASE_URL`                | Our SQLite file. A relative path is resolved against the repository root                                                       |
+| `SESSION_SECRET`              | Encrypts session cookies. At least 32 characters                                                                               |
+| `CHECKIN_SHARED_SECRET`       | Qatom sends it in the `X-Tejido-Checkin-Secret` header. 32+ printable characters, no spaces                                    |
+| `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`                                           |
+| `QATOM_MCP_URL`               | Tejido's managed MCP server on Qatom                                                                                           |
+| `OIDC_CLIENT_ID`              | **Identity 1.** The sign-in client registration                                                                                |
+| `OIDC_REDIRECT_URI`           | **Identity 1.** The callback is in the App: locally `http://localhost:5174/auth/callback`. Must match the registration exactly |
+| `QATOM_ACCOUNT_CLIENT_ID`     | **Identity 2.** Tejido's merchant account                                                                                      |
+| `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                                               |
+| `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                                                                                           |
 
 Uploaded evidence is stored in an `evidence` folder beside the database file. In production the
 Node adapter limits request bodies to 512 KB; set `BODY_SIZE_LIMIT=10M` to accept photos.
@@ -91,7 +95,8 @@ Node adapter limits request bodies to 512 KB; set `BODY_SIZE_LIMIT=10M` to accep
 ## Layout
 
 ```
-apps/web              the one web app: pages and server routes (SvelteKit 3, Svelte 5, Node adapter)
+apps/web              the Campaign Site and the backend: creators, donors, and what Qatom calls
+apps/app              the App: third parties and confirmers. Deployed at app.tejido.net
 packages/contracts    what the three tracks agree on: zod schemas, types, fixtures
 packages/config       the one configuration schema
 packages/db           our database: Drizzle schema, client, migrations, seed (SQLite)
@@ -108,25 +113,43 @@ Each track has a home. Work in your own; do not edit another track's files.
 | Track                 | Faces                        | Home                                                                                 |
 | --------------------- | ---------------------------- | ------------------------------------------------------------------------------------ |
 | **A** · Campaign Site | Creators and donors          | `apps/web/src/routes/(campaign-site)/`, `apps/web/src/lib/campaign-site/`            |
-| **B** · App           | Third parties and confirmers | `apps/web/src/routes/(app)/`, `apps/web/src/lib/app/`                                |
+| **B** · App           | Third parties and confirmers | `apps/app/`, the whole app                                                           |
 | **C** · Backend       | Our server side              | `apps/web/src/routes/(backend)/`, `apps/web/src/lib/server/backend/`, `packages/db/` |
 
 The folders in brackets are SvelteKit route groups: they organise files and do not appear in URLs.
-So Track B's `(app)/api/evidence/+server.ts` serves `/api/evidence`, and Track C's
-`(backend)/api/checkins/+server.ts` serves `/api/checkins`.
+So Track C's `(backend)/api/checkins/+server.ts` serves `/api/checkins`.
 
 Shared, change by agreement: `packages/contracts`, `packages/config`, `packages/qatom`,
-`apps/web/src/hooks.server.ts`, `apps/web/src/lib/server/context.ts` and `session.ts`, the root
+`apps/web/src/hooks.server.ts`, `apps/web/src/lib/server/context.ts`, the Campaign Site's root
 layout and index page, and the root configuration files.
 
 **The first file to open**
 
 - Track A: `apps/web/src/routes/(campaign-site)/campaigns/[campaignId]/+page.server.ts`, the
   working timeline. Copy its pattern for the other pages.
-- Track B: `apps/web/src/routes/(app)/auth/callback/+server.ts`, where a sign-in lands and the
-  wallets are stored. The invite page is next to it under `(app)/app/invite/`.
+- Track B: `apps/app/src/routes/auth/callback/+server.ts`, where a sign-in lands and the wallets
+  are stored. The invite page is `apps/app/src/routes/invite/[partyId]/`.
 - Track C: `apps/web/src/routes/(backend)/api/checkins/+server.ts`, the endpoint Qatom calls. The
   `TODO(Track C)` marks where the milestone rules go.
+
+## Two apps, one system
+
+Both apps are SvelteKit 3 with Svelte 5 and the Node adapter. They are deployed separately and
+share everything underneath: the same packages, the same database file and the same ten
+configuration values.
+
+|       | Campaign Site (`apps/web`)                             | App (`apps/app`)                                    |
+| ----- | ------------------------------------------------------ | --------------------------------------------------- |
+| For   | Creators and donors, and Qatom's calls                 | Third parties and confirmers                        |
+| Local | http://localhost:5173                                  | http://localhost:5174                               |
+| Holds | Campaign pages, `POST /api/checkins`, the backend jobs | Invite, chat, upload, sign-in, `POST /api/evidence` |
+
+- **Sign-in lives in the App.** `OIDC_REDIRECT_URI` points at it, and so does the session cookie.
+  The Campaign Site has no sign-in yet; creators will need one, and a cookie set on one host is
+  not sent to the other.
+- **Evidence lives in the App.** Photo URLs are on the App's origin. Both apps must see the same
+  disk, because evidence and the database are files.
+- In production each app is `node build` in its own folder with its own `PORT`.
 
 ## The two Qatom identities
 

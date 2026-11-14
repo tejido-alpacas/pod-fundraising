@@ -1,5 +1,8 @@
 <script lang="ts">
 	import { SURFACES, TRACKS } from '#lib/surfaces.ts';
+	import type { PageProps } from './$types';
+
+	let { data }: PageProps = $props();
 </script>
 
 <svelte:head><title>Tejido · build index</title></svelte:head>
@@ -25,7 +28,8 @@
 				{#each SURFACES.filter((surface) => surface.track === track.id) as surface (surface.id)}
 					<li>
 						<span class="id">{surface.id}</span>
-						<a href={surface.path}>{surface.name}</a>
+						<a href={surface.inApp ? data.appOrigin + surface.path : surface.path}>{surface.name}</a
+						>
 						{#if surface.working}<span class="working">working</span>{/if}
 						<p>{surface.what}</p>
 					</li>
@@ -37,11 +41,13 @@
 
 <h2>Server routes that already run</h2>
 <ul class="routes">
-	<li><code>POST /api/checkins</code> Qatom calls this when an item is bought. Track C.</li>
-	<li><code>POST /api/evidence</code> stores a file and returns its URL and SHA-256. Track B.</li>
+	<li><code>POST /api/checkins</code> here. Qatom calls it when an item is bought. Track C.</li>
 	<li>
-		<code>GET /auth/sign-in</code> and <code>GET /auth/callback</code> sign a person in with Qatom and
-		store both wallet hostnames on their party. Track B.
+		<code>POST /api/evidence</code> in the App. Stores a file and returns its URL and SHA-256. Track B.
+	</li>
+	<li>
+		<code>GET /auth/sign-in</code> and <code>GET /auth/callback</code> in the App. They sign a person
+		in with Qatom and store both wallet hostnames on their party. Track B.
 	</li>
 </ul>
 

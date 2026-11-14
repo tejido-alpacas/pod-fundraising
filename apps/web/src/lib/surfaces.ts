@@ -18,38 +18,40 @@ export interface Surface {
 	name: string;
 	/** A path that opens this surface with the fixture data. */
 	path: string;
+	/** True when the path is in the App (apps/app), which is served from another origin. */
+	inApp?: boolean;
 	what: string;
-	/** Where the work goes. */
+	/** Where the work goes, from the repository root. */
 	files: string[];
 	working?: boolean;
 }
 
 export const FIXTURE_CAMPAIGN = '/campaigns/library-wing';
 
+const A = 'apps/web/src/routes/(campaign-site)';
+const B = 'apps/app/src/routes';
+const C = 'apps/web/src/routes/(backend)';
+
 export const TRACKS: Track[] = [
 	{
 		id: 'A',
 		name: 'Campaign Site',
 		faces: 'Creators and donors',
-		homes: ['src/routes/(campaign-site)/', 'src/lib/campaign-site/']
+		homes: [`${A}/`, 'apps/web/src/lib/campaign-site/']
 	},
 	{
 		id: 'B',
 		name: 'App',
-		faces: 'Third parties and confirmers',
-		homes: ['src/routes/(app)/', 'src/lib/app/']
+		faces: 'Third parties and confirmers. Its own app, deployed at app.tejido.net',
+		homes: ['apps/app/']
 	},
 	{
 		id: 'C',
 		name: 'Backend',
 		faces: 'Our server side, talking to Qatom as it is',
-		homes: ['src/routes/(backend)/', 'src/lib/server/backend/', 'packages/db/']
+		homes: [`${C}/`, 'apps/web/src/lib/server/backend/', 'packages/db/']
 	}
 ];
-
-const A = 'src/routes/(campaign-site)';
-const B = 'src/routes/(app)';
-const C = 'src/routes/(backend)';
 
 export const SURFACES: Surface[] = [
 	{
@@ -93,10 +95,11 @@ export const SURFACES: Surface[] = [
 		id: 'B1',
 		track: 'B',
 		name: 'Invite and Qatom sign-in',
-		path: '/app/invite/pty-contractor',
+		path: '/invite/pty-contractor',
+		inApp: true,
 		what: 'The invite link, then sign-in with Qatom. The sign-in route and its callback already store both wallet hostnames on the party.',
 		files: [
-			`${B}/app/invite/[partyId]/`,
+			`${B}/invite/[partyId]/`,
 			`${B}/auth/sign-in/+server.ts`,
 			`${B}/auth/callback/+server.ts`
 		]
@@ -105,25 +108,28 @@ export const SURFACES: Surface[] = [
 		id: 'B2',
 		track: 'B',
 		name: 'Agent chat shell',
-		path: '/app/chat',
+		path: '/chat',
+		inApp: true,
 		what: 'A chat with an agent signed in as the third party. It collects the note and photos and calls the work-log or milestone tool on our Qatom MCP server.',
-		files: [`${B}/app/chat/`, 'src/lib/app/']
+		files: [`${B}/chat/`]
 	},
 	{
 		id: 'B3',
 		track: 'B',
 		name: 'Evidence upload',
-		path: '/app/evidence',
+		path: '/upload',
+		inApp: true,
 		what: 'Stores a photo or document and returns its URL and SHA-256. POST /api/evidence already works.',
-		files: [`${B}/app/evidence/`, `${B}/api/evidence/+server.ts`, `${B}/evidence/[file]/+server.ts`]
+		files: [`${B}/upload/`, `${B}/api/evidence/+server.ts`, `${B}/evidence/[file]/+server.ts`]
 	},
 	{
 		id: 'B4',
 		track: 'B',
 		name: 'Reminder message',
-		path: '/app/reminder',
+		path: '/reminder',
+		inApp: true,
 		what: 'Says what is due, which tool to use, the milestone id, the fields required and the deadline.',
-		files: [`${B}/app/reminder/`]
+		files: [`${B}/reminder/`]
 	},
 
 	{
@@ -148,7 +154,7 @@ export const SURFACES: Surface[] = [
 		name: 'Reconciler',
 		path: '/backend/reconciler',
 		what: "Reads each campaign's ledgers from Qatom, attaches the twistId, and checks the paying wallet is the party's registered agent wallet.",
-		files: ['src/lib/server/backend/', `${C}/backend/reconciler/`]
+		files: ['apps/web/src/lib/server/backend/', `${C}/backend/reconciler/`]
 	},
 	{
 		id: 'C5',
@@ -156,7 +162,7 @@ export const SURFACES: Surface[] = [
 		name: 'Deposit refunds',
 		path: '/backend/refunds',
 		what: "On confirmation, totals the deposits paid on the milestone and sends each filer's back to their primary wallet. Once only.",
-		files: ['src/lib/server/backend/', `${C}/backend/refunds/`]
+		files: ['apps/web/src/lib/server/backend/', `${C}/backend/refunds/`]
 	},
 	{
 		id: 'C6',
@@ -164,7 +170,7 @@ export const SURFACES: Surface[] = [
 		name: 'Cadence scheduler',
 		path: '/backend/scheduler',
 		what: 'Works out what is due from whom, triggers reminders and marks a campaign overdue.',
-		files: ['src/lib/server/backend/', `${C}/backend/scheduler/`]
+		files: ['apps/web/src/lib/server/backend/', `${C}/backend/scheduler/`]
 	}
 ];
 

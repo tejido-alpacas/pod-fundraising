@@ -18,7 +18,7 @@ hand-offs between people are few.
 | Track                  | Faces                                                           | Home in this repository                                                              |
 | ---------------------- | --------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
 | **A** · Campaign Site  | Creators and donors                                             | `apps/web/src/routes/(campaign-site)/`, `apps/web/src/lib/campaign-site/`            |
-| **B** · App            | Third parties and confirmers                                    | `apps/web/src/routes/(app)/`, `apps/web/src/lib/app/`                                |
+| **B** · App            | Third parties and confirmers                                    | `apps/app/`, the whole app (its own deployment, app.tejido.net)                      |
 | **C** · Tejido backend | Our server side. Talks to Qatom as it is; no Qatom code changes | `apps/web/src/routes/(backend)/`, `apps/web/src/lib/server/backend/`, `packages/db/` |
 
 ## The surfaces
@@ -156,4 +156,4 @@ So nobody rebuilds it. Hours are estimates made before the code existed; adjust 
 | B3      | `POST /api/evidence` stores a file and returns `{ url, sha256 }`; `GET /evidence/{file}` serves it.                                                     | The upload page, and requiring a signed-in party.                                       |
 | C4, C5  | Not built. `packages/qatom` has the account token, `listCommodityTransactions()` and `transfer()` ready, reachable as `event.locals.ctx.qatom.account`. | The reconciler and the refund job.                                                      |
 | C2      | Not done. `itemInputJsonSchema()` in `@tejido/contracts` generates the schema to paste; `README.md` lists the endpoint and header to configure.         | Creating the items in the dashboard and storing their commodity hashes on the campaign. |
-| Others  | Placeholder pages, listed on the index page at `/`.                                                                                                     | Everything.                                                                             |
+| Others  | Placeholder pages, listed on each app's home page.                                                                                                      | Everything.                                                                             |
