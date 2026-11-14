@@ -8,8 +8,8 @@
  * SvelteKit refuses form posts from another origin. A script or agent calling this from
  * outside a browser must send an `Origin` header equal to the app's own origin.
  *
- * TODO(Track B): this accepts uploads from anyone. Require a signed-in party
- * (`locals.session?.partyId`) before the demo is public.
+ * Only a signed-in party may upload: someone who followed their invite link and signed in
+ * with Qatom. The session cookie from that sign-in must come with the request.
  */
 import { error, json } from '@sveltejs/kit';
 import {
@@ -23,6 +23,17 @@ import { createHash } from 'node:crypto';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals, url }) => {
+	// Before anything is read or stored.
+	if (!locals.session) {
+		error(401, 'Sign in from your invite link before uploading evidence.');
+	}
+	if (!locals.session.partyId) {
+		error(
+			403,
+			'Only a party invited to a campaign can upload evidence. Sign in from your invite link.'
+		);
+	}
+
 	let form: FormData;
 	try {
 		form = await request.formData();

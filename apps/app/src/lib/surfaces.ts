@@ -20,12 +20,15 @@ export const SURFACES: Surface[] = [
 		id: 'B1',
 		name: 'Invite and Qatom sign-in',
 		path: '/invite/pty-contractor',
-		what: 'The invite link, then sign-in with Qatom. The sign-in route and its callback already store both wallet hostnames on the party.',
+		what: 'The invite link, then sign-in with Qatom. The callback stores both wallet hostnames on the party and signs the person in.',
 		files: [
 			`${R}/invite/[partyId]/`,
 			`${R}/auth/sign-in/+server.ts`,
-			`${R}/auth/callback/+server.ts`
-		]
+			`${R}/auth/callback/+server.ts`,
+			`${R}/auth/problem/`,
+			`${R}/auth/sign-out/+server.ts`
+		],
+		working: true
 	},
 	{
 		id: 'B2',
@@ -38,7 +41,7 @@ export const SURFACES: Surface[] = [
 		id: 'B3',
 		name: 'Evidence upload',
 		path: '/upload',
-		what: 'Stores a photo or document and returns its URL and SHA-256. POST /api/evidence already works.',
+		what: 'Stores a photo or document and returns its URL and SHA-256. POST /api/evidence already works, for a signed-in party.',
 		files: [`${R}/upload/`, `${R}/api/evidence/+server.ts`, `${R}/evidence/[file]/+server.ts`]
 	},
 	{
