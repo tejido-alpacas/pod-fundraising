@@ -565,6 +565,8 @@ describe('fixtures', () => {
 	it('point at the two catalog items the owner created', () => {
 		expect(campaign.logWorkCommodityId).toBe(3152);
 		expect(campaign.milestoneHitCommodityId).toBe(3153);
+		// The donation item has not been created yet. See funding.test.ts.
+		expect(campaign.donationCommodityId).toBeNull();
 	});
 
 	it('cannot move money or reach a real person', () => {

@@ -6,7 +6,13 @@ import {
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
-import { getCampaign, listEntries, listMilestones, listParties } from '@tejido/db';
+import {
+	getCampaign,
+	getFundingSummary,
+	listEntries,
+	listMilestones,
+	listParties
+} from '@tejido/db';
 import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
@@ -30,10 +36,11 @@ export const load = (async ({ params, locals, url }) => {
 	const campaign = await getCampaign(db, params.campaignId);
 	if (!campaign) error(404, 'There is no campaign at this address.');
 
-	const [parties, milestones, entries] = await Promise.all([
+	const [parties, milestones, entries, funding] = await Promise.all([
 		listParties(db, campaign.id),
 		listMilestones(db, campaign.id),
-		listEntries(db, campaign.id)
+		listEntries(db, campaign.id),
+		getFundingSummary(db, campaign)
 	]);
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
@@ -61,6 +68,12 @@ export const load = (async ({ params, locals, url }) => {
 			creatorName: campaign.creatorName,
 			status: campaign.status
 		},
+		/**
+		 * Money given, against the goal: totals from our own database, as last read from Qatom's
+		 * ledger. `state: 'not_known'` is not zero. No donor is identified. A different fact from
+		 * delivery (`milestones` below), and never drawn in a status colour.
+		 */
+		funding,
 		milestones: milestones.map((milestone) => ({
 			id: milestone.id,
 			title: milestone.title,

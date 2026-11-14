@@ -14,6 +14,7 @@ import type {
 	Entry,
 	EntryItem,
 	EntryStatus,
+	FundingTotals,
 	LogWorkInput,
 	Milestone,
 	MilestoneHitInput,
@@ -40,6 +41,9 @@ export const campaigns = sqliteTable('campaigns', {
 	cadence: text('cadence').$type<Cadence>().notNull(),
 	logWorkCommodityId: integer('log_work_commodity_id'),
 	milestoneHitCommodityId: integer('milestone_hit_commodity_id'),
+	// A whole number of Qatom's smallest unit. Null means no goal is set; none is ever assumed.
+	fundingGoal: integer('funding_goal'),
+	donationCommodityId: integer('donation_commodity_id'),
 	createdAt: text('created_at').notNull()
 });
 
@@ -131,6 +135,27 @@ export const deposits = sqliteTable('deposits', {
 	// A whole number of Qatom's smallest unit. See money.ts in @tejido/contracts.
 	amount: integer('amount').notNull(),
 	refundedAt: text('refunded_at')
+});
+
+// ---------------------------------------------------------------------------
+// Funding (the totals of the last read of a campaign's donation ledger)
+// ---------------------------------------------------------------------------
+
+/**
+ * What the last successful read of a campaign's donation ledger added up to. One row per
+ * campaign, replaced whole by each read; no row means the ledger has never been read.
+ *
+ * Totals only. Individual donations are not stored, and nothing here can identify a donor:
+ * no wallet address, no transaction id.
+ */
+export const campaignFunding = sqliteTable('campaign_funding', {
+	campaignId: text('campaign_id')
+		.primaryKey()
+		.references(() => campaigns.id),
+	// A whole number of Qatom's smallest unit. See money.ts in @tejido/contracts.
+	raised: integer('raised').notNull(),
+	donations: integer('donations').notNull(),
+	readAt: text('read_at').notNull()
 });
 
 // ---------------------------------------------------------------------------
@@ -292,5 +317,6 @@ export type TablesMatchContracts = [
 	Assert<Same<typeof parties.$inferSelect, Party>>,
 	Assert<Same<typeof milestones.$inferSelect, Milestone>>,
 	Assert<Same<typeof entries.$inferSelect, EntryRow>>,
-	Assert<Same<typeof deposits.$inferSelect, Deposit>>
+	Assert<Same<typeof deposits.$inferSelect, Deposit>>,
+	Assert<Same<Omit<typeof campaignFunding.$inferSelect, 'campaignId'>, FundingTotals>>
 ];
