@@ -1,19 +1,26 @@
 // Calls the proof page's own load against a real, migrated, seeded database. Nothing here
 // reaches the network.
 import { isHttpError } from '@sveltejs/kit';
-import { agentWalletHostnameSchema, primaryWalletHostnameSchema } from '@tejido/contracts';
+import {
+	agentWalletHostnameSchema,
+	EVIDENCE_LEFT_OUT_SENTENCES,
+	primaryWalletHostnameSchema
+} from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import {
 	campaigns,
 	claimDepositsForRefund,
 	deposits,
 	entries,
+	evidenceFiles,
 	linkPartyWallets,
+	markRefundFailed,
 	markRefundUnknown,
 	milestones,
 	parties
 } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { load } from './+page.server.ts';
 
@@ -107,9 +114,14 @@ describe('the proof page', () => {
 			walletsMatch: true
 		});
 		expect(data.deposit).toEqual({
+			entryId: 'ent-m1-claim',
 			amount: 1000,
+			state: 'refunded',
+			label: 'Deposit refunded',
 			refund: 'returned',
-			refundedAt: '2026-10-30T09:45:00.000Z'
+			refundedAt: '2026-10-30T09:45:00.000Z',
+			outstandingReason: null,
+			outstandingMeaning: null
 		});
 		expect(data.filer).toEqual({
 			name: 'Coral Ridge Builders',
@@ -159,7 +171,16 @@ describe('the proof page', () => {
 			registeredWallet: contractor.agentWalletHostname,
 			walletsMatch: null
 		});
-		expect(data.deposit).toEqual({ amount: 100, refund: 'held', refundedAt: null });
+		expect(data.deposit).toEqual({
+			entryId: 'ent-m2-log-2',
+			amount: 100,
+			state: 'held',
+			label: 'Deposit held',
+			refund: 'held',
+			refundedAt: null,
+			outstandingReason: null,
+			outstandingMeaning: null
+		});
 		expect(data.milestone.confirmed).toBe(false);
 	});
 
@@ -226,12 +247,79 @@ describe('the proof page', () => {
 			settledAt: null
 		};
 		expect(await claimDepositsForRefund(test.db, refund, ['dep-m2-log-2'])).toBe(true);
-		expect((await proof('ent-m2-log-2')).deposit?.refund).toBe('being_returned');
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			refund: 'being_returned',
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'in_progress'
+		});
 
 		await markRefundUnknown(test.db, refund.id, 'The transfer timed out.');
-		expect((await proof('ent-m2-log-2')).deposit?.refund).toBe('outcome_unknown');
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			refund: 'outcome_unknown',
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'outcome_unknown',
+			refundedAt: null
+		});
 		// The other deposit on the same milestone is untouched.
-		expect((await proof('ent-m2-log-1')).deposit?.refund).toBe('held');
+		expect((await proof('ent-m2-log-1')).deposit).toMatchObject({ refund: 'held', state: 'held' });
+	});
+
+	it('calls a deposit on a confirmed milestone a refund outstanding, and says why', async () => {
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: '2026-11-14T09:00:00.000Z' })
+			.where(eq(milestones.id, 'm2-walls'));
+
+		// Flagged: not sent back until a person has looked. No refund is promised.
+		expect((await proof('ent-m2-log-1')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'entry_flagged',
+			outstandingMeaning: expect.stringContaining('until a person has looked'),
+			refund: 'held'
+		});
+		// Not matched to the ledger yet.
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			outstandingReason: 'entry_not_verified'
+		});
+	});
+
+	it('remembers that a refund was refused, and still does not call the deposit refunded', async () => {
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: '2026-11-14T09:00:00.000Z' })
+			.where(eq(milestones.id, 'm2-walls'));
+		await test.db
+			.update(entries)
+			.set({ status: 'verified', twistId: 'twist-m2-log-2' })
+			.where(eq(entries.id, 'ent-m2-log-2'));
+		expect((await proof('ent-m2-log-2')).deposit?.outstandingReason).toBe('not_attempted');
+
+		const refund = {
+			id: 'refund-refused',
+			campaignId: CAMPAIGN,
+			milestoneId: 'm2-walls',
+			partyId: contractor.id,
+			primaryWalletHostname: contractor.primaryWalletHostname!,
+			dq: 'a'.repeat(64),
+			amount: 100,
+			status: 'started' as const,
+			statusReason: null,
+			startedAt: '2026-11-14T12:00:00.000Z',
+			settledAt: null
+		};
+		await claimDepositsForRefund(test.db, refund, ['dep-m2-log-2']);
+		await markRefundFailed(test.db, refund.id, 'Qatom said 402', '2026-11-14T12:00:05.000Z');
+
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'refused',
+			refundedAt: null
+		});
 	});
 
 	it('shows a file from our evidence store with its full SHA-256', async () => {
@@ -249,9 +337,59 @@ describe('the proof page', () => {
 		const { evidence } = await proof('ent-good');
 
 		expect(evidence).toEqual([
-			{ shown: true, kind: 'photo', url: photo.url, sha256: 'a'.repeat(64), caption: 'East wall' },
-			{ shown: true, kind: 'document', url: document.url, sha256: 'b'.repeat(64), caption: null }
+			{
+				state: 'shown',
+				kind: 'photo',
+				url: photo.url,
+				sha256: 'a'.repeat(64),
+				caption: 'East wall'
+			},
+			{
+				state: 'shown',
+				kind: 'document',
+				url: document.url,
+				sha256: 'b'.repeat(64),
+				caption: null
+			}
 		]);
+	});
+
+	it('says what a not-public file is and why, with its SHA-256 and without its address', async () => {
+		const photo = stored('jpg', 'a');
+		const classList = { ...stored('pdf', 'b'), caption: 'Form 3: every pupil by name' };
+		await addEntry('ent-private', {
+			inputs: {
+				reporter_code: contractor.reporterCode,
+				milestone_id: 'm2-walls',
+				summary: 'Books handed to form 3.',
+				photos: [photo, classList]
+			}
+		});
+		await test.db.insert(evidenceFiles).values({
+			sha256: classList.sha256,
+			uploadedByPartyId: contractor.id,
+			visibility: 'not_public',
+			notPublicKind: 'Class list',
+			notPublicReason: 'It has pupils’ names on it.',
+			createdAt: '2026-11-14T08:00:00.000Z',
+			updatedAt: '2026-11-14T08:00:00.000Z'
+		});
+
+		const data = await proof('ent-private');
+
+		expect(data.evidence).toEqual([
+			{ state: 'shown', kind: 'photo', url: photo.url, sha256: photo.sha256, caption: null },
+			{
+				state: 'not_public',
+				kind: 'Class list',
+				reason: 'It has pupils’ names on it.',
+				sha256: classList.sha256
+			}
+		]);
+		const sent = JSON.stringify(data);
+		expect(sent).not.toContain(classList.url);
+		expect(sent).not.toContain(`${classList.sha256}.pdf`);
+		expect(sent).not.toContain('every pupil by name');
 	});
 
 	it('leaves out a file that is not in our store, or whose hash is not its own', async () => {
@@ -272,8 +410,18 @@ describe('the proof page', () => {
 		const { evidence } = await proof('ent-bad');
 
 		expect(evidence).toEqual([
-			{ shown: false, why: 'not_in_our_store', sha256: 'c'.repeat(64), caption: null },
-			{ shown: false, why: 'hash_mismatch', sha256: 'e'.repeat(64), caption: null }
+			{
+				state: 'left_out',
+				reason: 'not_in_our_store',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.not_in_our_store,
+				sha256: 'c'.repeat(64)
+			},
+			{
+				state: 'left_out',
+				reason: 'hash_mismatch',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.hash_mismatch,
+				sha256: 'e'.repeat(64)
+			}
 		]);
 		expect(JSON.stringify(evidence)).not.toContain('elsewhere.example');
 	});
@@ -281,7 +429,7 @@ describe('the proof page', () => {
 	it('leaves out the seeded example files, which are not in the evidence store', async () => {
 		const { evidence } = await proof('ent-m1-claim');
 
-		expect(evidence.map((file: { shown: boolean }) => file.shown)).toEqual([false, false]);
+		expect(evidence.map((file: { state: string }) => file.state)).toEqual(['left_out', 'left_out']);
 	});
 
 	it('leaves out a picture on a documents-only milestone, and keeps the document', async () => {
@@ -318,9 +466,14 @@ describe('the proof page', () => {
 
 		expect(data.documentsOnly).toBe(true);
 		expect(data.evidence).toEqual([
-			{ shown: false, why: 'picture_on_documents_only', sha256: 'a'.repeat(64), caption: null },
 			{
-				shown: true,
+				state: 'left_out',
+				reason: 'picture_on_documents_only',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.picture_on_documents_only,
+				sha256: 'a'.repeat(64)
+			},
+			{
+				state: 'shown',
 				kind: 'document',
 				url: stored('pdf', 'b').url,
 				sha256: 'b'.repeat(64),

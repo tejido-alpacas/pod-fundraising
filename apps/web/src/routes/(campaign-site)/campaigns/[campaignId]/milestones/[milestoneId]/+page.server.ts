@@ -2,13 +2,20 @@ import { error } from '@sveltejs/kit';
 import {
 	confirmationStrength,
 	isConfirmed,
-	isRefunded,
 	shownRelationship,
+	totalDeposits,
 	type Entry,
 	type Party
 } from '@tejido/contracts';
-import { getCampaign, listDeposits, listEntries, listMilestones, listParties } from '@tejido/db';
-import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
+import {
+	getCampaign,
+	listDepositStatuses,
+	listEntries,
+	listMilestones,
+	listParties
+} from '@tejido/db';
+import { depositTotalsView, depositView } from '#lib/campaign-site/server/deposits.ts';
+import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
 // Milestone detail (A3): one milestone, what was planned and what has been reported on it, who
@@ -43,12 +50,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const campaign = await getCampaign(db, params.campaignId);
 	if (!campaign) error(404, 'There is no campaign at this address.');
 
-	const [parties, milestones, entries, deposits] = await Promise.all([
+	const [parties, milestones, entries] = await Promise.all([
 		listParties(db, campaign.id),
 		listMilestones(db, campaign.id),
 		// Newest first.
-		listEntries(db, campaign.id),
-		listDeposits(db, campaign.id)
+		listEntries(db, campaign.id)
 	]);
 
 	// A milestone id is unique within its campaign only, so it is looked up among this
@@ -57,7 +63,6 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	if (!milestone) error(404, 'This campaign has no milestone at this address.');
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
-	const depositByEntry = new Map(deposits.map((deposit) => [deposit.entryId, deposit]));
 	const confirmer = partyById.get(milestone.confirmerPartyId);
 	const filed = entries.filter((entry) => entry.milestoneId === milestone.id);
 	const confirmed = isConfirmed(milestone);
@@ -73,9 +78,17 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			entry.item === 'milestone_hit' && entry.inputs.claim !== 'confirm'
 	);
 
+	// Every deposit on this milestone with its state (held, refunded or refund outstanding), and
+	// which attached files their uploaders marked not public. Their addresses stay here.
+	const [deposits, notPublic] = await Promise.all([
+		listDepositStatuses(db, campaign.id, { milestoneId: milestone.id }),
+		notPublicAmong(db, filed)
+	]);
+
 	// Evidence from every entry on the milestone, oldest first. Each file is checked on the
 	// server: only files in our own store, with a matching hash, and no picture on a milestone
-	// that takes documents only. A file that fails is counted, never sent.
+	// that takes documents only. A file that fails is counted, never sent. A file marked not
+	// public leaves as what its uploader says it is and why, never its address.
 	const evidence: {
 		entryId: string;
 		filedAt: string;
@@ -84,25 +97,19 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		sha256: string;
 		caption: string | null;
 	}[] = [];
+	const kept: { entryId: string; filedAt: string; kind: string; reason: string; sha256: string }[] =
+		[];
 	let leftOut = 0;
 	for (const entry of filed.toReversed()) {
-		const sorted = sortEvidence(entry.inputs.photos, milestone.kind, config);
+		const sorted = sortEvidence(entry.inputs.photos, milestone.kind, config, notPublic);
 		const from = { entryId: entry.id, filedAt: entry.filedAt };
 		for (const file of sorted.photos) evidence.push({ ...from, kind: 'photo', ...file });
 		for (const file of sorted.documents) evidence.push({ ...from, kind: 'document', ...file });
+		for (const file of sorted.notPublic) kept.push({ ...from, ...file });
 		leftOut += sorted.leftOut;
 	}
 
-	let paid = 0;
-	let returned = 0;
-	let depositCount = 0;
-	for (const entry of filed) {
-		const deposit = depositByEntry.get(entry.id);
-		if (!deposit) continue;
-		depositCount += 1;
-		paid += deposit.amount;
-		if (isRefunded(deposit)) returned += deposit.amount;
-	}
+	const depositViews = deposits.deposits.map(depositView);
 
 	const statusCount = (status: Entry['status']) =>
 		filed.filter((entry) => entry.status === status).length;
@@ -164,6 +171,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			.filter((entry) => entry.status === 'incomplete' && entry.statusReason !== null)
 			.map((entry) => ({ entryId: entry.id, reason: entry.statusReason ?? '' })),
 		evidence,
+		/** Files their uploaders marked not public: what each is and why, never its address. */
+		notPublic: kept,
 		/** How many attached files are not shown because a check failed. */
 		leftOut,
 		/** Every entry on the milestone, newest first, for the history and its proof links. */
@@ -175,6 +184,15 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			filedAt: entry.filedAt,
 			filedBy: partyById.get(entry.partyId)?.name ?? null
 		})),
-		deposits: { count: depositCount, paid, returned }
+		// `held`, `refunded` and `outstanding` add up to `paid`. Once a milestone is confirmed
+		// nothing on it is `held`: what has not gone back is `outstanding`.
+		deposits: {
+			count: depositViews.length,
+			...depositTotalsView(totalDeposits(deposits.deposits)),
+			/** Why refunds are outstanding, each sentence once. Empty when none is. */
+			outstandingMeanings: [
+				...new Set(depositViews.flatMap((deposit) => deposit.outstandingMeaning ?? []))
+			]
+		}
 	};
 };

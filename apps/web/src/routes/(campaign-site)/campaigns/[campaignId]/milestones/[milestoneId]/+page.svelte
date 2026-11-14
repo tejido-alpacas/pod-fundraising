@@ -95,11 +95,16 @@
 		documents: data.evidence.filter((file) => file.kind === 'document').length,
 		leftOut: data.leftOut
 	});
+	const submitted = $derived(data.evidence.length + data.notPublic.length + data.leftOut);
 	const evidenced = $derived<Answer>({
 		tone: 'neutral',
 		icon: files.photos > 0 ? 'image' : files.documents > 0 ? 'file-text' : 'excluded',
 		question: 'Is there evidence?',
-		answer: evidenceCount(files, 'No files yet'),
+		answer:
+			evidenceCount(files, data.notPublic.length > 0 ? '' : 'No files yet') +
+			(data.notPublic.length > 0
+				? `${files.photos + files.documents + files.leftOut > 0 ? ', ' : ''}${count(data.notPublic.length, 'file')} not public`
+				: ''),
 		detail:
 			data.evidence.length > 0
 				? `From ${count(new Set(data.evidence.map((file) => file.entryId)).size, 'filing')}. Each file is shown below with its fingerprint.`
@@ -210,10 +215,11 @@
 	// ---- Deposits -------------------------------------------------------------------------
 
 	const deposits = $derived(data.deposits);
-	const notReturned = $derived(deposits.paid - deposits.returned);
+	// The three states come from the server, which reads them from what is recorded.
 	const depositStates = $derived<DepositStateKey[]>([
-		...(deposits.returned > 0 ? (['dep-refunded'] as const) : []),
-		...(notReturned > 0 ? ([milestone.confirmed ? 'dep-outstanding' : 'dep-held'] as const) : [])
+		...(deposits.refunded > 0 ? (['dep-refunded'] as const) : []),
+		...(deposits.outstanding > 0 ? (['dep-outstanding'] as const) : []),
+		...(deposits.held > 0 ? (['dep-held'] as const) : [])
 	]);
 </script>
 
@@ -391,14 +397,14 @@
 	<section class="tj-section" aria-labelledby="evidence">
 		<div class="tj-section__head">
 			<h2 class="tj-section__title" id="evidence">Evidence</h2>
-			{#if data.evidence.length + data.leftOut > 0}
+			{#if submitted > 0}
 				<p class="tj-section__sub">
-					{countWord(data.evidence.length + data.leftOut, 'file')}
-					{data.evidence.length + data.leftOut === 1 ? 'was' : 'were'} submitted
+					{countWord(submitted, 'file')}
+					{submitted === 1 ? 'was' : 'were'} submitted
 				</p>
 			{/if}
 		</div>
-		{#if data.evidence.length > 0}
+		{#if data.evidence.length + data.notPublic.length > 0}
 			<div class="tj-evidence">
 				{#each data.evidence as file (file.entryId + file.sha256)}
 					{#if file.kind === 'photo'}
@@ -418,14 +424,27 @@
 						/>
 					{/if}
 				{/each}
+				{#each data.notPublic as file (file.entryId + file.sha256)}
+					<EvidenceTile
+						kind="private"
+						caption="{file.kind}, {day(file.filedAt, today)}"
+						reason="{file.reason} Only the party who filed it and this campaign’s confirmers can open it."
+						fingerprint={file.sha256}
+					/>
+				{/each}
 			</div>
 		{/if}
 		<p class="tj-help">
-			{#if data.evidence.length + data.leftOut === 0}
+			{#if submitted === 0}
 				No photos or documents have been attached to a filing on this milestone yet.
 			{:else}
 				{countWord(data.evidence.length, 'file')}
 				{data.evidence.length === 1 ? 'was' : 'were'} included.
+				{#if data.notPublic.length > 0}
+					{countWord(data.notPublic.length, 'file')}
+					{data.notPublic.length === 1 ? 'is' : 'are'} kept off this page by the party who filed
+					{data.notPublic.length === 1 ? 'it' : 'them'}.
+				{/if}
 				{#if data.leftOut > 0}
 					{countWord(data.leftOut, 'file')}
 					{data.leftOut === 1 ? 'was' : 'were'} left out because {data.leftOut === 1
@@ -470,23 +489,24 @@
 		{#if deposits.count === 0}
 			No filing deposits yet. Each filing carries a small deposit paid by its filer, returned when
 			the milestone is confirmed.
-		{:else if !milestone.confirmed}
-			{count(deposits.count, 'filing deposit')} paid by the people who filed.
-			{deposits.returned > 0
-				? `${formatAmount(deposits.returned)} USD-TDN has been returned. The rest is`
-				: deposits.count === 1
-					? 'It is'
-					: 'All are'}
-			returned to {deposits.count === 1 ? 'its filer' : 'their filers'} when the milestone is confirmed.
-		{:else if notReturned === 0}
+		{:else if deposits.refunded === deposits.paid}
 			{deposits.count === 1
 				? 'The one filing deposit was'
 				: `All ${deposits.count} filing deposits were`}
 			returned to {deposits.count === 1 ? 'its filer' : 'their filers'} after the milestone was confirmed.
 		{:else}
-			{formatAmount(deposits.returned)} of {formatAmount(deposits.paid)} USD-TDN has been returned to
-			the filers. {formatAmount(notReturned)} hasn’t arrived yet. The proof page of each filing says where
-			its deposit stands. Donations are not affected.
+			{count(deposits.count, 'filing deposit')} paid by the people who filed.
+			{#if deposits.refunded > 0}
+				{formatAmount(deposits.refunded)} USD-TDN has been returned.
+			{/if}
+			{#if deposits.held > 0}
+				{formatAmount(deposits.held)} USD-TDN is held, and returned to
+				{deposits.count === 1 ? 'its filer' : 'the filers'} when the milestone is confirmed.
+			{/if}
+			{#if deposits.outstanding > 0}
+				{formatAmount(deposits.outstanding)} USD-TDN hasn’t arrived back yet.
+				{deposits.outstandingMeanings.join(' ')} Donations are not affected.
+			{/if}
 		{/if}
 		Deposits aren’t donations or payments for the work.
 	</DepositRow>

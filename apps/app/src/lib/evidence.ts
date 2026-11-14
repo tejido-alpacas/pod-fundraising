@@ -7,9 +7,12 @@
 import {
 	EVIDENCE_CONTENT_TYPES,
 	EVIDENCE_MAX_BYTES,
+	EVIDENCE_NOT_PUBLIC_KIND_MAX,
+	EVIDENCE_NOT_PUBLIC_REASON_MAX,
 	isEvidenceContentType,
 	type EvidenceContentType,
-	type EvidenceUploadResponse
+	type EvidenceReference,
+	type EvidenceVisibility
 } from '@tejido/contracts';
 
 const CONTENT_TYPES = Object.keys(EVIDENCE_CONTENT_TYPES).filter(isEvidenceContentType);
@@ -32,7 +35,15 @@ export const DOCUMENT_TYPE_NAMES = names(DOCUMENT_TYPES);
 export const EVIDENCE_MAX_MEGABYTES = EVIDENCE_MAX_BYTES / 1024 / 1024;
 
 export type EvidenceProblem =
-	'not_signed_in' | 'not_a_party' | 'wrong_type' | 'empty' | 'too_large' | 'network' | 'unexpected';
+	| 'not_signed_in'
+	| 'not_a_party'
+	| 'wrong_type'
+	| 'empty'
+	| 'too_large'
+	| 'not_public_words'
+	| 'not_yours_to_change'
+	| 'network'
+	| 'unexpected';
 
 /** One sentence per problem, for someone who does not program. */
 export const PROBLEM_SENTENCES: Record<EvidenceProblem, string> = {
@@ -44,6 +55,9 @@ export const PROBLEM_SENTENCES: Record<EvidenceProblem, string> = {
 	empty:
 		'This file is empty, or it did not arrive whole, so it was not uploaded. Choose it again, or pick another file.',
 	too_large: `This file is larger than ${EVIDENCE_MAX_MEGABYTES} MB, the most we can take. Choose a smaller file, or take the photo at a lower quality.`,
+	not_public_words: `To keep a file from donors, say what it is (up to ${EVIDENCE_NOT_PUBLIC_KIND_MAX} characters) and why donors are not shown it (up to ${EVIDENCE_NOT_PUBLIC_REASON_MAX} characters). Fill in both, then choose the file again. Nothing was uploaded.`,
+	not_yours_to_change:
+		'This exact file was uploaded before by someone else, and only they can change who may see it. Nothing was changed.',
 	network:
 		'We could not reach Tejido, so this was not uploaded. Check your connection and try again.',
 	unexpected: 'Something went wrong on our side and this was not uploaded. Try again in a moment.'
@@ -73,6 +87,10 @@ export function problemFromStatus(status: number): EvidenceProblem {
 			return 'too_large';
 		case 400:
 			return 'empty';
+		case 422:
+			return 'not_public_words';
+		case 409:
+			return 'not_yours_to_change';
 		default:
 			return 'unexpected';
 	}
@@ -80,16 +98,23 @@ export function problemFromStatus(status: number): EvidenceProblem {
 
 /** How one chosen file ended, as the upload page shows it. */
 export type UploadResult =
-	| { name: string; ok: true; url: string; sha256: string; picture: boolean }
+	| {
+			name: string;
+			ok: true;
+			url: string;
+			sha256: string;
+			visibility: EvidenceVisibility;
+			picture: boolean;
+	  }
 	| { name: string; ok: false; problem: string };
 
 /** One file, in the shape a check-in's `photos` list takes. */
-export function agentEntry({ url, sha256 }: EvidenceUploadResponse): string {
+export function agentEntry({ url, sha256 }: EvidenceReference): string {
 	return JSON.stringify({ url, sha256 }, null, 2);
 }
 
 /** Several files as a `photos` list. The same file uploaded twice appears once. */
-export function agentList(uploads: EvidenceUploadResponse[]): string {
+export function agentList(uploads: EvidenceReference[]): string {
 	const bySha256 = new Map(uploads.map(({ url, sha256 }) => [sha256, { url, sha256 }]));
 	return JSON.stringify([...bySha256.values()], null, 2);
 }

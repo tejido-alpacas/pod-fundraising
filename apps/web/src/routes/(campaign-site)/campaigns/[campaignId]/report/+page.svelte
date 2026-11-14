@@ -44,24 +44,21 @@
 				confirmedLate: milestone.confirmedAt
 					? Math.max(0, daysBetween(milestone.dueDate, milestone.confirmedAt))
 					: 0,
-				/** Deposits not yet back with their filers. */
-				notReturned: milestone.deposits.paid - milestone.deposits.returned
+				/** Deposits whose refund is outstanding, each with the reason. Read from the server. */
+				outstanding: milestone.depositStates.filter(
+					(deposit) => deposit.state === 'refund_outstanding'
+				)
 			};
 		})
 	);
 
 	// ---- Deposits: held, refunded, refund outstanding -------------------------------------
 
-	// A deposit is held until its milestone is confirmed. After that, one that has not been
-	// returned is a refund outstanding.
-	const held = $derived(
-		rows.reduce((sum, row) => sum + (row.milestone.confirmed ? 0 : row.notReturned), 0)
-	);
-	const outstanding = $derived(
-		rows.reduce((sum, row) => sum + (row.milestone.confirmed ? row.notReturned : 0), 0)
-	);
+	// The three states come from the server, which reads them from what is recorded.
+	const held = $derived(totals.held);
+	const outstanding = $derived(totals.outstanding);
 	const depositStates = $derived<DepositStateKey[]>([
-		...(totals.returned > 0 ? (['dep-refunded'] as const) : []),
+		...(totals.refunded > 0 ? (['dep-refunded'] as const) : []),
 		...(outstanding > 0 ? (['dep-outstanding'] as const) : []),
 		...(held > 0 ? (['dep-held'] as const) : [])
 	]);
@@ -93,12 +90,12 @@
 				(entry) =>
 					`a filing${onMilestone(entry.milestonePosition)} not yet matched to its public receipt`
 			),
-		...rows
-			.filter((row) => row.milestone.confirmed && row.notReturned > 0)
-			.map(
-				(row) =>
-					`a refund of ${formatAmount(row.notReturned)} USD-TDN in filing deposits on milestone ${row.milestone.position}`
+		...rows.flatMap((row) =>
+			row.outstanding.map(
+				(deposit) =>
+					`a filing deposit refund of ${formatAmount(deposit.amount)} USD-TDN on milestone ${row.milestone.position}`
 			)
+		)
 	]);
 
 	interface Issue {
@@ -138,7 +135,7 @@
 				});
 			}
 		}
-		for (const { milestone, daysLate, confirmedLate, notReturned } of rows) {
+		for (const { milestone, daysLate, confirmedLate, outstanding: refundsOwed } of rows) {
 			const name = `Milestone ${milestone.position}, ${milestone.title},`;
 			if (milestone.confirmedAt && confirmedLate > 0) {
 				found.push({
@@ -166,20 +163,12 @@
 					open: true
 				});
 			}
-			for (const refund of milestone.refunds.filter((sent) => sent.outcome === 'unknown')) {
-				found.push({
-					at: null,
-					title: 'A deposit refund may not have arrived',
-					text: `${formatAmount(refund.amount)} USD-TDN to ${refund.to ?? 'a filer not on record'} on milestone ${milestone.position} was sent, but no answer came back. A person has to check. It won’t be sent a second time.`,
-					open: true
-				});
-			}
-			if (milestone.confirmed && notReturned > 0) {
+			for (const deposit of refundsOwed) {
 				found.push({
 					at: null,
 					title: `Refund outstanding on milestone ${milestone.position}`,
-					text: `${formatAmount(notReturned)} USD-TDN in filing deposits hasn’t been returned to the filers yet. Donations are not affected.`,
-					href: milestonePath(milestone.id),
+					text: `A filing deposit of ${formatAmount(deposit.amount)} USD-TDN. ${deposit.outstandingMeaning ?? 'It hasn’t been returned to its filer yet.'} Donations are not affected.`,
+					href: `${base}/entries/${deposit.entryId}`,
 					open: true
 				});
 			}
@@ -266,7 +255,7 @@
 			</div>
 			<div class="tj-fig">
 				<p class="tj-fig__k">Deposits refunded</p>
-				<p class="tj-fig__v">{formatAmount(totals.returned)}</p>
+				<p class="tj-fig__v">{formatAmount(totals.refunded)}</p>
 				<p class="tj-fig__s">USD-TDN of {formatAmount(totals.paid)} paid by filers</p>
 			</div>
 			<div class="tj-fig">
@@ -457,15 +446,15 @@
 		<DepositRow what="Filing deposits" amount={totals.paid} states={depositStates}>
 			{#if totals.paid === 0}
 				No filing deposits have been paid on this campaign.
-			{:else if totals.returned === totals.paid}
+			{:else if totals.refunded === totals.paid}
 				All filing deposits are refunded.
 			{:else}
-				{formatAmount(totals.returned)} of {formatAmount(totals.paid)} USD-TDN is refunded.
+				{formatAmount(totals.refunded)} of {formatAmount(totals.paid)} USD-TDN is refunded.
 				{#if held > 0}
 					{formatAmount(held)} is held until its milestone is confirmed.
 				{/if}
 				{#if outstanding > 0}
-					{formatAmount(outstanding)} is on confirmed milestones and hasn’t been returned yet.
+					{formatAmount(outstanding)} hasn’t been returned yet. Each is listed above with the reason.
 				{/if}
 			{/if}
 			Filing deposits are paid by the people who file and refunded to them, never from donations. Donations

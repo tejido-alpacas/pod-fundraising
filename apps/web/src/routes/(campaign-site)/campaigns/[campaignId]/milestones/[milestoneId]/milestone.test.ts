@@ -2,7 +2,14 @@
 // reaches the network.
 import { isHttpError } from '@sveltejs/kit';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, deposits, entries, milestones, setPartyRelationship } from '@tejido/db';
+import {
+	campaigns,
+	deposits,
+	entries,
+	evidenceFiles,
+	milestones,
+	setPartyRelationship
+} from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -270,6 +277,42 @@ describe('the milestone page', () => {
 		expect(JSON.stringify(data)).not.toContain('evidence.tejido.example');
 	});
 
+	it('tells donors what a not-public file is and why, and never sends its address', async () => {
+		const hidden = stored('pdf', 'f');
+		await addLog('ent-hidden', {
+			inputs: {
+				reporter_code: contractor.reporterCode,
+				milestone_id: 'm2-walls',
+				summary: 'Site register attached.',
+				photos: [hidden]
+			}
+		});
+		await test.db.insert(evidenceFiles).values({
+			sha256: hidden.sha256,
+			uploadedByPartyId: contractor.id,
+			visibility: 'not_public',
+			notPublicKind: 'Site register',
+			notPublicReason: 'It has workers’ names on it.',
+			createdAt: '2026-11-14T10:00:00.000Z',
+			updatedAt: '2026-11-14T10:00:00.000Z'
+		});
+
+		const data = await page('m2-walls');
+
+		expect(data.notPublic).toEqual([
+			{
+				entryId: 'ent-hidden',
+				filedAt: '2026-11-14T10:00:00.000Z',
+				kind: 'Site register',
+				reason: 'It has workers’ names on it.',
+				sha256: hidden.sha256
+			}
+		]);
+		expect(data.evidence).toEqual([]);
+		expect(JSON.stringify(data)).not.toContain(hidden.url);
+		expect(JSON.stringify(data)).not.toContain('/evidence/');
+	});
+
 	it('shows no picture on a milestone that takes documents only', async () => {
 		await setMilestone('m2-walls', { kind: 'funds_handover' });
 		await addLog('ent-fees', {
@@ -308,13 +351,37 @@ describe('the milestone page', () => {
 		]);
 	});
 
-	it('totals the deposits paid and returned on the milestone', async () => {
+	it('totals the deposits by state: held, refunded and refund outstanding', async () => {
 		expect((await page('m1-foundation')).deposits).toEqual({
 			count: 2,
 			paid: 2000,
-			returned: 2000
+			held: 0,
+			refunded: 2000,
+			outstanding: 0,
+			returned: 2000,
+			outstandingMeanings: []
 		});
-		expect((await page('m2-walls')).deposits).toEqual({ count: 2, paid: 200, returned: 0 });
+		expect((await page('m2-walls')).deposits).toMatchObject({
+			count: 2,
+			paid: 200,
+			held: 200,
+			refunded: 0,
+			outstanding: 0
+		});
+	});
+
+	it('calls an unreturned deposit a refund outstanding once the milestone is confirmed, and says why', async () => {
+		await setMilestone('m2-walls', {
+			state: 'confirmed_independent',
+			confirmedAt: '2026-11-14T09:00:00.000Z'
+		});
+
+		const { deposits: totals } = await page('m2-walls');
+
+		expect(totals).toMatchObject({ paid: 200, held: 0, refunded: 0, outstanding: 200 });
+		// One filing is flagged and the other is not matched to its receipt yet.
+		expect(totals.outstandingMeanings).toHaveLength(2);
+		expect(totals.outstandingMeanings.join(' ')).toContain('until a person has looked at it');
 	});
 
 	it('sends no reporter code, email address or wallet to the page', async () => {

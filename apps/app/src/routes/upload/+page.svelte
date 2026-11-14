@@ -1,7 +1,13 @@
 <script lang="ts">
 	import {
 		EVIDENCE_FILE_FIELD,
+		EVIDENCE_NOT_PUBLIC_KIND_FIELD,
+		EVIDENCE_NOT_PUBLIC_KIND_MAX,
+		EVIDENCE_NOT_PUBLIC_REASON_FIELD,
+		EVIDENCE_NOT_PUBLIC_REASON_MAX,
+		EVIDENCE_VISIBILITY_FIELD,
 		evidenceUploadResponseSchema,
+		type EvidenceVisibility,
 		MAX_PHOTOS_PER_ENTRY
 	} from '@tejido/contracts';
 	import {
@@ -24,7 +30,13 @@
 	let { data, form }: PageProps = $props();
 
 	type Ended =
-		| { status: 'done'; url: string; sha256: string; picture: boolean }
+		| {
+				status: 'done';
+				url: string;
+				sha256: string;
+				visibility: EvidenceVisibility;
+				picture: boolean;
+		  }
 		| { status: 'failed'; problem: string };
 	type Row = { key: string; name: string } & (Ended | { status: 'uploading' });
 
@@ -36,6 +48,12 @@
 	let copied = $state<string | null>(null);
 	let copyFailed = $state(false);
 	let count = 0;
+
+	// Who may see the files chosen next. Decided before choosing, because with the script
+	// running a file is sent as soon as it is chosen.
+	let keepFromDonors = $state(false);
+	let notPublicKind = $state('');
+	let notPublicReason = $state('');
 
 	let picker = $state<HTMLFormElement>();
 
@@ -68,6 +86,14 @@
 	async function post(file: File, picture: boolean): Promise<Ended> {
 		const body = new FormData();
 		body.set(EVIDENCE_FILE_FIELD, file);
+		if (keepFromDonors) {
+			if (notPublicKind.trim() === '' || notPublicReason.trim() === '') {
+				return failed('not_public_words');
+			}
+			body.set(EVIDENCE_VISIBILITY_FIELD, 'not_public');
+			body.set(EVIDENCE_NOT_PUBLIC_KIND_FIELD, notPublicKind);
+			body.set(EVIDENCE_NOT_PUBLIC_REASON_FIELD, notPublicReason);
+		}
 
 		let response: Response;
 		try {
@@ -164,6 +190,49 @@
 			enctype="multipart/form-data"
 			onsubmit={(event) => event.preventDefault()}
 		>
+			<fieldset class="who">
+				<legend>Who may see the files you choose next</legend>
+				<label class="tick">
+					<input
+						type="checkbox"
+						name={EVIDENCE_VISIBILITY_FIELD}
+						value="not_public"
+						bind:checked={keepFromDonors}
+					/>
+					<span>Keep these files from donors</span>
+				</label>
+				<small>
+					Leave this off and donors see the files. Turn it on for something donors should not see,
+					such as a list with pupils’ names. Then only you and this campaign’s confirmers can open
+					the file. Donors are told it exists, with the two lines below, and are not shown it. A
+					file kept from donors does not count as the photo or document a milestone claim needs.
+				</small>
+				{#if keepFromDonors || !enhanced}
+					<label>
+						<span>What it is</span>
+						<small>For example: Class list. Fill this in before choosing the file.</small>
+						<input
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_KIND_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_KIND_MAX}
+							bind:value={notPublicKind}
+						/>
+					</label>
+					<label>
+						<span>Why donors are not shown it</span>
+						<small>For example: It has pupils’ names on it.</small>
+						<input
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_REASON_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_REASON_MAX}
+							bind:value={notPublicReason}
+						/>
+					</label>
+					<p class="problem">
+						Donors read both lines. Do not put anyone’s name, or anything else private, in them.
+					</p>
+				{/if}
+			</fieldset>
 			<label>
 				<span>Take a photo</span>
 				<small>On a phone this opens the camera.</small>
@@ -249,7 +318,11 @@
 									</a>
 								{/if}
 								<div class="values">
-									<p class="ok">Uploaded.</p>
+									<p class="ok">
+										{row.visibility === 'not_public'
+											? 'Uploaded. Kept from donors: only you and this campaign’s confirmers can open it.'
+											: 'Uploaded. Donors can see it.'}
+									</p>
 									<label>
 										<span>Web address (URL)</span>
 										<span class="value">
@@ -302,6 +375,23 @@
 </article>
 
 <style>
+	.who {
+		margin: 0 0 1rem;
+		padding: 0.75rem;
+		border: 1px solid var(--line);
+	}
+	.who .tick {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-height: 2.75rem;
+	}
+	.who input[type='text'] {
+		width: 100%;
+		box-sizing: border-box;
+		min-height: 2.75rem;
+		font: inherit;
+	}
 	article {
 		max-width: 44rem;
 	}

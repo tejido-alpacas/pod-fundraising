@@ -57,30 +57,38 @@
 	} as const;
 
 	const files = $derived({
-		photos: data.evidence.filter((file) => file.shown && file.kind === 'photo').length,
-		documents: data.evidence.filter((file) => file.shown && file.kind === 'document').length,
-		leftOut: data.evidence.filter((file) => !file.shown).length
+		photos: data.evidence.filter((file) => file.state === 'shown' && file.kind === 'photo').length,
+		documents: data.evidence.filter((file) => file.state === 'shown' && file.kind === 'document')
+			.length,
+		leftOut: data.evidence.filter((file) => file.state === 'left_out').length
 	});
+	/** Files the party who filed them marked not public. Donors are told what and why. */
+	const notPublic = $derived(data.evidence.filter((file) => file.state === 'not_public').length);
 	const shownCount = $derived(files.photos + files.documents);
 	/** Whether every left-out file was left out because it could not be verified. */
 	const unverifiedOnly = $derived(
-		data.evidence.every((file) => file.shown || file.why !== 'picture_on_documents_only')
+		data.evidence.every(
+			(file) => file.state !== 'left_out' || file.reason !== 'picture_on_documents_only'
+		)
 	);
 	const firstCaption = $derived(
-		data.evidence.find((file) => file.shown && file.caption)?.caption ?? null
+		data.evidence.flatMap((file) =>
+			file.state === 'shown' && file.caption ? [file.caption] : []
+		)[0] ?? null
 	);
 
 	// ---- The deposit ----------------------------------------------------------------------
 
 	const deposit = $derived(data.deposit);
+	// The state comes from the server, which reads it from what is recorded. It is never worked
+	// out again here.
+	const DEPOSIT_KEY = {
+		held: 'dep-held',
+		refunded: 'dep-refunded',
+		refund_outstanding: 'dep-outstanding'
+	} as const;
 	const depositState = $derived<DepositStateKey | null>(
-		deposit === null
-			? null
-			: deposit.refund === 'returned'
-				? 'dep-refunded'
-				: deposit.refund !== 'held' || milestone.confirmed
-					? 'dep-outstanding'
-					: 'dep-held'
+		deposit === null ? null : DEPOSIT_KEY[deposit.state]
 	);
 
 	// ---- The three questions --------------------------------------------------------------
@@ -127,7 +135,11 @@
 		tone: 'neutral',
 		icon: shownCount > 0 ? (files.photos > 0 ? 'image' : 'file-text') : 'excluded',
 		question: 'Is there evidence of the work?',
-		answer: evidenceCount(files, 'No files attached'),
+		answer:
+			evidenceCount(files, notPublic > 0 ? '' : 'No files attached') +
+			(notPublic > 0
+				? `${shownCount + files.leftOut > 0 ? ', ' : ''}${count(notPublic, 'file')} not public`
+				: ''),
 		detail:
 			data.evidence.length === 0
 				? 'Nothing was attached to this entry. It is the filer’s account only.'
@@ -356,11 +368,18 @@
 				{:else}
 					<div class="tj-evidence">
 						{#each data.evidence as file, index (index)}
-							{#if !file.shown}
+							{#if file.state === 'left_out'}
 								<EvidenceTile
 									kind="excluded"
-									caption="{file.caption ?? 'Attached file'} · not counted"
-									reason={LEFT_OUT[file.why]}
+									caption="Attached file · not counted"
+									reason={LEFT_OUT[file.reason]}
+									fingerprint={file.sha256}
+								/>
+							{:else if file.state === 'not_public'}
+								<EvidenceTile
+									kind="private"
+									caption={file.kind}
+									reason="{file.reason} Only the party who filed it and this campaign’s confirmers can open it."
 									fingerprint={file.sha256}
 								/>
 							{:else if file.kind === 'photo'}
@@ -384,6 +403,11 @@
 					<p class="tj-help">
 						{countWord(shownCount, 'file')}
 						{shownCount === 1 ? 'was' : 'were'} included.
+						{#if notPublic > 0}
+							{countWord(notPublic, 'file')}
+							{notPublic === 1 ? 'is' : 'are'} kept off this page by the party who filed
+							{notPublic === 1 ? 'it' : 'them'}.
+						{/if}
 						{#if files.leftOut > 0}
 							{countWord(files.leftOut, 'file')}
 							{files.leftOut === 1 ? 'was' : 'were'} left out{unverifiedOnly
@@ -439,7 +463,12 @@
 				filer={filer.name}
 				milestone={{ position: milestone.position, title: milestone.title }}
 				files={data.evidence.map((file) => ({
-					label: !file.shown ? 'left out' : (file.caption ?? file.kind),
+					label:
+						file.state === 'left_out'
+							? 'left out'
+							: file.state === 'not_public'
+								? 'not public'
+								: (file.caption ?? file.kind),
 					sha256: file.sha256
 				}))}
 			/>
@@ -456,19 +485,10 @@
 						{#if entry.status === 'flagged'}
 							A deposit on a flagged filing isn’t sent back until a person has looked at it.
 						{/if}
-					{:else if deposit.refund === 'outcome_unknown'}
-						A refund was sent, but no answer came back, so we don’t know whether it arrived. A
-						person has to check. It won’t be sent a second time.
-					{:else if deposit.refund === 'being_returned'}
-						A refund was started, and we have no record yet that it went through.
-					{:else if entry.status === 'flagged'}
-						Milestone {milestone.position} is confirmed, but this deposit wasn’t paid from the filer’s
-						registered wallet. It isn’t sent back until a person has looked at it.
-					{:else if receipt.twistId === null}
-						Milestone {milestone.position} is confirmed, but a deposit is only sent back once its filing
-						has been matched to its public receipt.
 					{:else}
-						Milestone {milestone.position} is confirmed and this refund hasn’t arrived yet.
+						{deposit.outstandingMeaning ??
+							`Milestone ${milestone.position} is confirmed and this refund hasn’t arrived yet.`}
+						Donations are not affected.
 					{/if}
 					It isn’t a donation or a payment for the work.
 				</DepositRow>

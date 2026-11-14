@@ -2,7 +2,14 @@
 // folder. Nothing here reaches the network.
 import { CHECKIN_SECRET_HEADER, DEPOSIT_AMOUNT, checkinResponseSchema } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { getEntry, getMilestone, listDeposits, listEntries, milestones } from '@tejido/db';
+import {
+	evidenceFiles,
+	getEntry,
+	getMilestone,
+	listDeposits,
+	listEntries,
+	milestones
+} from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { POST } from './+server.ts';
@@ -526,6 +533,73 @@ describe('what makes an entry incomplete', () => {
 			// The confirmer signed it off all the same.
 			expect((await milestone('m4-tutoring')).state).toBe('confirmed_independent');
 		});
+	});
+});
+
+describe('files marked not public', () => {
+	/** Marks a stored file not public, as its uploader would on the upload page. */
+	async function markNotPublic(sha256: string, partyId: string) {
+		await test.db.insert(evidenceFiles).values({
+			sha256,
+			uploadedByPartyId: partyId,
+			visibility: 'not_public',
+			notPublicKind: 'Site plan',
+			notPublicReason: 'It shows where the neighbours live.',
+			createdAt: '2026-11-14T08:00:00.000Z',
+			updatedAt: '2026-11-14T08:00:00.000Z'
+		});
+	}
+
+	it('does not let a photo donors cannot see stand as the photo a claim needs', async () => {
+		await markNotPublic('a'.repeat(64), contractor.id);
+
+		const { body, entry } = await accepted(wallsClaim);
+
+		expect(body.status).toBe('incomplete');
+		expect(entry.statusReason).toBe(
+			'A construction claim needs at least one photo that donors can see. Every photo attached is marked not public.'
+		);
+		// The claim is still saved, with its file, and still moves the milestone.
+		expect(entry.inputs.photos).toEqual(wallsClaim.photos);
+		expect((await milestone('m2-walls')).state).toBe('claimed');
+	});
+
+	it('files a claim that has a photo donors can see beside a not-public one', async () => {
+		await markNotPublic('a'.repeat(64), contractor.id);
+
+		const { body } = await accepted({
+			...wallsClaim,
+			photos: [evidence('jpg', 'a'), evidence('jpg', 'b')]
+		});
+
+		expect(body.status).toBe('filed');
+	});
+
+	it('does not let a not-public document stand as the document a claim needs', async () => {
+		await addMilestone({ id: 'm4-tutoring', kind: 'service' });
+		await markNotPublic('a'.repeat(64), supplier.id);
+
+		const { entry } = await accepted({
+			reporter_code: supplier.reporterCode,
+			milestone_id: 'm4-tutoring',
+			claim: 'completed',
+			summary: 'Twelve weeks of reading support delivered.',
+			photos: [evidence('pdf', 'a')]
+		});
+
+		expect(entry).toMatchObject({
+			status: 'incomplete',
+			statusReason:
+				'A service claim needs at least one document (PDF) that donors can see. Every document attached is marked not public.'
+		});
+	});
+
+	it('takes a not-public file on a work log, which owes no photo', async () => {
+		await markNotPublic('a'.repeat(64), contractor.id);
+
+		const { body } = await accepted({ ...workLog, photos: [evidence('jpg', 'a')] });
+
+		expect(body.status).toBe('filed');
 	});
 });
 

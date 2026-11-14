@@ -13,6 +13,8 @@ import type {
 	Deposit,
 	Entry,
 	EntryItem,
+	EvidenceFileRecord,
+	EvidenceVisibility,
 	EntryStatus,
 	LogWorkInput,
 	Milestone,
@@ -22,7 +24,8 @@ import type {
 	Party,
 	PartyRelationship,
 	PartyRole,
-	PrimaryWalletHostname
+	PrimaryWalletHostname,
+	RefundStatus
 } from '@tejido/contracts';
 import { foreignKey, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
@@ -132,23 +135,32 @@ export const deposits = sqliteTable('deposits', {
 	refundedAt: text('refunded_at')
 });
 
+/**
+ * One row per stored evidence file, by the SHA-256 of its bytes: who uploaded it and who may
+ * see it. The file itself is in the evidence store (R2) under the same SHA-256.
+ *
+ * A file with no row was uploaded before rows were kept, and is public.
+ */
+export const evidenceFiles = sqliteTable('evidence_files', {
+	sha256: text('sha256').primaryKey(),
+	/** Only this party can change `visibility`. */
+	uploadedByPartyId: text('uploaded_by_party_id')
+		.notNull()
+		.references(() => parties.id),
+	visibility: text('visibility').$type<EvidenceVisibility>().notNull(),
+	// Both are shown to donors, and both are set exactly when the file is `not_public`.
+	notPublicKind: text('not_public_kind'),
+	notPublicReason: text('not_public_reason'),
+	createdAt: text('created_at').notNull(),
+	updatedAt: text('updated_at').notNull()
+});
+
 // ---------------------------------------------------------------------------
 // Deposit refunds (bookkeeping for transfers; not contract records)
 // ---------------------------------------------------------------------------
 
-/**
- * Where one refund transfer stands.
- *
- * - `started`: the deposits are claimed and the transfer is about to be, or is being, sent.
- *   A row left here means the server stopped part-way. Treat it like `unknown`.
- * - `sent`: Qatom accepted the transfer. The deposits carry `refundedAt`.
- * - `failed`: Qatom refused the transfer and nothing moved. The deposits were released and
- *   may be refunded by a later request.
- * - `unknown`: no usable answer came back (a timeout, a dropped connection, a server error).
- *   The money may or may not have moved. It is never sent again by code: a person checks the
- *   wallet and settles the row by hand.
- */
-export type RefundStatus = 'started' | 'sent' | 'failed' | 'unknown';
+/** Where one refund transfer stands. Defined in @tejido/contracts (deposit.ts). */
+export type { RefundStatus };
 
 /**
  * One transfer of deposits back to one party for one milestone: the row is written BEFORE the
@@ -200,6 +212,29 @@ export const refundDeposits = sqliteTable(
 			.references(() => refunds.id)
 	},
 	(table) => [index('refund_deposits_refund_idx').on(table.refundId)]
+);
+
+/**
+ * Every deposit a refund has ever covered: the history `refund_deposits` cannot keep, because
+ * its rows are removed when a refund is refused. A row is written with the claim, before the
+ * transfer is sent, and is never changed or removed. It decides nothing about what may be
+ * sent; it is only read, to say how many refunds of a deposit were tried and how the last
+ * one ended.
+ */
+export const refundAttempts = sqliteTable(
+	'refund_attempts',
+	{
+		refundId: text('refund_id')
+			.notNull()
+			.references(() => refunds.id),
+		depositId: text('deposit_id')
+			.notNull()
+			.references(() => deposits.id)
+	},
+	(table) => [
+		primaryKey({ columns: [table.refundId, table.depositId] }),
+		index('refund_attempts_deposit_idx').on(table.depositId)
+	]
 );
 
 // ---------------------------------------------------------------------------
@@ -279,5 +314,6 @@ export type TablesMatchContracts = [
 	Assert<Same<typeof parties.$inferSelect, Party>>,
 	Assert<Same<typeof milestones.$inferSelect, Milestone>>,
 	Assert<Same<typeof entries.$inferSelect, EntryRow>>,
-	Assert<Same<typeof deposits.$inferSelect, Deposit>>
+	Assert<Same<typeof deposits.$inferSelect, Deposit>>,
+	Assert<Same<typeof evidenceFiles.$inferSelect, EvidenceFileRecord>>
 ];

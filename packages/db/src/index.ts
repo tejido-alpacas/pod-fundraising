@@ -14,10 +14,12 @@ export {
 	campaigns,
 	deposits,
 	entries,
+	evidenceFiles,
 	itemProvisioning,
 	milestones,
 	parties,
 	partySignInTokens,
+	refundAttempts,
 	refundDeposits,
 	refunds,
 	type RefundStatus
