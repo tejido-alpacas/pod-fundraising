@@ -1,3 +1,4 @@
+import { DEPOSIT_AMOUNT, formatAmount } from '@tejido/contracts';
 import { getCampaign, getParty, listMilestones } from '@tejido/db';
 import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
 import type { PageServerLoad } from './$types';
@@ -19,12 +20,21 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const milestones = await listMilestones(db, campaign.id);
 
 	return {
+		/** Today, as YYYY-MM-DD, so the page can say what is overdue. */
+		today: new Date().toISOString().slice(0, 10),
+		/** The filing deposit for each kind of report, as it is written everywhere else. */
+		deposit: {
+			log_work: formatAmount(DEPOSIT_AMOUNT.log_work),
+			milestone_hit: formatAmount(DEPOSIT_AMOUNT.milestone_hit)
+		},
 		who: {
 			email: session.email,
 			// Never the reporter code, the wallet hostnames or the tokens.
 			party: {
 				id: party.id,
 				name: party.name,
+				/** What they do on the project, in the organiser's words. May be empty. */
+				title: party.title,
 				role: party.role,
 				campaignTitle: campaign.title,
 				/** False when the person must sign in again before the agent can act for them. */

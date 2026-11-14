@@ -2,7 +2,14 @@
  * The home page: who you are here, what is due next, and where to go. Track B owns this file.
  */
 import { isConfirmed, type Milestone } from '@tejido/contracts';
-import { getCampaign, getParty, listIncompleteEntries, listMilestones } from '@tejido/db';
+import {
+	getCampaign,
+	getParty,
+	listEntries,
+	listIncompleteEntries,
+	listMilestones
+} from '@tejido/db';
+import { daysOverdue, milestoneState } from '@tejido/ui';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -30,10 +37,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const campaign = party ? await getCampaign(db, party.campaignId) : undefined;
 	if (!party || !campaign) return { viewer: 'no_party' as const, email: session.email };
 
-	const [milestones, incomplete] = await Promise.all([
+	const [milestones, incomplete, entries] = await Promise.all([
 		listMilestones(db, campaign.id),
-		listIncompleteEntries(db, party.id)
+		listIncompleteEntries(db, party.id),
+		listEntries(db, campaign.id)
 	]);
+	// Only whether anything has been filed on a milestone leaves here, never the entries.
+	const reportedOn = new Set(entries.map((entry) => entry.milestoneId));
 	const today = new Date().toISOString().slice(0, 10);
 
 	// Shown so the person can tell who they are signed in as, on which campaign, and what is
@@ -60,10 +70,15 @@ export const load: PageServerLoad = async ({ locals }) => {
 				const step = stepFor(milestone, party.id);
 				return {
 					id: milestone.id,
+					position: milestone.position,
 					title: milestone.title,
 					dueDate: milestone.dueDate,
 					part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const),
 					step,
+					/** The milestone's own state, in the words donors are shown. */
+					status: milestoneState(milestone, reportedOn.has(milestone.id)),
+					/** Whole days past its date without being confirmed. 0 when it is not late. */
+					overdueDays: daysOverdue(milestone, today),
 					/** Past its date and still theirs to claim. */
 					overdue: step === 'claim' && milestone.dueDate < today
 				};

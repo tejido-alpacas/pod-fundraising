@@ -1,12 +1,18 @@
 <!--
 	The report form inside the chat (B6, guided collection). Track B owns this file.
 
+	It is drawn as the design system's in-chat form (`tj-inform`). `@tejido/ui` has an
+	`EntryDetailsForm`, but it does not fit: it has a currency, a date and a draft saved on the
+	device, none of which a report carries, and it lacks the kind of report, the status, the
+	percent complete and the files, which a report does carry.
+
 	It collects what one report needs: the milestone, which report, the fields that kind of
 	report takes in the contracts, the note, and photos or documents (uploaded through
 	POST /api/evidence, like the upload page). Sending it files nothing: `submit` puts the values
 	into the conversation, and the agent files the report once the person says yes.
 -->
 <script lang="ts">
+	import { Button, Icon, StatusBadge, shortId } from '@tejido/ui';
 	import {
 		EVIDENCE_FILE_FIELD,
 		evidenceUploadResponseSchema,
@@ -51,9 +57,13 @@
 	}
 	let { milestones, disabled, submit }: Props = $props();
 
+	const uid = $props.id();
+
 	type Ended =
 		{ status: 'done'; url: string; sha256: string } | { status: 'failed'; problem: string };
-	type FileRow = { key: string; name: string } & (Ended | { status: 'uploading' });
+	type FileRow = { key: string; name: string; picture: boolean } & (
+		Ended | { status: 'uploading' }
+	);
 
 	const STATUSES = workLogStatusSchema.options;
 	const KIND_HINTS: Record<ReportKind, string> = {
@@ -127,28 +137,30 @@
 		problems.photos = undefined;
 
 		// Every chosen file gets its row at once; then they are sent one after another.
-		const waiting: { key: string; file: File }[] = [];
+		const waiting: { key: string; file: File; picture: boolean }[] = [];
 		for (const file of picked) {
 			const key = `file-${count++}`;
+			const picture = file.type.startsWith('image/');
 			const check = checkEvidenceFile(file);
 			if (!check.ok) {
-				files.push({ key, name: file.name, ...failed(check.problem) });
+				files.push({ key, name: file.name, picture, ...failed(check.problem) });
 			} else if (rules?.documentsOnly && !DOCUMENT_TYPES.includes(check.type)) {
 				files.push({
 					key,
 					name: file.name,
+					picture,
 					status: 'failed',
 					problem: FIELD_SENTENCES.documents_only
 				});
 			} else {
-				files.push({ key, name: file.name, status: 'uploading' });
-				waiting.push({ key, file });
+				files.push({ key, name: file.name, picture, status: 'uploading' });
+				waiting.push({ key, file, picture });
 			}
 		}
-		for (const { key, file } of waiting) {
+		for (const { key, file, picture } of waiting) {
 			const ended = await upload(file);
 			const at = files.findIndex((row) => row.key === key);
-			if (at !== -1) files[at] = { key, name: file.name, ...ended };
+			if (at !== -1) files[at] = { key, name: file.name, picture, ...ended };
 		}
 	}
 
@@ -240,379 +252,384 @@
 
 {#snippet problem(text: string | undefined, id: string)}
 	{#if text}
-		<p class="problem" role="alert" {id}>{text}</p>
+		<p class="tj-error" role="alert" {id}><Icon name="alert-circle" size={18} />{text}</p>
 	{/if}
 {/snippet}
 
 {#if open.length === 0}
-	<p class="hint">
-		Every milestone you are named on is confirmed, so there is nothing to fill in. You can still ask
-		the agent anything below.
-	</p>
-{:else}
-	<form onsubmit={send} oninput={touched} novalidate>
-		<p class="hint">
-			Fill this in and the agent will not need to ask for each piece. Sending the form does not file
-			the report or spend anything: the agent shows you the report first and files it only when you
-			say yes.
+	<div class="tj-inform">
+		<p class="tj-help">
+			Every milestone you are named on is confirmed, so there is nothing to fill in. You can still
+			ask the assistant a question.
 		</p>
-
-		<label>
-			<span>Milestone</span>
-			<select
-				value={milestone?.id}
-				onchange={(event) => (milestoneId = event.currentTarget.value)}
-				aria-describedby="rf-milestone-problem"
-			>
-				{#each open as choice (choice.id)}
-					<option value={choice.id}>{choice.title}</option>
-				{/each}
-			</select>
-		</label>
-		{@render problem(problems.milestone_id, 'rf-milestone-problem')}
-
-		{#if kind}
-			<fieldset>
-				<legend>Which report</legend>
-				{#each kinds as choice (choice)}
-					<label class="choice">
-						<input
-							type="radio"
-							name="rf-kind"
-							value={choice}
-							checked={choice === kind}
-							onchange={() => (chosenKind = choice)}
-						/>
-						<span>
-							<strong>{REPORT_KIND_NAMES[choice]}</strong>
-							<small>{KIND_HINTS[choice]}</small>
-						</span>
-					</label>
-				{/each}
-			</fieldset>
-			{@render problem(problems.kind, 'rf-kind-problem')}
-		{/if}
-
-		{#if details.includes('status')}
-			<label>
-				<span>How is the work going? <small>(optional)</small></span>
-				<select data-field="status" bind:value={status} aria-describedby="rf-status-problem">
-					<option value="">Not said</option>
-					{#each STATUSES as choice (choice)}
-						<option value={choice}>{STATUS_NAMES[choice]}</option>
+	</div>
+{:else}
+	<form
+		class="tj-inform"
+		onsubmit={send}
+		oninput={touched}
+		novalidate
+		aria-labelledby="{uid}-title"
+	>
+		<p class="tj-inform__title" id="{uid}-title">
+			Report details <StatusBadge state="pending" label="Draft" plain />
+		</p>
+		<div class="tj-field">
+			<label class="tj-label" for="{uid}-milestone">Milestone</label>
+			<span class="tj-select-wrap">
+				<select
+					class="tj-select"
+					id="{uid}-milestone"
+					value={milestone?.id}
+					onchange={(event) => (milestoneId = event.currentTarget.value)}
+					aria-invalid={problems.milestone_id ? 'true' : undefined}
+					aria-describedby={problems.milestone_id ? `${uid}-milestone-problem` : undefined}
+				>
+					{#each open as choice (choice.id)}
+						<option value={choice.id}>{choice.title}</option>
 					{/each}
 				</select>
-			</label>
-			{@render problem(problems.status, 'rf-status-problem')}
+				<Icon name="chevron-down" size={18} />
+			</span>
+			{@render problem(problems.milestone_id, `${uid}-milestone-problem`)}
+		</div>
+
+		{#if kind}
+			<fieldset
+				class="tj-field"
+				aria-describedby={problems.kind ? `${uid}-kind-problem` : undefined}
+			>
+				<legend class="tj-label">Which report</legend>
+				<div class="tj-choices">
+					{#each kinds as choice (choice)}
+						<label class="tj-check tj-choice">
+							<input
+								type="radio"
+								name="{uid}-kind"
+								value={choice}
+								checked={choice === kind}
+								onchange={() => (chosenKind = choice)}
+							/>
+							<span class="tj-check__text">
+								<strong>{REPORT_KIND_NAMES[choice]}</strong>
+								<small>{KIND_HINTS[choice]}</small>
+							</span>
+						</label>
+					{/each}
+				</div>
+				{@render problem(problems.kind, `${uid}-kind-problem`)}
+			</fieldset>
 		{/if}
 
-		{#if details.includes('percent_complete')}
-			<label>
-				<span>
-					Percent complete, 0 to 100
-					{#if !percentNeeded}<small>(optional)</small>{/if}
-				</span>
-				<input
-					type="text"
-					inputmode="decimal"
-					autocomplete="off"
-					data-field="percent_complete"
-					bind:value={percent}
-					aria-describedby="rf-percent-problem"
-					placeholder="For example 40"
-				/>
-			</label>
-			{@render problem(problems.percent_complete, 'rf-percent-problem')}
+		{#if details.includes('status') || details.includes('percent_complete')}
+			<div class="tj-inform__grid tj-inform__grid--2">
+				{#if details.includes('status')}
+					<div class="tj-field">
+						<label class="tj-label" for="{uid}-status">
+							How the work is going <span class="tj-label__opt">(optional)</span>
+						</label>
+						<span class="tj-select-wrap">
+							<select
+								class="tj-select"
+								id="{uid}-status"
+								data-field="status"
+								bind:value={status}
+								aria-invalid={problems.status ? 'true' : undefined}
+								aria-describedby={problems.status ? `${uid}-status-problem` : undefined}
+							>
+								<option value="">Not said</option>
+								{#each STATUSES as choice (choice)}
+									<option value={choice}>{STATUS_NAMES[choice]}</option>
+								{/each}
+							</select>
+							<Icon name="chevron-down" size={18} />
+						</span>
+						{@render problem(problems.status, `${uid}-status-problem`)}
+					</div>
+				{/if}
+
+				{#if details.includes('percent_complete')}
+					<div class="tj-field">
+						<label class="tj-label" for="{uid}-percent">
+							Percent complete
+							{#if !percentNeeded}<span class="tj-label__opt">(optional)</span>{/if}
+						</label>
+						<span class="tj-combo">
+							<input
+								class="tj-input"
+								id="{uid}-percent"
+								type="text"
+								inputmode="decimal"
+								autocomplete="off"
+								data-field="percent_complete"
+								bind:value={percent}
+								aria-invalid={problems.percent_complete ? 'true' : undefined}
+								aria-describedby="{uid}-percent-help{problems.percent_complete
+									? ` ${uid}-percent-problem`
+									: ''}"
+							/>
+							<span class="affix" aria-hidden="true">%</span>
+						</span>
+						<p class="tj-help" id="{uid}-percent-help">A number from 0 to 100, as you judge it.</p>
+						{@render problem(problems.percent_complete, `${uid}-percent-problem`)}
+					</div>
+				{/if}
+			</div>
 		{/if}
 
 		{#if details.includes('quantity')}
-			<div class="pair">
-				<label>
-					<span>How many were delivered</span>
+			<div class="tj-field">
+				<label class="tj-label" for="{uid}-quantity">Quantity delivered</label>
+				<span class="tj-combo">
 					<input
+						class="tj-input"
+						id="{uid}-quantity"
 						type="text"
 						inputmode="decimal"
 						autocomplete="off"
 						data-field="quantity"
 						bind:value={quantity}
-						aria-describedby="rf-quantity-problem"
-						placeholder="For example 600"
+						aria-invalid={problems.quantity ? 'true' : undefined}
+						aria-describedby="{uid}-quantity-help{problems.quantity
+							? ` ${uid}-quantity-problem`
+							: ''}"
 					/>
-				</label>
-				<label>
-					<span>Of what</span>
 					<input
+						class="tj-input unit"
 						type="text"
 						autocomplete="off"
+						autocapitalize="none"
 						maxlength="50"
 						data-field="unit"
 						bind:value={unit}
-						aria-describedby="rf-unit-problem"
-						placeholder="For example books"
+						aria-label="Unit: what the quantity counts"
+						aria-invalid={problems.unit ? 'true' : undefined}
+						aria-describedby="{uid}-quantity-help{problems.unit ? ` ${uid}-unit-problem` : ''}"
+						placeholder="unit"
 					/>
-				</label>
+				</span>
+				<p class="tj-help" id="{uid}-quantity-help">
+					The number, then what it counts. For example 600 and books.
+				</p>
+				{@render problem(problems.quantity, `${uid}-quantity-problem`)}
+				{@render problem(problems.unit, `${uid}-unit-problem`)}
 			</div>
-			{@render problem(problems.quantity, 'rf-quantity-problem')}
-			{@render problem(problems.unit, 'rf-unit-problem')}
 		{/if}
 
 		{#if details.includes('amount_spent')}
-			<label>
-				<span>Amount spent <small>(the number only)</small></span>
+			<div class="tj-field">
+				<label class="tj-label" for="{uid}-amount">Amount spent</label>
 				<input
+					class="tj-input"
+					id="{uid}-amount"
 					type="text"
 					inputmode="decimal"
 					autocomplete="off"
 					data-field="amount_spent"
 					bind:value={amount}
-					aria-describedby="rf-amount-problem"
-					placeholder="For example 1250.50"
+					aria-invalid={problems.amount_spent ? 'true' : undefined}
+					aria-describedby="{uid}-amount-help{problems.amount_spent
+						? ` ${uid}-amount-problem`
+						: ''}"
 				/>
-			</label>
-			{@render problem(problems.amount_spent, 'rf-amount-problem')}
+				<p class="tj-help" id="{uid}-amount-help">The number only. For example 1250.50.</p>
+				{@render problem(problems.amount_spent, `${uid}-amount-problem`)}
+			</div>
 		{/if}
 
-		<label>
-			<span>
-				{kind === 'confirm' ? 'What you checked before confirming' : 'Note: what was done'}
-			</span>
+		<div class="tj-field">
+			<label class="tj-label" for="{uid}-summary">
+				{kind === 'confirm' ? 'What you checked before confirming' : 'What was done'}
+			</label>
 			<textarea
-				rows="4"
+				class="tj-textarea"
+				id="{uid}-summary"
+				rows="3"
 				maxlength="4000"
 				data-field="summary"
 				bind:value={summary}
-				aria-describedby="rf-summary-problem"></textarea>
-		</label>
-		{@render problem(problems.summary, 'rf-summary-problem')}
+				aria-invalid={problems.summary ? 'true' : undefined}
+				aria-describedby={problems.summary ? `${uid}-summary-problem` : undefined}></textarea>
+			{@render problem(problems.summary, `${uid}-summary-problem`)}
+		</div>
 
-		<fieldset>
-			<legend>
-				{rules?.documentsOnly ? 'Documents' : 'Photos and documents'} <small>(optional)</small>
+		<fieldset
+			class="tj-field"
+			aria-describedby="{uid}-files-help{problems.photos ? ` ${uid}-photos-problem` : ''}"
+		>
+			<legend class="tj-label">
+				{rules?.documentsOnly ? 'Documents' : 'Photos and documents'}
+				<span class="tj-label__opt">(optional)</span>
 			</legend>
-			{#if rules?.documentsOnly}
-				<small>
-					This milestone takes documents only, such as a receipt or a letter, as
-					{DOCUMENT_TYPE_NAMES}. No pictures.
-				</small>
-			{:else}
-				<label class="file">
-					<span>Take a photo</span>
+			<div class="tj-picker" class:one={rules?.documentsOnly}>
+				{#if !rules?.documentsOnly}
+					<label class="tj-picker__opt tj-picker__opt--primary" class:is-off={full}>
+						<Icon name="camera" size={28} />
+						<span>Take a photo<small>Opens the camera</small></span>
+						<input
+							type="file"
+							accept={PICTURE_TYPES.join(',')}
+							capture="environment"
+							disabled={full}
+							onchange={chosen}
+						/>
+					</label>
+				{/if}
+				<label class="tj-picker__opt" class:is-off={full}>
+					<Icon name="paperclip" size={28} />
+					<span>
+						Choose files<small>{rules?.documentsOnly ? 'PDF documents' : 'Photos or PDFs'}</small>
+					</span>
 					<input
 						type="file"
-						accept={PICTURE_TYPES.join(',')}
-						capture="environment"
+						accept={fileTypes.join(',')}
+						multiple
 						disabled={full}
 						onchange={chosen}
 					/>
 				</label>
-			{/if}
-			<label class="file">
-				<span>{rules?.documentsOnly ? 'Choose documents' : 'Choose photos or documents'}</span>
-				<input
-					type="file"
-					accept={fileTypes.join(',')}
-					multiple
-					disabled={full}
-					onchange={chosen}
-				/>
-			</label>
-			<small>
-				Each file can be at most {EVIDENCE_MAX_MEGABYTES} MB. One report can carry at most
-				{MAX_PHOTOS_PER_ENTRY} files. Uploading starts as soon as you choose a file.
-			</small>
+				<p class="tj-picker__limits" id="{uid}-files-help">
+					{#if rules?.documentsOnly}
+						This milestone takes documents only, such as a receipt or a letter, as
+						{DOCUMENT_TYPE_NAMES}. No pictures.
+					{/if}
+					Up to {EVIDENCE_MAX_MEGABYTES} MB each. Up to {MAX_PHOTOS_PER_ENTRY} files per report. Uploading
+					starts as soon as you choose a file.
+				</p>
+			</div>
 			{#if files.length > 0}
-				<ul aria-live="polite">
+				<ul class="files" aria-live="polite">
 					{#each files as row (row.key)}
-						<li>
-							<span class="name">{row.name}</span>
-							{#if row.status === 'uploading'}
-								<span class="state">Uploading…</span>
-							{:else if row.status === 'done'}
-								<span class="state ok">Attached</span>
+						<li class="tj-upload is-{row.status}">
+							{#if row.status === 'done' && row.picture}
+								<img class="tj-upload__thumb" src={row.url} alt="" />
+							{:else}
+								<span class="tj-upload__thumb">
+									<Icon name={row.picture ? 'image' : 'file-text'} size={24} />
+								</span>
 							{/if}
+							<div class="about">
+								<p class="tj-upload__name">{row.name}</p>
+								{#if row.status === 'uploading'}
+									<p class="tj-upload__meta">
+										<Icon name="upload" size={16} /><span>Uploading. Keep this page open.</span>
+									</p>
+								{:else if row.status === 'done'}
+									<p class="tj-upload__meta">
+										<Icon name="check" size={16} />
+										<span
+											>Uploaded · fingerprint <span class="tj-id fingerprint"
+												>{shortId(row.sha256)}</span
+											></span
+										>
+									</p>
+								{:else}
+									<p class="tj-upload__meta" role="alert">
+										<Icon name="alert-triangle" size={16} /><span>{row.problem}</span>
+									</p>
+								{/if}
+							</div>
 							{#if row.status !== 'uploading'}
-								<button type="button" class="quiet" onclick={() => remove(row.key)}>
-									Remove<span class="sr"> {row.name}</span>
+								<button
+									type="button"
+									class="tj-btn tj-btn--quiet tj-btn--icon"
+									aria-label="Remove {row.name}"
+									onclick={() => remove(row.key)}
+								>
+									<Icon name="x" />
 								</button>
-							{/if}
-							{#if row.status === 'failed'}
-								<p class="problem" role="alert">{row.problem}</p>
 							{/if}
 						</li>
 					{/each}
 				</ul>
 			{/if}
+			{@render problem(problems.photos, `${uid}-photos-problem`)}
 		</fieldset>
-		{@render problem(problems.photos, 'rf-photos-problem')}
-		{@render problem(problems.form, 'rf-form-problem')}
 
-		<button type="submit" disabled={disabled || sending || uploading}>
+		{@render problem(problems.form, `${uid}-form-problem`)}
+
+		<Button
+			variant="secondary"
+			size="field"
+			block
+			type="submit"
+			busy={sending || uploading}
+			disabled={disabled || sending || uploading}
+		>
 			{#if uploading}
 				Waiting for the files…
 			{:else if sending}
-				Waiting for the agent…
+				Sending…
 			{:else}
-				Send to the agent
+				Send to the assistant
 			{/if}
-		</button>
+		</Button>
 	</form>
 {/if}
 
 <style>
-	form {
-		display: grid;
-		gap: 0.9rem;
-		margin-top: 0.75rem;
-	}
-	.hint {
-		margin: 0.5rem 0 0;
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	label {
-		display: grid;
-		gap: 0.25rem;
-	}
-	label > span:first-child,
-	legend {
-		font-weight: 600;
-	}
-	small {
-		font-size: 0.9rem;
-		font-weight: 400;
-		color: var(--muted);
-	}
-	input[type='text'],
-	select,
-	textarea {
-		/* 16px and up, so a phone does not zoom in on the field. */
-		font: inherit;
-		color: var(--ink);
-		background: var(--bg);
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		padding: 0.6rem 0.75rem;
-		min-height: 2.75rem;
-		width: 100%;
-		box-sizing: border-box;
-	}
-	textarea {
-		resize: vertical;
-	}
-	input[type='file'] {
-		font: inherit;
-		width: 100%;
-		min-width: 0;
-	}
-	fieldset > :global(*) {
-		min-width: 0;
-	}
 	fieldset {
-		border: 1px solid var(--line);
-		border-radius: 6px;
-		padding: 0.6rem 0.75rem 0.75rem;
-		margin: 0;
-		min-width: 0;
-		display: grid;
-		gap: 0.6rem;
-	}
-	legend {
-		padding: 0 0.3rem;
-	}
-	.choice {
-		grid-template-columns: auto 1fr;
-		gap: 0.6rem;
-		align-items: start;
-		min-height: 2.75rem;
-		cursor: pointer;
-	}
-	.choice input {
-		width: 1.25rem;
-		height: 1.25rem;
-		margin: 0.2rem 0 0;
-		accent-color: var(--a);
-	}
-	.choice span {
-		display: grid;
-		font-weight: 400;
-	}
-	.pair {
-		display: grid;
-		grid-template-columns: 1fr 1fr;
-		gap: 0.75rem;
-		align-items: end;
-	}
-	.file > span:first-child {
-		font-weight: 400;
-	}
-	ul {
-		list-style: none;
+		border: 0;
 		padding: 0;
 		margin: 0;
-		display: grid;
-		gap: 0.5rem;
 	}
-	li {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0.25rem 0.75rem;
+	legend {
+		padding: 0;
+		margin-bottom: var(--space-1);
+	}
+	/* The unit is typed, not chosen: a second input joined to the number, one boundary. */
+	.tj-combo > .unit {
+		flex: 0 1 9rem;
+		margin-left: -1px;
+		text-align: left;
+		background: var(--surface-2);
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+	}
+	.affix {
+		display: inline-flex;
 		align-items: center;
-		border-top: 1px solid var(--line);
-		padding-top: 0.5rem;
+		padding: 0 var(--space-3);
+		margin-left: -1px;
+		border: var(--border-control) solid var(--border-strong);
+		border-radius: 0 var(--radius-md) var(--radius-md) 0;
+		background: var(--surface-2);
+		color: var(--text-secondary);
+		font-weight: 600;
 	}
-	.name {
-		flex: 1 1 8rem;
+	.tj-picker.one {
+		grid-template-columns: minmax(0, 1fr);
+	}
+	.tj-picker__opt span {
+		display: grid;
+		gap: 2px;
+	}
+	/* The file input is invisible, so the label shows where the keyboard is. */
+	.tj-picker__opt:focus-within {
+		outline: var(--border-focus) solid var(--focus-ring);
+		outline-offset: 2px;
+	}
+	.tj-picker__opt.is-off {
+		background: var(--disabled-bg);
+		border-color: var(--disabled-border);
+		color: var(--disabled-text);
+		cursor: not-allowed;
+	}
+	.tj-picker__opt.is-off :global(.tj-icon),
+	.tj-picker__opt.is-off small {
+		color: var(--disabled-text);
+	}
+	.tj-picker__opt.is-off input {
+		cursor: not-allowed;
+	}
+	.files {
+		display: grid;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+	}
+	.about {
 		min-width: 0;
-		overflow-wrap: anywhere;
 	}
-	.state {
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	.state.ok {
-		font-weight: 600;
-		color: var(--a);
-	}
-	.problem {
-		flex-basis: 100%;
-		margin: 0;
-		border-left: 3px solid var(--warn);
-		padding-left: 0.75rem;
-		color: var(--warn);
-	}
-	button {
-		font: inherit;
-		font-weight: 600;
-		color: var(--surface);
-		background: var(--a);
-		border: 1px solid var(--a);
-		border-radius: 6px;
-		padding: 0.6rem 1.1rem;
-		min-height: 2.75rem;
-		cursor: pointer;
-	}
-	button.quiet {
-		color: var(--ink);
-		background: var(--surface);
-		border-color: var(--line);
-		padding: 0.3rem 0.8rem;
-		min-height: 2.75rem;
-	}
-	button:disabled {
-		opacity: 0.55;
-		cursor: default;
-	}
-	.sr {
-		position: absolute;
-		width: 1px;
-		height: 1px;
-		overflow: hidden;
-		clip-path: inset(50%);
+	.fingerprint {
 		white-space: nowrap;
-	}
-	@media (max-width: 24rem) {
-		.pair {
-			grid-template-columns: 1fr;
-		}
 	}
 </style>
