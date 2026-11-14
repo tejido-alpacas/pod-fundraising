@@ -1,16 +1,21 @@
-// Calls the upload page's own load function and form action. The evidence store is a recording
-// stand-in made here in the test file, so a test can see what was stored. Nothing reaches the
-// network.
+// Calls the upload page's own load function and form action against a real, migrated, seeded
+// local D1. The evidence store is a recording stand-in made here in the test file, so a test
+// can see what was stored. Nothing reaches the network.
 import { isActionFailure } from '@sveltejs/kit';
 import {
 	EVIDENCE_FILE_FIELD,
 	EVIDENCE_MAX_BYTES,
+	EVIDENCE_NOT_PUBLIC_KIND_FIELD,
+	EVIDENCE_NOT_PUBLIC_REASON_FIELD,
+	EVIDENCE_VISIBILITY_FIELD,
 	evidenceUploadResponseSchema,
 	photoSchema
 } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
+import { getEvidenceFile } from '@tejido/db';
+import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createHash } from 'node:crypto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { agentEntry, agentList, PROBLEM_SENTENCES, problemFromStatus } from '#lib/evidence.ts';
 import type { Session } from '#lib/server/session.ts';
 import { actions, load } from './+page.server.ts';
@@ -35,10 +40,14 @@ let stored: Map<string, Buffer>;
 /** Names the store refuses, to stand in for the evidence store failing on one file. */
 let failing: Set<string>;
 
-beforeEach(() => {
+let test: TestDatabase;
+
+beforeEach(async () => {
+	test = await createTestDatabase({ seed: true });
 	stored = new Map();
 	failing = new Set();
 });
+afterEach(() => test?.destroy());
 
 function parts(session: Session | null, body?: FormData) {
 	const request = new Request(`${ORIGIN}/upload?/upload`, { method: 'POST', body });
@@ -46,9 +55,14 @@ function parts(session: Session | null, body?: FormData) {
 		put: (name: string, bytes: Buffer) => {
 			if (failing.has(name)) return Promise.reject(new Error('the store is down'));
 			return Promise.resolve(void stored.set(name, bytes));
-		}
+		},
+		head: (name: string) => Promise.resolve(stored.has(name) ? { key: name } : null)
 	};
-	return { request, locals: { ctx: { evidence }, session }, url: new URL(request.url) };
+	return {
+		request,
+		locals: { ctx: { evidence, db: test.db }, session },
+		url: new URL(request.url)
+	};
 }
 
 // A whole RequestEvent cannot be built outside SvelteKit; the page's server code uses only
@@ -56,9 +70,16 @@ function parts(session: Session | null, body?: FormData) {
 const view = (session: Session | null) =>
 	load(parts(session) as unknown as Parameters<typeof load>[0]);
 
+/** Form fields sent beside the files of the next upload: the choice of who may see them. */
+let fields: Record<string, string> = {};
+beforeEach(() => {
+	fields = {};
+});
+
 function upload(session: Session | null, ...files: File[]) {
 	const form = new FormData();
 	for (const file of files) form.append(EVIDENCE_FILE_FIELD, file);
+	for (const [name, value] of Object.entries(fields)) form.set(name, value);
 	return actions.upload(parts(session, form) as unknown as Parameters<typeof actions.upload>[0]);
 }
 
@@ -126,6 +147,7 @@ describe('uploading from the page', () => {
 			ok: true,
 			url: `${ORIGIN}/evidence/${sha256(PNG)}.png`,
 			sha256: sha256(PNG),
+			visibility: 'public',
 			picture: true
 		});
 		expect(evidenceUploadResponseSchema.safeParse(result).success).toBe(true);
@@ -190,6 +212,68 @@ describe('uploading from the page', () => {
 	});
 });
 
+describe('keeping files from donors', () => {
+	const notPublic = {
+		[EVIDENCE_VISIBILITY_FIELD]: 'not_public',
+		[EVIDENCE_NOT_PUBLIC_KIND_FIELD]: 'Class list',
+		[EVIDENCE_NOT_PUBLIC_REASON_FIELD]: 'It has pupils’ names on it.'
+	};
+
+	it('stores every file sent together as not public, with what donors are told', async () => {
+		fields = notPublic;
+
+		const answer = await results(party, png(), pdf());
+
+		expect(answer.map((result) => (result.ok ? result.visibility : null))).toEqual([
+			'not_public',
+			'not_public'
+		]);
+		for (const bytes of [PNG, PDF]) {
+			expect(await getEvidenceFile(test.db, sha256(bytes))).toMatchObject({
+				uploadedByPartyId: contractor.id,
+				visibility: 'not_public',
+				notPublicKind: 'Class list',
+				notPublicReason: 'It has pupils’ names on it.'
+			});
+		}
+	});
+
+	it('refuses the upload when what the file is, or why it is hidden, is left empty', async () => {
+		fields = { ...notPublic, [EVIDENCE_NOT_PUBLIC_REASON_FIELD]: '' };
+
+		expect(await refusal(party, png())).toEqual({
+			status: 422,
+			refused: PROBLEM_SENTENCES.not_public_words
+		});
+		expect(stored.size).toBe(0);
+	});
+
+	it('ignores the two texts when the box is not ticked, and stores the file as public', async () => {
+		fields = {
+			[EVIDENCE_NOT_PUBLIC_KIND_FIELD]: 'Class list',
+			[EVIDENCE_NOT_PUBLIC_REASON_FIELD]: ''
+		};
+
+		const [result] = await results(party, png());
+
+		expect(result).toMatchObject({ ok: true, visibility: 'public' });
+	});
+
+	it('says so when the file is someone else’s to decide, and changes nothing', async () => {
+		await results({ ...party, partyId: fixtures.parties[1]!.id }, png());
+		fields = notPublic;
+
+		const [result] = await results(party, png());
+
+		expect(result).toEqual({
+			name: 'site.png',
+			ok: false,
+			problem: PROBLEM_SENTENCES.not_yours_to_change
+		});
+		expect((await getEvidenceFile(test.db, sha256(PNG)))?.visibility).toBe('public');
+	});
+});
+
 describe('what the page tells the person', () => {
 	it('has a sentence for every refusal POST /api/evidence can answer', () => {
 		expect(problemFromStatus(401)).toBe('not_signed_in');
@@ -197,6 +281,8 @@ describe('what the page tells the person', () => {
 		expect(problemFromStatus(415)).toBe('wrong_type');
 		expect(problemFromStatus(413)).toBe('too_large');
 		expect(problemFromStatus(400)).toBe('empty');
+		expect(problemFromStatus(422)).toBe('not_public_words');
+		expect(problemFromStatus(409)).toBe('not_yours_to_change');
 		expect(problemFromStatus(500)).toBe('unexpected');
 	});
 

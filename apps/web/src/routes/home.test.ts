@@ -62,6 +62,12 @@ describe('the home page', () => {
 						milestone.state.startsWith('confirmed')
 					).length
 				},
+				// The seeded campaign has a goal and no donation item: its funding is not known.
+				funding: {
+					state: 'not_known',
+					reason: 'no_donation_item',
+					goal: fixtures.campaign.fundingGoal
+				},
 				path: `/campaigns/${fixtures.campaign.id}`
 			}
 		]);
@@ -134,6 +140,7 @@ describe('the home page', () => {
 				[
 					'beneficiary',
 					'creatorName',
+					'funding',
 					'id',
 					'milestones',
 					'path',

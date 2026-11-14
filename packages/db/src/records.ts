@@ -5,15 +5,26 @@
  * contract type belongs here, next to the others, so pages and jobs share it.
  */
 import {
+	describeDeposit,
 	entrySchema,
+	fundingSummary,
+	fundingTotalsSchema,
 	partySchema,
+	totalDeposits,
 	type AgentWalletHostname,
 	type Amount,
 	type Campaign,
 	type Deposit,
+	type DepositStatus,
+	type DepositTotals,
 	type Entry,
 	type EntryItem,
 	type EntryStatus,
+	type EvidenceFileRecord,
+	type EvidenceNotPublic,
+	type EvidenceVisibility,
+	type FundingSummary,
+	type FundingTotals,
 	type Milestone,
 	type MilestoneState,
 	type Party,
@@ -21,17 +32,33 @@ import {
 	type PrimaryWalletHostname,
 	type Timestamp
 } from '@tejido/contracts';
-import { and, asc, count, desc, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm';
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	isNull,
+	lt,
+	lte,
+	notExists,
+	or,
+	sql
+} from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Database, Executor } from './client.ts';
 import {
+	campaignFunding,
 	campaigns,
 	deposits,
 	entries,
+	evidenceFiles,
 	itemProvisioning,
 	milestones,
 	parties,
 	partySignInTokens,
+	refundAttempts,
 	refundDeposits,
 	refunds,
 	type RefundStatus
@@ -54,6 +81,71 @@ export async function listCampaigns(db: Executor): Promise<Campaign[]> {
 export async function getCampaign(db: Executor, id: string): Promise<Campaign | undefined> {
 	const [row] = await db.select().from(campaigns).where(eq(campaigns.id, id)).limit(1);
 	return row;
+}
+
+// --- Funding ---
+
+/**
+ * What a page may show of a campaign's funding: its goal, and the totals of the last read of
+ * its donation ledger, or "not known" with the reason. Totals only; nothing here, and nothing
+ * stored, identifies a donor. This reads our database and never calls Qatom.
+ */
+export async function getFundingSummary(
+	db: Executor,
+	campaign: Pick<Campaign, 'id' | 'fundingGoal' | 'donationCommodityId'>
+): Promise<FundingSummary> {
+	const [row] = await db
+		.select({
+			raised: campaignFunding.raised,
+			donations: campaignFunding.donations,
+			readAt: campaignFunding.readAt
+		})
+		.from(campaignFunding)
+		.where(eq(campaignFunding.campaignId, campaign.id))
+		.limit(1);
+	return fundingSummary(campaign, row ?? null);
+}
+
+/**
+ * Stores the totals of one read of a campaign's donation ledger, replacing the last read's,
+ * and in the same write moves the campaign from `funding` to `funded` when it has a goal and
+ * the amount raised reaches it. Both land, or neither does.
+ *
+ * Safe to repeat: the same totals stored twice leave the same row, and a campaign that is
+ * already `funded`, or in any status other than `funding`, is not touched. No status moves
+ * backwards, whatever the totals say, and a campaign with no goal is never moved.
+ *
+ * The condition is the rule in `statusAfterFunding` (@tejido/contracts), written as SQL so it
+ * is checked against the row as it is at the moment of the write.
+ */
+export async function recordFundingTotals(
+	db: Database,
+	campaignId: string,
+	totals: FundingTotals
+): Promise<{ becameFunded: boolean }> {
+	const { raised, donations, readAt } = fundingTotalsSchema.parse(totals);
+	const [, moved] = await db.batch([
+		db
+			.insert(campaignFunding)
+			.values({ campaignId, raised, donations, readAt })
+			.onConflictDoUpdate({
+				target: campaignFunding.campaignId,
+				set: { raised, donations, readAt }
+			}),
+		db
+			.update(campaigns)
+			.set({ status: 'funded' })
+			.where(
+				and(
+					eq(campaigns.id, campaignId),
+					eq(campaigns.status, 'funding'),
+					// NULL is not less than anything, so a campaign without a goal never matches.
+					lte(campaigns.fundingGoal, raised)
+				)
+			)
+			.returning({ id: campaigns.id })
+	]);
+	return { becameFunded: moved.length > 0 };
 }
 
 // --- Parties ---
@@ -474,6 +566,7 @@ export async function addEvidenceToIncompleteEntry(
 //
 // The bookkeeping that makes a refund happen once only. The order is always:
 //   1. claimDepositsForRefund  writes the refund as `started` and claims its deposits
+//                              (and notes, for good, which deposits it covered)
 //   2. the caller sends the transfer (never from this package)
 //   3. markRefundSent | markRefundFailed | markRefundUnknown  records what happened
 // A deposit claimed by a refund cannot be claimed by another, so nothing is sent twice.
@@ -572,8 +665,14 @@ export async function claimDepositsForRefund(
 	const claims = chunks(depositIds, CLAIM_ROWS_PER_INSERT).map((ids) =>
 		db.insert(refundDeposits).values(ids.map((depositId) => ({ depositId, refundId: refund.id })))
 	);
+	// The lasting record that this refund covered these deposits. Unlike the claims it is
+	// never removed, so a refused refund can still be told apart from one never tried. It is
+	// written in the same batch: with the claim or not at all.
+	const attempts = chunks(depositIds, CLAIM_ROWS_PER_INSERT).map((ids) =>
+		db.insert(refundAttempts).values(ids.map((depositId) => ({ depositId, refundId: refund.id })))
+	);
 	try {
-		await db.batch([db.insert(refunds).values(refund), ...claims]);
+		await db.batch([db.insert(refunds).values(refund), ...claims, ...attempts]);
 		return true;
 	} catch (error) {
 		// The batch wrote nothing. If another refund holds one of these deposits, that is why.
@@ -685,6 +784,108 @@ export async function listRefunds(
 		.orderBy(asc(refunds.startedAt), asc(refunds.id));
 }
 
+// --- Deposit states ---
+
+/** Deposits with their states, and their amounts added up by state. */
+export interface DepositSummary {
+	/** Oldest entry first. */
+	deposits: DepositStatus[];
+	/** In the unit of `Deposit.amount`. See money.ts in @tejido/contracts. */
+	totals: DepositTotals;
+}
+
+/**
+ * Every deposit paid on a campaign's entries, each with its state (`held`, `refunded` or
+ * `refund_outstanding`), why a refund is outstanding, and the totals by state. Pass `only` to
+ * narrow it to one milestone or one entry of that campaign.
+ *
+ * The state is worked out by `deriveDepositState` in @tejido/contracts from what is recorded
+ * here: the deposit, its entry, its milestone, whether the filer has a primary wallet, and
+ * every refund that has covered the deposit. Pages read this instead of working it out again.
+ * Nothing is asked of Qatom, and nothing is written.
+ */
+export async function listDepositStatuses(
+	db: Executor,
+	campaignId: string,
+	only: { milestoneId?: string; entryId?: string } = {}
+): Promise<DepositSummary> {
+	const scope = and(
+		eq(entries.campaignId, campaignId),
+		only.milestoneId === undefined ? undefined : eq(entries.milestoneId, only.milestoneId),
+		only.entryId === undefined ? undefined : eq(entries.id, only.entryId)
+	);
+	const covering = {
+		depositId: deposits.id,
+		refundId: refunds.id,
+		status: refunds.status,
+		startedAt: refunds.startedAt
+	};
+
+	const [rows, held, tried] = await Promise.all([
+		db
+			.select({
+				id: deposits.id,
+				entryId: deposits.entryId,
+				amount: deposits.amount,
+				refundedAt: deposits.refundedAt,
+				milestoneId: entries.milestoneId,
+				partyId: entries.partyId,
+				entryStatus: entries.status,
+				twistId: entries.twistId,
+				milestoneState: milestones.state,
+				primaryWalletHostname: parties.primaryWalletHostname
+			})
+			.from(deposits)
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.innerJoin(
+				milestones,
+				and(eq(milestones.campaignId, entries.campaignId), eq(milestones.id, entries.milestoneId))
+			)
+			.innerJoin(parties, eq(parties.id, entries.partyId))
+			.where(scope)
+			.orderBy(asc(entries.filedAt), asc(deposits.id)),
+		// The refund holding each deposit now, if one does. This is what decides what may be
+		// sent, so it is read even where the history below should already have it.
+		db
+			.select(covering)
+			.from(refundDeposits)
+			.innerJoin(refunds, eq(refunds.id, refundDeposits.refundId))
+			.innerJoin(deposits, eq(deposits.id, refundDeposits.depositId))
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.where(scope),
+		// Every refund that ever covered each deposit, refused ones included.
+		db
+			.select(covering)
+			.from(refundAttempts)
+			.innerJoin(refunds, eq(refunds.id, refundAttempts.refundId))
+			.innerJoin(deposits, eq(deposits.id, refundAttempts.depositId))
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.where(scope)
+	]);
+
+	// One refund counts once per deposit, whichever of the two tables it was found in.
+	const refundsByDeposit = new Map<string, Map<string, Pick<Refund, 'status' | 'startedAt'>>>();
+	for (const { depositId, refundId, status, startedAt } of [...held, ...tried]) {
+		const found = refundsByDeposit.get(depositId) ?? new Map();
+		found.set(refundId, { status, startedAt });
+		refundsByDeposit.set(depositId, found);
+	}
+
+	const statuses = rows.map((row) =>
+		describeDeposit(
+			{ id: row.id, entryId: row.entryId, amount: row.amount, refundedAt: row.refundedAt },
+			{ campaignId, milestoneId: row.milestoneId, partyId: row.partyId },
+			{
+				milestone: { state: row.milestoneState },
+				entry: { status: row.entryStatus, twistId: row.twistId },
+				filerHasPrimaryWallet: row.primaryWalletHostname !== null,
+				refunds: [...(refundsByDeposit.get(row.id)?.values() ?? [])]
+			}
+		)
+	);
+	return { deposits: statuses, totals: totalDeposits(statuses) };
+}
+
 // --- Item provisioning ---
 
 export type ItemProvisioning = typeof itemProvisioning.$inferSelect;
@@ -786,4 +987,174 @@ export async function finishItemProvisioning(
 			.set({ lockedUntil: null, updatedAt: now })
 			.where(provisioningRow(campaignId, item))
 	]);
+}
+
+// --- Evidence files: who uploaded each one, and who may see it ---
+//
+// A file is `public` unless its uploader said otherwise. A file with no row at all was
+// uploaded before rows were kept; it is public, and nobody is on record as its uploader.
+
+export async function getEvidenceFile(
+	db: Executor,
+	sha256: string
+): Promise<EvidenceFileRecord | undefined> {
+	const [row] = await db
+		.select()
+		.from(evidenceFiles)
+		.where(eq(evidenceFiles.sha256, sha256))
+		.limit(1);
+	return row;
+}
+
+/**
+ * Which of these files are marked not public, with what their uploader says about each. Pass
+ * the answer to `evidenceFileStates` (@tejido/contracts) and to `decideCheckin`.
+ */
+export async function listNotPublicEvidence(
+	db: Executor,
+	sha256s: readonly string[]
+): Promise<Map<string, EvidenceNotPublic>> {
+	const found = new Map<string, EvidenceNotPublic>();
+	for (const some of chunks([...new Set(sha256s)], 50)) {
+		const rows = await db
+			.select()
+			.from(evidenceFiles)
+			.where(and(inArray(evidenceFiles.sha256, some), eq(evidenceFiles.visibility, 'not_public')));
+		for (const row of rows) {
+			// A not-public row always carries both. If one is missing the file stays hidden.
+			found.set(row.sha256, { kind: row.notPublicKind ?? '', reason: row.notPublicReason ?? '' });
+		}
+	}
+	return found;
+}
+
+/** What an uploader asks for: public, or not public with what donors are told instead. */
+export type EvidenceVisibilityChoice =
+	{ visibility: 'public' } | ({ visibility: 'not_public' } & EvidenceNotPublic);
+
+export interface EvidenceUpload {
+	sha256: string;
+	/** The signed-in party uploading the file. */
+	partyId: string;
+	/** Null when the uploader did not say: a new file is public, a known file stays as it is. */
+	choice: EvidenceVisibilityChoice | null;
+	/** True when the evidence store already held these bytes before this upload. */
+	alreadyStored: boolean;
+	now: Timestamp;
+}
+
+export type EvidenceUploadOutcome =
+	| { accepted: true; visibility: EvidenceVisibility }
+	/** The choice would change a file that is someone else's to decide. Nothing was changed. */
+	| { accepted: false; why: 'not_the_uploader' };
+
+/**
+ * Records an upload and applies the uploader's choice of who may see the file.
+ *
+ * Only a file's uploader decides its visibility, in either direction:
+ *
+ * - A file nobody has uploaded before is recorded as this party's, with their choice.
+ * - The uploader sending the same bytes again changes the visibility only by saying so. Sent
+ *   again with no choice, a not-public file stays not public.
+ * - Anyone else sending the same bytes changes nothing. If they asked for something the file
+ *   is not, the upload is turned away.
+ * - A file stored before rows were kept has no uploader on record. It stays public, and no
+ *   row is written, unless someone asks for not public: that is allowed when no entry names
+ *   the file, or one of the asking party's own entries does. They become its uploader.
+ */
+export async function recordEvidenceUpload(
+	db: Executor,
+	upload: EvidenceUpload
+): Promise<EvidenceUploadOutcome> {
+	const { sha256, partyId, choice, now } = upload;
+	const chosen = {
+		visibility: choice?.visibility ?? ('public' as const),
+		notPublicKind: choice?.visibility === 'not_public' ? choice.kind : null,
+		notPublicReason: choice?.visibility === 'not_public' ? choice.reason : null
+	};
+
+	let existing = await getEvidenceFile(db, sha256);
+	if (!existing) {
+		if (upload.alreadyStored) {
+			if (chosen.visibility === 'public') return { accepted: true, visibility: 'public' };
+			const filers = await listPartiesNamingEvidence(db, sha256);
+			if (filers.length > 0 && !filers.includes(partyId)) {
+				return { accepted: false, why: 'not_the_uploader' };
+			}
+		}
+		const inserted = await db
+			.insert(evidenceFiles)
+			.values({ sha256, uploadedByPartyId: partyId, ...chosen, createdAt: now, updatedAt: now })
+			.onConflictDoNothing()
+			.returning({ sha256: evidenceFiles.sha256 });
+		if (inserted.length > 0) return { accepted: true, visibility: chosen.visibility };
+		// Someone recorded the same bytes in the meantime. Decide again against their row.
+		existing = await getEvidenceFile(db, sha256);
+		if (!existing) throw new Error('An evidence file could be neither recorded nor read.');
+	}
+
+	if (choice === null) return { accepted: true, visibility: existing.visibility };
+	if (existing.uploadedByPartyId !== partyId) {
+		return choice.visibility === existing.visibility
+			? { accepted: true, visibility: existing.visibility }
+			: { accepted: false, why: 'not_the_uploader' };
+	}
+
+	const changed = await db
+		.update(evidenceFiles)
+		.set({ ...chosen, updatedAt: now })
+		.where(and(eq(evidenceFiles.sha256, sha256), eq(evidenceFiles.uploadedByPartyId, partyId)))
+		.returning({ sha256: evidenceFiles.sha256 });
+	if (changed.length === 0) return { accepted: false, why: 'not_the_uploader' };
+	return { accepted: true, visibility: chosen.visibility };
+}
+
+/** The parties who have filed an entry naming this file, by its SHA-256. */
+async function listPartiesNamingEvidence(db: Executor, sha256: string): Promise<string[]> {
+	if (!/^[0-9a-f]{64}$/.test(sha256)) throw new RangeError('Not a SHA-256.');
+	const rows = await db
+		.selectDistinct({ partyId: entries.partyId })
+		.from(entries)
+		// `inputs` is stored as JSON text, and a file's hash appears in it wherever the file is
+		// named. `instr`, not LIKE: D1 refuses a LIKE pattern longer than 50 bytes.
+		.where(sql`instr(${entries.inputs}, ${sha256}) > 0`);
+	return rows.map((row) => row.partyId);
+}
+
+/**
+ * - `public`: anyone may fetch the file.
+ * - `allowed`: the file is not public, and this viewer is one of the few who may fetch it.
+ * - `refused`: the file is not public, and this viewer may not fetch it.
+ */
+export type EvidenceAccess = 'public' | 'allowed' | 'refused';
+
+/**
+ * Whether a viewer may fetch a stored file. A not-public file may be fetched by the party who
+ * uploaded it, and by a party named as the confirmer of any milestone in that uploader's
+ * campaign. By nobody else: not another third party on the campaign, not a party of another
+ * campaign, not someone signed in without a party, and not someone who is not signed in.
+ *
+ * @param viewerPartyId the party the viewer is signed in as, or null.
+ */
+export async function evidenceAccess(
+	db: Executor,
+	sha256: string,
+	viewerPartyId: string | null
+): Promise<EvidenceAccess> {
+	const file = await getEvidenceFile(db, sha256);
+	if (!file || file.visibility === 'public') return 'public';
+	if (viewerPartyId === null) return 'refused';
+	if (viewerPartyId === file.uploadedByPartyId) return 'allowed';
+
+	// A milestone's confirmer must be a party of the same campaign as the uploader: the
+	// milestone is looked up in the uploader's campaign, and a party belongs to one campaign.
+	const [confirms] = await db
+		.select({ id: milestones.id })
+		.from(milestones)
+		.innerJoin(parties, eq(parties.campaignId, milestones.campaignId))
+		.where(
+			and(eq(parties.id, file.uploadedByPartyId), eq(milestones.confirmerPartyId, viewerPartyId))
+		)
+		.limit(1);
+	return confirms ? 'allowed' : 'refused';
 }

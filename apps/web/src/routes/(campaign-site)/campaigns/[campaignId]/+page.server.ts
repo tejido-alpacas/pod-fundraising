@@ -3,11 +3,18 @@ import {
 	confirmationStrength,
 	shownRelationship,
 	type Entry,
+	type EvidenceNotPublic,
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
-import { getCampaign, listEntries, listMilestones, listParties } from '@tejido/db';
-import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
+import {
+	getCampaign,
+	getFundingSummary,
+	listEntries,
+	listMilestones,
+	listParties
+} from '@tejido/db';
+import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -30,11 +37,15 @@ export const load = (async ({ params, locals, url }) => {
 	const campaign = await getCampaign(db, params.campaignId);
 	if (!campaign) error(404, 'There is no campaign at this address.');
 
-	const [parties, milestones, entries] = await Promise.all([
+	const [parties, milestones, entries, funding] = await Promise.all([
 		listParties(db, campaign.id),
 		listMilestones(db, campaign.id),
-		listEntries(db, campaign.id)
+		listEntries(db, campaign.id),
+		getFundingSummary(db, campaign)
 	]);
+
+	// Which attached files their uploaders marked not public. Their addresses stay here.
+	const notPublic = await notPublicAmong(db, entries);
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
 	const milestoneById = new Map(milestones.map((milestone) => [milestone.id, milestone]));
@@ -44,7 +55,8 @@ export const load = (async ({ params, locals, url }) => {
 			partyById.get(entry.partyId),
 			milestoneById.get(entry.milestoneId),
 			campaign.id,
-			config
+			config,
+			notPublic
 		);
 
 	// `listEntries` answers newest first. It has no limit of its own yet, so the cut is made
@@ -61,6 +73,12 @@ export const load = (async ({ params, locals, url }) => {
 			creatorName: campaign.creatorName,
 			status: campaign.status
 		},
+		/**
+		 * Money given, against the goal: totals from our own database, as last read from Qatom's
+		 * ledger. `state: 'not_known'` is not zero. No donor is identified. A different fact from
+		 * delivery (`milestones` below), and never drawn in a status colour.
+		 */
+		funding,
 		milestones: milestones.map((milestone) => ({
 			id: milestone.id,
 			title: milestone.title,
@@ -99,7 +117,8 @@ function entryView(
 	party: Party | undefined,
 	milestone: Milestone | undefined,
 	campaignId: string,
-	config: Parameters<typeof sortEvidence>[2]
+	config: Parameters<typeof sortEvidence>[2],
+	notPublic: ReadonlyMap<string, EvidenceNotPublic>
 ) {
 	const { inputs } = entry;
 	const isClaim = entry.item === 'milestone_hit';
@@ -139,7 +158,7 @@ function entryView(
 		unit: isClaim ? entry.inputs.unit || null : null,
 		amountSpent: isClaim ? (entry.inputs.amount_spent ?? null) : null,
 		location: inputs.location || null,
-		evidence: sortEvidence(inputs.photos, milestone?.kind, config),
+		evidence: sortEvidence(inputs.photos, milestone?.kind, config, notPublic),
 		proofPath: `/campaigns/${campaignId}/entries/${entry.id}`
 	};
 }
