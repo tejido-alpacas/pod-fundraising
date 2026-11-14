@@ -9,6 +9,8 @@ import { createPersonSignIn, type PendingSignIn } from './index.ts';
 const API = 'https://pay.stage.qatom.ai';
 const ISSUER = 'https://pay.stage.m.todaq.net'; // not the host we ask: as Qatom really answers
 const CLIENT_ID = 'tejido-sign-in';
+// Characters that must be form-encoded before base64, to prove they are.
+const CLIENT_SECRET = 'sign-in+secret:/=';
 const REDIRECT_URI = 'http://localhost:5173/auth/callback';
 
 const discoveryDocument = {
@@ -73,7 +75,12 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 const signIn = () =>
-	createPersonSignIn({ paymentApiUrl: API, clientId: CLIENT_ID, redirectUri: REDIRECT_URI });
+	createPersonSignIn({
+		paymentApiUrl: API,
+		clientId: CLIENT_ID,
+		clientSecret: CLIENT_SECRET,
+		redirectUri: REDIRECT_URI
+	});
 
 async function idToken(claims: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
 	return new SignJWT({ ...claims })
@@ -174,15 +181,16 @@ describe('finishing a sign-in', () => {
 
 		const exchange = requests.find((request) => request.url === discoveryDocument.token_endpoint);
 		expect(exchange?.method).toBe('POST');
+		// The sign-in client authenticates with its own ID and secret, form-encoded then base64.
 		expect(exchange?.headers).toEqual({
 			accept: 'application/json',
+			authorization: `Basic ${Buffer.from(`${CLIENT_ID}:sign-in%2Bsecret%3A%2F%3D`).toString('base64')}`,
 			'content-type': 'application/x-www-form-urlencoded'
 		});
 		expect(Object.fromEntries(new URLSearchParams(exchange?.body))).toEqual({
 			grant_type: 'authorization_code',
 			code: 'auth-code',
 			redirect_uri: REDIRECT_URI,
-			client_id: CLIENT_ID,
 			code_verifier: pending.codeVerifier
 		});
 		// The ID token carried every claim, so userinfo was not needed.

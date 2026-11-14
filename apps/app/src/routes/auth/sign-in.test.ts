@@ -85,6 +85,7 @@ beforeEach(async () => {
 	person = createPersonSignIn({
 		paymentApiUrl: API,
 		clientId: CLIENT_ID,
+		clientSecret: 'sign-in-client-secret',
 		redirectUri: REDIRECT_URI
 	});
 	qatom = { discoveryStatus: 200, tokenStatus: 200, claims: contractorClaims, userinfo: {} };

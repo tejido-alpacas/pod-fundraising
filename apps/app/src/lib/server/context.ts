@@ -55,6 +55,7 @@ export function initContext(): ServerContext {
 			person: createPersonSignIn({
 				paymentApiUrl: config.PAYMENT_API_URL,
 				clientId: config.OIDC_CLIENT_ID,
+				clientSecret: config.OIDC_CLIENT_SECRET,
 				redirectUri: config.OIDC_REDIRECT_URI
 			}),
 			account: createMerchantAccount({

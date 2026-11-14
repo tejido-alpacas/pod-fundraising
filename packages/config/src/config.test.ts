@@ -11,6 +11,7 @@ const valid = {
 	PAYMENT_API_URL: 'https://pay.stage.m.todaq.net',
 	QATOM_MCP_URL: 'https://mcp.example.test/tejido',
 	OIDC_CLIENT_ID: 'sign-in-client',
+	OIDC_CLIENT_SECRET: 'sign-in-client-secret',
 	OIDC_REDIRECT_URI: 'http://localhost:5173/auth/callback',
 	QATOM_ACCOUNT_CLIENT_ID: 'merchant-account',
 	QATOM_ACCOUNT_CLIENT_SECRET: 'merchant-account-secret',
@@ -28,13 +29,14 @@ function problemsOf(env: Record<string, string | undefined>) {
 }
 
 describe('parseConfig', () => {
-	it('expects exactly the nine documented names', () => {
+	it('expects exactly the ten documented names', () => {
 		expect(CONFIG_NAMES).toEqual([
 			'SESSION_SECRET',
 			'CHECKIN_SHARED_SECRET',
 			'PAYMENT_API_URL',
 			'QATOM_MCP_URL',
 			'OIDC_CLIENT_ID',
+			'OIDC_CLIENT_SECRET',
 			'OIDC_REDIRECT_URI',
 			'QATOM_ACCOUNT_CLIENT_ID',
 			'QATOM_ACCOUNT_CLIENT_SECRET',
@@ -76,7 +78,7 @@ describe('parseConfig', () => {
 		const error = problemsOf({});
 		expect(error.problems.map((problem) => problem.name)).toEqual(CONFIG_NAMES);
 		for (const name of CONFIG_NAMES) expect(error.message).toContain(name);
-		expect(error.message).toContain('Tejido cannot start: 9 configuration values need attention.');
+		expect(error.message).toContain('Tejido cannot start: 10 configuration values need attention.');
 		expect(error.message).toContain('.env.example');
 	});
 
@@ -148,6 +150,14 @@ describe('individual values', () => {
 		expect(error.problems).toHaveLength(1);
 		expect(error.problems[0]?.name).toBe('QATOM_ACCOUNT_CLIENT_ID');
 		expect(error.problems[0]?.problem).toContain('must not be the same as OIDC_CLIENT_ID');
+
+		const secrets = problemsOf({
+			...valid,
+			QATOM_ACCOUNT_CLIENT_SECRET: valid.OIDC_CLIENT_SECRET
+		});
+		expect(secrets.problems).toHaveLength(1);
+		expect(secrets.problems[0]?.name).toBe('QATOM_ACCOUNT_CLIENT_SECRET');
+		expect(secrets.problems[0]?.problem).toContain('must not be the same as OIDC_CLIENT_SECRET');
 	});
 });
 

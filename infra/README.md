@@ -37,7 +37,7 @@ Commit the `.terraform.lock.hcl` that `init` writes.
 Register the first on the sign-in client, exactly as printed, and set the second as the external
 endpoint of both catalog items.
 
-**3. Write the production configuration.** An env file with the nine values from the root
+**3. Write the production configuration.** An env file with the ten values from the root
 README, kept outside the repository. `OIDC_REDIRECT_URI` is the `oidc_redirect_uri` output.
 Wrangler expands `$NAME` inside this file, so write a literal dollar sign as `\$`.
 
