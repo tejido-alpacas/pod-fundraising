@@ -4,7 +4,7 @@
 	let { data }: PageProps = $props();
 </script>
 
-<svelte:head><title>{data.title} · Tejido App</title></svelte:head>
+<svelte:head><title>{data.title} · Tejido</title></svelte:head>
 
 <article>
 	<p class="eyebrow">Sign-in</p>
@@ -16,12 +16,17 @@
 	{:else if data.retry}
 		<p><a class="button" href="/auth/sign-in">Try again</a></p>
 	{/if}
-	<p><a href="/">Go to the App's home page</a></p>
+	<p><a class="plain" href="/">Go to the home page</a></p>
 </article>
 
 <style>
 	article {
 		max-width: 40rem;
+	}
+	.plain {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
 	}
 	.button {
 		display: inline-block;

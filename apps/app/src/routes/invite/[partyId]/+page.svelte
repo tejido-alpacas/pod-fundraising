@@ -7,7 +7,7 @@
 	const role = $derived(ROLES[data.party.role]);
 </script>
 
-<svelte:head><title>Your invite to {data.campaign.title} · Tejido App</title></svelte:head>
+<svelte:head><title>Your invite to {data.campaign.title} · Tejido</title></svelte:head>
 
 <article>
 	<p class="eyebrow">Invitation</p>
@@ -41,8 +41,13 @@
 	</dl>
 
 	{#if data.signedInAsThisParty}
-		<p class="note">You are already signed in on this invite, and your wallets are linked.</p>
-		<p><a class="button" href="/">Continue to the App</a></p>
+		<p class="note">You are signed in on this invitation, and your wallets are linked.</p>
+		<p><a class="button" href="/">Go to your campaign</a></p>
+		<p class="again">
+			Asked to sign in again?
+			<a href="/auth/sign-in?party={data.party.id}">Sign in with Qatom once more</a>. It renews your
+			connection and changes nothing else.
+		</p>
 	{:else}
 		<h2>Accept by signing in with Qatom</h2>
 		<p>
@@ -93,6 +98,14 @@
 		border-left: 3px solid var(--line);
 		padding-left: 0.75rem;
 		color: var(--muted);
+	}
+	.again {
+		font-size: 0.9rem;
+		color: var(--muted);
+	}
+	.again a {
+		display: inline-block;
+		padding-block: 0.6rem;
 	}
 	.button {
 		display: inline-block;

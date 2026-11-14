@@ -1,30 +1,73 @@
-import { getCampaign, getParty } from '@tejido/db';
+/**
+ * The home page: who you are here, what is due next, and where to go. Track B owns this file.
+ */
+import { isConfirmed, type Milestone } from '@tejido/contracts';
+import { getCampaign, getParty, listIncompleteEntries, listMilestones } from '@tejido/db';
 import type { PageServerLoad } from './$types';
+
+/**
+ * What one milestone asks of the person looking at it.
+ * - `claim`: they owe it and have not said it is done.
+ * - `confirm`: it has been claimed and they are the one named to sign it off.
+ * - `waiting`: someone else acts next (the confirmer, or the party doing the work).
+ * - `done`: confirmed.
+ */
+type Step = 'claim' | 'confirm' | 'waiting' | 'done';
+
+function stepFor(milestone: Milestone, partyId: string): Step {
+	if (isConfirmed(milestone)) return 'done';
+	const owes = milestone.ownerPartyId === partyId;
+	if (milestone.state === 'open') return owes ? 'claim' : 'waiting';
+	return owes ? 'waiting' : 'confirm';
+}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { session } = locals;
-	if (!session) return { signedIn: null };
+	if (!session) return { viewer: 'signed_out' as const };
 
 	const { db } = locals.ctx;
 	const party = session.partyId ? await getParty(db, session.partyId) : undefined;
 	const campaign = party ? await getCampaign(db, party.campaignId) : undefined;
+	if (!party || !campaign) return { viewer: 'no_party' as const, email: session.email };
 
+	const [milestones, incomplete] = await Promise.all([
+		listMilestones(db, campaign.id),
+		listIncompleteEntries(db, party.id)
+	]);
+	const today = new Date().toISOString().slice(0, 10);
+
+	// Shown so the person can tell who they are signed in as, on which campaign, and what is
+	// theirs to do. Never the wallet hostnames, the reporter code, the tokens, or anything
+	// about the other parties.
 	return {
-		// Shown so the person can tell who they are signed in as, and on which campaign.
-		// Never the wallet hostnames, the reporter code or the tokens.
-		signedIn: {
-			email: session.email,
-			party: party
-				? {
-						id: party.id,
-						name: party.name,
-						title: party.title,
-						role: party.role,
-						walletsLinked:
-							party.agentWalletHostname !== null && party.primaryWalletHostname !== null
-					}
-				: null,
-			campaign: campaign ? { title: campaign.title } : null
-		}
+		viewer: 'party' as const,
+		email: session.email,
+		party: {
+			id: party.id,
+			name: party.name,
+			title: party.title,
+			role: party.role,
+			walletsLinked: party.agentWalletHostname !== null && party.primaryWalletHostname !== null
+		},
+		campaign: { title: campaign.title, cadence: campaign.cadence },
+		incompleteReports: incomplete.length,
+		milestones: milestones
+			.filter(
+				(milestone) =>
+					milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id
+			)
+			.map((milestone) => {
+				const step = stepFor(milestone, party.id);
+				return {
+					id: milestone.id,
+					title: milestone.title,
+					dueDate: milestone.dueDate,
+					part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const),
+					step,
+					/** Past its date and still theirs to claim. */
+					overdue: step === 'claim' && milestone.dueDate < today
+				};
+			})
+			.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 	};
 };

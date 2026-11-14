@@ -596,7 +596,7 @@
 		background: var(--surface);
 		border-color: var(--line);
 		padding: 0.3rem 0.8rem;
-		min-height: 2.25rem;
+		min-height: 2.75rem;
 	}
 	button:disabled {
 		opacity: 0.55;

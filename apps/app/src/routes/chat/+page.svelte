@@ -5,7 +5,6 @@
 		type ReportFormProblems,
 		type ReportFormValues
 	} from '#lib/report-form.ts';
-	import { ROLES } from '#lib/roles.ts';
 	import { tick } from 'svelte';
 	import type { PageProps } from './$types';
 	import ReportForm from './ReportForm.svelte';
@@ -36,7 +35,7 @@
 		confirmed_creator: 'confirmed by the creator'
 	};
 	const NO_ANSWER =
-		'The App did not answer. Check your connection and send your message again. Nothing was filed by this message.';
+		'Tejido did not answer. Check your connection and send your message again. Nothing was filed by this message.';
 	const ASK_FIRST =
 		'If the agent was filing a report, ask it whether the report went through before you try again.';
 
@@ -176,28 +175,32 @@
 	}
 </script>
 
-<svelte:head><title>Your agent · Tejido App</title></svelte:head>
+<svelte:head><title>File a report · Tejido</title></svelte:head>
 
 <article>
 	<p class="eyebrow">Your agent</p>
-	<h1>Talk to your agent</h1>
+	<h1>File a report</h1>
 
 	{#if !data.who}
 		<p class="note">
 			You are not signed in. Open the invite link you were sent and sign in with Qatom from there.
 			The agent can only work for someone who has been invited to a campaign.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else if !party}
 		<p class="note">
 			You are signed in as {data.who.email}, but not on a campaign. Open the invite link you were
 			sent and sign in from there, then come back to this page.
 		</p>
+		<p><a class="way" href="/">Go to the home page</a></p>
 	{:else}
 		<p class="lede">
-			{party.name}, this agent works for you on “{party.campaignTitle}” as
-			{ROLES[party.role].name.toLowerCase()}. Tell it what you have done. It will ask for what a
-			report needs, show you the report, and file it only when you say yes. Filing is paid from your
-			own Qatom agent wallet.
+			{party.name}, this agent works for you on “{party.campaignTitle}”.
+			{party.role === 'confirmer'
+				? 'Tell it which milestone you have seen finished.'
+				: 'Tell it what you have done.'}
+			It will ask for what a report needs, show you the report, and file it only when you say yes. Filing
+			is paid from your own Qatom agent wallet.
 		</p>
 
 		{#if party.milestones.length > 0}
@@ -226,8 +229,13 @@
 
 		{#if !connected}
 			<p class="problem" role="alert">
-				The agent cannot reach Qatom as you right now: your Qatom sign-in has run out, or you signed
-				out. <a href="/invite/{party.id}">Open your invite</a> and sign in again, then come back here.
+				The agent cannot reach Qatom as you right now, because your Qatom sign-in has run out. Sign
+				in again and you will come straight back to this page. No money moves when you sign in.
+			</p>
+			<p>
+				<a class="button" href="/auth/sign-in?party={party.id}&return_to=/chat">
+					Sign in with Qatom again
+				</a>
 			</p>
 		{/if}
 
@@ -313,8 +321,9 @@
 		</form>
 
 		<p class="small">
-			This conversation is kept in this page only. Reloading or closing the page clears it; reports
-			already filed stay filed.
+			This conversation is kept in this page only. Reloading, closing or leaving the page clears it;
+			reports already filed stay filed. When you are finished, go back to
+			<a href="/">your campaign</a>.
 		</p>
 	{/if}
 </article>
@@ -325,6 +334,20 @@
 	}
 	.lede {
 		color: var(--muted);
+	}
+	.way,
+	.button {
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+	}
+	.button {
+		background: var(--a);
+		color: var(--surface);
+		font-weight: 600;
+		text-decoration: none;
+		padding: 0 1.1rem;
+		border-radius: 6px;
 	}
 	.note {
 		border-left: 3px solid var(--line);
