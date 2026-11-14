@@ -2,7 +2,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { seal, unseal } from './session.ts';
 
 const SECRET = 'session-secret-session-secret-session';
-const session = { sub: 'user-123', email: 'site@coralridgebuilders.example', partyId: 'pty-1' };
+const session = {
+	sub: 'user-123',
+	email: 'site@coralridgebuilders.example',
+	partyId: 'contractor'
+};
 
 afterEach(() => vi.useRealTimers());
 
