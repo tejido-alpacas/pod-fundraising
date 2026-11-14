@@ -86,11 +86,13 @@ into a chat, a file in the repository or a pull request.
 | `QATOM_ACCOUNT_CLIENT_SECRET` | The merchant account's secret                                |
 | `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                         |
 
-The other four configuration values are not secret and are written in the `deploy` job of
+The other five configuration values are not secret and are written in the `deploy` job of
 `.github/workflows/ci.yml`: `PAYMENT_API_URL` (`https://pay.m.todaq.net`, production Qatom),
-`QATOM_MCP_URL`, `OIDC_CLIENT_ID` and `OIDC_REDIRECT_URI`. Changing one is a pull request.
+`QATOM_MCP_URL`, `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI` and `WEB_OIDC_REDIRECT_URI`. Changing
+one is a pull request.
 
-**4. Tell Qatom.** Register `https://app.tejido.net/auth/callback` as the redirect URI of the
+**4. Tell Qatom.** Register `https://app.tejido.net/auth/callback` (the App) and
+`https://tejido.net/auth/callback` (the Campaign Site, for donors) as redirect URIs of the
 sign-in client, exactly. Set `https://tejido.net/api/checkins` as the external endpoint of both
 catalog items, with `CHECKIN_SHARED_SECRET` as the sensitive `X-Tejido-Checkin-Secret` header.
 

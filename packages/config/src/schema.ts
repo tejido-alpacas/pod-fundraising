@@ -75,7 +75,13 @@ export const configSchema = z
 		OIDC_CLIENT_ID: required(),
 		/** The sign-in client's own secret. Sent only to Qatom's token endpoint. Server-side only. */
 		OIDC_CLIENT_SECRET: required(),
+		/** The App's callback (app.tejido.net). Other code reads the App's origin from it. */
 		OIDC_REDIRECT_URI: httpUrl(),
+		/**
+		 * The Campaign Site's own callback (tejido.net), for donors signing in with the same
+		 * sign-in client. A cookie set on the App's host is not sent to the Campaign Site's.
+		 */
+		WEB_OIDC_REDIRECT_URI: httpUrl(),
 
 		// --- Qatom identity 2: Tejido's merchant account ---
 

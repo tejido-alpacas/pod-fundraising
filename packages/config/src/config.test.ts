@@ -12,7 +12,8 @@ const valid = {
 	QATOM_MCP_URL: 'https://mcp.example.test/tejido',
 	OIDC_CLIENT_ID: 'sign-in-client',
 	OIDC_CLIENT_SECRET: 'sign-in-client-secret',
-	OIDC_REDIRECT_URI: 'http://localhost:5173/auth/callback',
+	OIDC_REDIRECT_URI: 'http://localhost:5174/auth/callback',
+	WEB_OIDC_REDIRECT_URI: 'http://localhost:5173/auth/callback',
 	QATOM_ACCOUNT_CLIENT_ID: 'merchant-account',
 	QATOM_ACCOUNT_CLIENT_SECRET: 'merchant-account-secret',
 	ANTHROPIC_API_KEY: 'anthropic-key'
@@ -29,7 +30,7 @@ function problemsOf(env: Record<string, string | undefined>) {
 }
 
 describe('parseConfig', () => {
-	it('expects exactly the ten documented names', () => {
+	it('expects exactly the eleven documented names', () => {
 		expect(CONFIG_NAMES).toEqual([
 			'SESSION_SECRET',
 			'CHECKIN_SHARED_SECRET',
@@ -38,6 +39,7 @@ describe('parseConfig', () => {
 			'OIDC_CLIENT_ID',
 			'OIDC_CLIENT_SECRET',
 			'OIDC_REDIRECT_URI',
+			'WEB_OIDC_REDIRECT_URI',
 			'QATOM_ACCOUNT_CLIENT_ID',
 			'QATOM_ACCOUNT_CLIENT_SECRET',
 			'ANTHROPIC_API_KEY'
@@ -78,7 +80,7 @@ describe('parseConfig', () => {
 		const error = problemsOf({});
 		expect(error.problems.map((problem) => problem.name)).toEqual(CONFIG_NAMES);
 		for (const name of CONFIG_NAMES) expect(error.message).toContain(name);
-		expect(error.message).toContain('Tejido cannot start: 10 configuration values need attention.');
+		expect(error.message).toContain('Tejido cannot start: 11 configuration values need attention.');
 		expect(error.message).toContain('.env.example');
 	});
 
@@ -138,12 +140,15 @@ describe('individual values', () => {
 		expect(problem?.problem).toContain('must be an origin with no path');
 	});
 
-	it.each(['QATOM_MCP_URL', 'OIDC_REDIRECT_URI'] as const)('%s must be an http(s) URL', (name) => {
-		expect(problemsOf({ ...valid, [name]: 'not a url' }).problems).toEqual([
-			{ name, problem: 'must be an http or https URL' }
-		]);
-		expect(problemsOf({ ...valid, [name]: 'javascript:alert(1)' }).problems[0]?.name).toBe(name);
-	});
+	it.each(['QATOM_MCP_URL', 'OIDC_REDIRECT_URI', 'WEB_OIDC_REDIRECT_URI'] as const)(
+		'%s must be an http(s) URL',
+		(name) => {
+			expect(problemsOf({ ...valid, [name]: 'not a url' }).problems).toEqual([
+				{ name, problem: 'must be an http or https URL' }
+			]);
+			expect(problemsOf({ ...valid, [name]: 'javascript:alert(1)' }).problems[0]?.name).toBe(name);
+		}
+	);
 
 	it('the sign-in client and the merchant account must be different credentials', () => {
 		const error = problemsOf({ ...valid, QATOM_ACCOUNT_CLIENT_ID: valid.OIDC_CLIENT_ID });
