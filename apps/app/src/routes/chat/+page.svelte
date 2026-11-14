@@ -1,8 +1,14 @@
 <script lang="ts">
 	import { readChatEvents, type ChatRefusal, type ChatTurn } from '#lib/chat.ts';
+	import {
+		reportFormLines,
+		type ReportFormProblems,
+		type ReportFormValues
+	} from '#lib/report-form.ts';
 	import { ROLES } from '#lib/roles.ts';
 	import { tick } from 'svelte';
 	import type { PageProps } from './$types';
+	import ReportForm from './ReportForm.svelte';
 
 	let { data }: PageProps = $props();
 
@@ -17,7 +23,11 @@
 		tools: ToolUse[];
 		/** Why this reply stopped early, in plain words. */
 		problem: string | null;
+		/** Set when the person sent the report form instead of typing. */
+		form?: ReportFormValues;
 	}
+	/** How sending went: it reached the agent, or it did not and here is what to fix. */
+	type Delivery = { sent: true } | { sent: false; fields: ReportFormProblems | null };
 
 	const STATE_WORDS = {
 		open: 'open',
@@ -39,6 +49,7 @@
 	let signInAgain = $state(false);
 	let stopper: AbortController | null = null;
 	let log: HTMLElement | undefined = $state();
+	let formOpen = $state(false);
 
 	const party = $derived(data.who?.party ?? null);
 	const connected = $derived(party !== null && party.connected && !signInAgain);
@@ -51,8 +62,8 @@
 	/** What the server needs: who said what. A reply that produced no words is left out. */
 	function conversation(): ChatTurn[] {
 		return messages
-			.filter((message) => message.text.trim() !== '')
-			.map(({ role, text }) => ({ role, text }));
+			.filter((message) => message.form !== undefined || message.text.trim() !== '')
+			.map(({ role, text, form }) => (form ? { role, text, form } : { role, text }));
 	}
 
 	async function send(event: SubmitEvent) {
@@ -60,10 +71,32 @@
 		const text = draft.trim();
 		if (text === '' || waiting || !connected) return;
 
-		problem = null;
-		messages.push({ role: 'user', text, tools: [], problem: null });
-		const turns = conversation();
 		draft = '';
+		const delivery = await deliver({ role: 'user', text, tools: [], problem: null });
+		// Give the person their words back, so they can send them again.
+		if (!delivery.sent) draft = text;
+	}
+
+	/** The report form's values go into the conversation as one message. Nothing is filed by it. */
+	async function sendForm(values: ReportFormValues): Promise<ReportFormProblems | null> {
+		if (waiting || !connected) return {};
+		const delivery = await deliver({
+			role: 'user',
+			text: '',
+			tools: [],
+			problem: null,
+			form: values
+		});
+		if (!delivery.sent) return delivery.fields ?? {};
+		formOpen = false;
+		return null;
+	}
+
+	/** Adds what the person said to the conversation and reads the agent's reply to it. */
+	async function deliver(said: Message): Promise<Delivery> {
+		problem = null;
+		messages.push(said);
+		const turns = conversation();
 		waiting = true;
 		void scrollDown();
 
@@ -84,16 +117,14 @@
 					signInAgain = true;
 				}
 				problem = refusal?.message ?? NO_ANSWER;
-				// Give the person their words back, so they can send them again.
 				messages.pop();
-				draft = text;
-				return;
+				return { sent: false, fields: refusal?.fields ?? null };
 			}
 
 			messages.push({ role: 'assistant', text: '', tools: [], problem: null });
 			// Read it back out of the list, so that changing it changes the page.
 			const current = messages[messages.length - 1];
-			if (!current) return;
+			if (!current) return { sent: true };
 			reply = current;
 			let finished = false;
 			await readChatEvents(response.body, (chatEvent) => {
@@ -114,19 +145,17 @@
 				void scrollDown();
 			});
 			if (!finished) current.problem = `The reply was cut off. ${ASK_FIRST}`;
+			return { sent: true };
 		} catch {
 			if (reply) {
 				reply.problem = stop.signal.aborted
 					? `You stopped this reply. ${ASK_FIRST}`
 					: `The connection dropped during this reply. ${ASK_FIRST}`;
-			} else if (stop.signal.aborted) {
-				messages.pop();
-				draft = text;
-			} else {
-				problem = NO_ANSWER;
-				messages.pop();
-				draft = text;
+				return { sent: true };
 			}
+			if (!stop.signal.aborted) problem = NO_ANSWER;
+			messages.pop();
+			return { sent: false, fields: null };
 		} finally {
 			// A tool still marked as running when the reply ends never reported back.
 			for (const tool of reply?.tools ?? []) {
@@ -191,7 +220,8 @@
 		<p class="upload">
 			Photos and documents go through the
 			<a href="/upload" target="_blank" rel="noopener">upload page</a> (opens in a new tab). It gives
-			you a URL and a SHA-256 for each file. Paste both here.
+			you a URL and a SHA-256 for each file. Paste both here. Or attach them in the report form below,
+			which does that for you.
 		</p>
 
 		{#if !connected}
@@ -222,6 +252,17 @@
 							{/if}
 						</p>
 					{/each}
+					{#if message.form}
+						<p class="tool done">You sent the report form. Nothing is filed until you say yes.</p>
+						<dl class="sent-form">
+							{#each reportFormLines(message.form, party.milestones.find((milestone) => milestone.id === message.form?.milestone_id)?.title) as line (line.label)}
+								<div>
+									<dt>{line.label}</dt>
+									<dd>{line.value}</dd>
+								</div>
+							{/each}
+						</dl>
+					{/if}
 					{#if message.text}
 						<p class="text">{message.text}</p>
 					{/if}
@@ -237,6 +278,17 @@
 
 		{#if problem}
 			<p class="problem" role="alert">{problem}</p>
+		{/if}
+
+		{#if party.milestones.length > 0}
+			<details class="guided" bind:open={formOpen}>
+				<summary>Fill in a report form instead of typing</summary>
+				<ReportForm
+					milestones={party.milestones}
+					disabled={waiting || !connected}
+					submit={sendForm}
+				/>
+			</details>
 		{/if}
 
 		<form onsubmit={send}>
@@ -342,9 +394,22 @@
 		font-weight: 600;
 		color: var(--muted);
 	}
-	.text {
+	.text,
+	.sent-form dd {
 		white-space: pre-wrap;
 		overflow-wrap: anywhere;
+	}
+	.sent-form {
+		margin: 0.3rem 0;
+		display: grid;
+		gap: 0.3rem;
+	}
+	.sent-form dt {
+		font-size: 0.8rem;
+		color: var(--muted);
+	}
+	.sent-form dd {
+		margin: 0;
 	}
 	.tool {
 		font-size: 0.9rem;
