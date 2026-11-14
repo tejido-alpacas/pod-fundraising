@@ -43,6 +43,13 @@
       "when": 1794680963167,
       "tag": "0005_sudden_rage",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1794687174441,
+      "tag": "0006_sharp_robbie_robertson",
+      "breakpoints": true
     }
   ]
 }
