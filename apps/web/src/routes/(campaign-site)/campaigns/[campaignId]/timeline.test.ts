@@ -3,9 +3,18 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Entry, LogWorkEntry, MilestoneHitEntry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, entries, evidenceFiles, milestones } from '@tejido/db';
+import {
+	campaignFunding,
+	campaigns,
+	deposits,
+	entries,
+	evidenceFiles,
+	milestones,
+	parties
+} from '@tejido/db';
+import { eq, inArray } from 'drizzle-orm';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { load } from './+page.server.ts';
 
 const CAMPAIGN = fixtures.campaign.id;
@@ -24,10 +33,17 @@ function evidence(extension: 'jpg' | 'png' | 'webp' | 'pdf', fill: string, capti
 
 let test: TestDatabase;
 
+// The day after the newest seeded entry. "Overdue" is counted from the day the page is built.
+const TODAY = '2026-11-14';
+
 beforeEach(async () => {
+	vi.useFakeTimers({ toFake: ['Date'], now: new Date(`${TODAY}T12:00:00.000Z`) });
 	test = await createTestDatabase({ seed: true });
 });
-afterEach(() => test.destroy());
+afterEach(async () => {
+	vi.useRealTimers();
+	await test.destroy();
+});
 
 async function timeline(campaignId: string = CAMPAIGN, query = '') {
 	const event = {
@@ -108,32 +124,229 @@ describe('the donor timeline', () => {
 			summary: fixtures.campaign.summary,
 			beneficiary: fixtures.campaign.beneficiary,
 			creatorName: fixtures.campaign.creatorName,
-			status: 'reporting'
+			status: 'reporting',
+			createdAt: fixtures.campaign.createdAt
 		});
+		expect(data.today).toBe(TODAY);
 		expect(data.milestones).toEqual([
 			{
 				id: 'm1-foundation',
+				position: 1,
 				title: 'Foundation and floor slab',
 				state: 'confirmed_independent',
+				status: 'confirmed',
+				overdueDays: 0,
 				// The head teacher benefits from the library: a stakeholder confirmation.
 				strength: 'stakeholder',
-				dueDate: '2026-10-30'
+				dueDate: '2026-10-30',
+				confirmedAt: '2026-10-30T09:41:07.000Z',
+				ownerName: contractor.name,
+				confirmerName: headTeacher.name,
+				reportedPercent: null
 			},
 			{
 				id: 'm2-walls',
+				position: 2,
 				title: 'Walls up to roof height',
 				state: 'open',
+				// Work logs have been filed on it, and nobody has claimed it.
+				status: 'in-progress',
+				overdueDays: 0,
 				strength: null,
-				dueDate: '2026-11-27'
+				dueDate: '2026-11-27',
+				confirmedAt: null,
+				ownerName: contractor.name,
+				confirmerName: headTeacher.name,
+				// The newest work log's own figure, not one Tejido worked out.
+				reportedPercent: 35
 			},
 			{
 				id: 'm3-books-delivered',
+				position: 3,
 				title: 'Books delivered',
 				state: 'claimed',
+				status: 'claimed',
+				overdueDays: 0,
 				strength: null,
-				dueDate: '2026-11-20'
+				dueDate: '2026-11-20',
+				confirmedAt: null,
+				ownerName: supplier.name,
+				confirmerName: headTeacher.name,
+				reportedPercent: null
 			}
 		]);
+	});
+
+	it('counts delivery in milestones and sends no percentage for it', async () => {
+		const data = await timeline();
+		expect(data.delivery).toEqual({ confirmed: 1, total: 3 });
+		expect(Object.keys(data).sort()).toEqual(
+			[
+				'campaign',
+				'delivery',
+				'entries',
+				'flagged',
+				'funding',
+				'milestones',
+				'nextShow',
+				'parties',
+				'today',
+				'total'
+			].sort()
+		);
+	});
+
+	it('says funding is not known, never zero, until donations have been read', async () => {
+		// The seeded campaign has a goal and no donation item. The page draws nothing for this.
+		expect((await timeline()).funding).toEqual({
+			state: 'not_known',
+			reason: 'no_donation_item',
+			goal: fixtures.campaign.fundingGoal
+		});
+	});
+
+	it('gives the amount raised, the goal and the number of donations once they are read', async () => {
+		await test.db.update(campaigns).set({ donationCommodityId: 3154 });
+		await test.db.insert(campaignFunding).values({
+			campaignId: CAMPAIGN,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z'
+		});
+		const { funding } = await timeline();
+		expect(funding).toEqual({
+			state: 'known',
+			goal: fixtures.campaign.fundingGoal,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z',
+			goalMet: false
+		});
+		// Totals only: nothing says who gave.
+		expect(JSON.stringify(funding)).not.toMatch(/donor|wallet|@/i);
+	});
+
+	it('marks a milestone overdue from its due date, beside its status and never once confirmed', async () => {
+		vi.setSystemTime(new Date('2026-11-28T00:30:00.000Z'));
+		const data = await timeline();
+		expect(
+			data.milestones.map((milestone) => [milestone.id, milestone.status, milestone.overdueDays])
+		).toEqual([
+			// Due 30 Oct and confirmed: never overdue.
+			['m1-foundation', 'confirmed', 0],
+			['m2-walls', 'in-progress', 1],
+			// Claimed is not confirmed: it is still late.
+			['m3-books-delivered', 'claimed', 8]
+		]);
+	});
+
+	it('calls a milestone not started until something is reported on it', async () => {
+		// Each entry has a deposit, which goes first.
+		await test.db
+			.delete(deposits)
+			.where(inArray(deposits.entryId, ['ent-m2-log-1', 'ent-m2-log-2']));
+		await test.db.delete(entries).where(eq(entries.milestoneId, 'm2-walls'));
+		const data = await timeline();
+		expect(data.milestones[1]).toMatchObject({ status: 'not-started', reportedPercent: null });
+	});
+
+	it('says who is involved, with each relationship and never an email address', async () => {
+		const data = await timeline();
+		expect(data.parties).toEqual([
+			{
+				id: contractor.id,
+				name: contractor.name,
+				title: contractor.title,
+				role: 'third_party',
+				relationship: 'participant',
+				relationshipRecorded: true,
+				relationshipReason: null
+			},
+			{
+				id: supplier.id,
+				name: supplier.name,
+				title: supplier.title,
+				role: 'third_party',
+				relationship: 'participant',
+				relationshipRecorded: true,
+				relationshipReason: null
+			},
+			{
+				id: headTeacher.id,
+				name: headTeacher.name,
+				title: headTeacher.title,
+				role: 'confirmer',
+				relationship: 'stakeholder',
+				relationshipRecorded: true,
+				relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
+			}
+		]);
+	});
+
+	it('shows an unrecorded relationship as stakeholder, never independent, and says it is unrecorded', async () => {
+		await test.db
+			.update(parties)
+			.set({ relationship: null, relationshipReason: null })
+			.where(eq(parties.id, headTeacher.id));
+		const data = await timeline();
+		expect(data.parties[2]).toMatchObject({
+			relationship: 'stakeholder',
+			relationshipRecorded: false
+		});
+		expect(entryOf(data, 'ent-m1-confirm').strength).toBe('stakeholder');
+		expect(data.milestones[0]?.strength).toBe('stakeholder');
+	});
+
+	it('gives a confirmation its strength and each entry its milestone badge', async () => {
+		const data = await timeline();
+		expect(
+			data.entries.map((entry) => [
+				entry.id,
+				entry.milestonePosition,
+				entry.milestoneBadge,
+				entry.strength
+			])
+		).toEqual([
+			['ent-m2-log-2', 2, null, null],
+			// An incomplete claim still moved its milestone to claimed.
+			['ent-m3-delivery', 3, 'claimed', null],
+			['ent-m2-log-1', 2, null, null],
+			['ent-m1-confirm', 1, 'confirmed', 'stakeholder'],
+			['ent-m1-claim', 1, 'claimed', null]
+		]);
+	});
+
+	it('gives each entry its deposit as held, refunded or refund outstanding', async () => {
+		const data = await timeline();
+		const held = { state: 'held', label: 'Deposit held', outstandingMeaning: null };
+		const refunded = { state: 'refunded', label: 'Deposit refunded', outstandingMeaning: null };
+		expect(data.entries.map((entry) => [entry.id, entry.deposit])).toEqual([
+			['ent-m2-log-2', { amount: '0.10', ...held }],
+			['ent-m3-delivery', { amount: '1.00', ...held }],
+			['ent-m2-log-1', { amount: '0.10', ...held }],
+			['ent-m1-confirm', { amount: '1.00', ...refunded }],
+			['ent-m1-claim', { amount: '1.00', ...refunded }]
+		]);
+	});
+
+	it('says a refund is outstanding, and why, when the milestone is confirmed and the deposit is not back', async () => {
+		await test.db
+			.update(deposits)
+			.set({ refundedAt: null })
+			.where(eq(deposits.entryId, 'ent-m1-claim'));
+		const deposit = entryOf(await timeline(), 'ent-m1-claim').deposit;
+		expect(deposit).toMatchObject({
+			amount: '1.00',
+			state: 'refund_outstanding',
+			label: 'Refund outstanding'
+		});
+		// The reason is a sentence a donor can read, and names no wallet address.
+		expect(deposit?.outstandingMeaning).toEqual(expect.stringContaining('deposit'));
+	});
+
+	it('shows no deposit for an entry that has none on record', async () => {
+		await addWorkLog('no-deposit');
+		expect(entryOf(await timeline(), 'no-deposit').deposit).toBeNull();
 	});
 
 	it('lists every entry newest first, each with its kind, milestone, filer and proof link', async () => {
@@ -242,6 +455,10 @@ describe('the donor timeline', () => {
 		expect(sent).not.toContain('rc_');
 		expect(sent).not.toContain('@');
 		expect(sent).not.toContain('inputs');
+		// Nor a session, a token, a commodity id, or a wallet's address or field. (The word
+		// "wallet" itself is allowed: the reason an entry is flagged says it in plain words.)
+		expect(sent).not.toMatch(/session|token|commodity|Wallet|wallets\./);
+		expect(sent).not.toContain(String(fixtures.campaign.logWorkCommodityId));
 	});
 });
 
@@ -395,6 +612,8 @@ describe('a campaign with nothing reported yet', () => {
 		const data = await timeline('village-well');
 		expect(data.campaign.title).toBe('A well for the village');
 		expect(data.milestones).toEqual([]);
+		expect(data.delivery).toEqual({ confirmed: 0, total: 0 });
+		expect(data.parties).toEqual([]);
 		expect(data.entries).toEqual([]);
 		expect(data.total).toBe(0);
 		expect(data.nextShow).toBeNull();
