@@ -4,12 +4,17 @@ import { fixtures } from '@tejido/contracts/fixtures';
 import { campaigns, milestones } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { load } from './+page.server.ts';
 
 let test: TestDatabase;
 
+// The day after the newest seeded entry. "Overdue" is counted from the day the page is built.
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-14T12:00:00.000Z') });
+});
 afterEach(async () => {
+	vi.useRealTimers();
 	await test.destroy();
 });
 
@@ -62,6 +67,29 @@ describe('the home page', () => {
 						milestone.state.startsWith('confirmed')
 					).length
 				},
+				delivery: [
+					{
+						id: 'm1-foundation',
+						position: 1,
+						title: 'Foundation and floor slab',
+						status: 'confirmed',
+						overdueDays: 0
+					},
+					{
+						id: 'm2-walls',
+						position: 2,
+						title: 'Walls up to roof height',
+						status: 'in-progress',
+						overdueDays: 0
+					},
+					{
+						id: 'm3-books-delivered',
+						position: 3,
+						title: 'Books delivered',
+						status: 'claimed',
+						overdueDays: 0
+					}
+				],
 				path: `/campaigns/${fixtures.campaign.id}`
 			}
 		]);
@@ -79,6 +107,14 @@ describe('the home page', () => {
 			.where(and(eq(milestones.campaignId, fixtures.campaign.id), eq(milestones.id, open.id)));
 
 		expect((await home()).campaigns[0]?.milestones.confirmed).toBe(2);
+	});
+
+	it('marks what is late from the due date, and never a confirmed milestone', async () => {
+		test = await createTestDatabase({ seed: true });
+		vi.setSystemTime(new Date('2026-11-28T08:00:00.000Z'));
+
+		const [listed] = (await home()).campaigns;
+		expect(listed?.delivery.map((milestone) => milestone.overdueDays)).toEqual([0, 1, 8]);
 	});
 
 	it('leaves drafts out and lists every other status, newest first', async () => {
@@ -134,6 +170,7 @@ describe('the home page', () => {
 				[
 					'beneficiary',
 					'creatorName',
+					'delivery',
 					'id',
 					'milestones',
 					'path',
