@@ -7,6 +7,7 @@ import {
 	type Campaign,
 	type DepositStatus,
 	type Entry,
+	type EvidenceNotPublic,
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
@@ -19,7 +20,7 @@ import {
 	listRefunds
 } from '@tejido/db';
 import { depositTotalsView, depositView } from '#lib/campaign-site/server/deposits.ts';
-import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
+import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
 // The final report (A5): the closing page of a campaign. Every milestone, who confirmed it,
@@ -99,6 +100,9 @@ export const load = (async ({ params, locals }) => {
 		milestones.map((milestone) => listRefunds(db, campaign.id, milestone.id))
 	);
 
+	// Which attached files their uploaders marked not public. Their addresses stay here.
+	const notPublic = await notPublicAmong(db, entries);
+
 	const partyById = new Map(parties.map((party) => [party.id, party]));
 	const depositByEntry = new Map(
 		deposits.deposits.map((status) => [status.deposit.entryId, status])
@@ -112,7 +116,8 @@ export const load = (async ({ params, locals }) => {
 			refundsByMilestone[index] ?? [],
 			partyById,
 			depositByEntry,
-			config
+			config,
+			notPublic
 		)
 	);
 
@@ -193,7 +198,8 @@ function milestoneView(
 	refunds: Awaited<ReturnType<typeof listRefunds>>,
 	partyById: Map<string, Party>,
 	depositByEntry: Map<string, DepositStatus>,
-	config: Config
+	config: Config,
+	notPublic: ReadonlyMap<string, EvidenceNotPublic>
 ) {
 	const confirmed = isConfirmed(milestone);
 	const confirmer = partyById.get(milestone.confirmerPartyId);
@@ -248,9 +254,9 @@ function milestoneView(
 			filedAt: entry.filedAt,
 			status: entry.status,
 			summary: entry.inputs.summary,
-			// Checked on the server: only files in our own store, with a matching hash, and no
-			// picture on a milestone that takes documents only.
-			files: sortEvidence(entry.inputs.photos, milestone.kind, config),
+			// Checked on the server: only files in our own store, with a matching hash, no picture
+			// on a milestone that takes documents only, and no address of a not-public file.
+			files: sortEvidence(entry.inputs.photos, milestone.kind, config, notPublic),
 			proofPath: proofPath(campaign.id, entry.id)
 		})),
 		workLogs: filed.filter((entry) => entry.item === 'log_work').length,

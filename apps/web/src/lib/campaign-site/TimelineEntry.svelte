@@ -76,10 +76,18 @@
 			entry.amountSpent !== null
 	);
 
-	const evidence = $derived(entry.evidence);
-	const hasEvidence = $derived(
-		evidence.photos.length + evidence.documents.length + evidence.leftOut > 0
-	);
+	// Every file in the order it was filed, each in the state the server gave it: shown, not
+	// public or left out. Only a shown file has an address.
+	const files = $derived(entry.evidence.files);
+	const notPublic = $derived(files.filter((file) => file.state === 'not_public'));
+	/** Each reason a file was left out, once, in the stored sentence, with how many files. */
+	const leftOutWhy = $derived.by(() => {
+		const counts: Record<string, number> = {};
+		for (const file of files) {
+			if (file.state === 'left_out') counts[file.sentence] = (counts[file.sentence] ?? 0) + 1;
+		}
+		return Object.entries(counts).map(([sentence, count]) => ({ sentence, count }));
+	});
 
 	/** Why the entry is flagged or incomplete, in the words stored with it. */
 	const reason = $derived.by(() => {
@@ -160,46 +168,48 @@
 			</div>
 		{/if}
 
-		{#if hasEvidence}
+		{#if files.length > 0}
 			<div class="evidence">
 				<ul class="tj-entry__thumbs thumbs" aria-label="Evidence">
-					{#each evidence.photos as photo (photo.url)}
+					{#each files as file, index (index)}
 						<li>
-							<a href={photo.url}>
-								<img
-									src={photo.url}
-									alt={photo.caption ?? 'Photo filed as evidence, with no caption'}
-									loading="lazy"
-									decoding="async"
-								/>
-							</a>
-						</li>
-					{/each}
-					{#each evidence.documents as document (document.url)}
-						<li>
-							<a class="tj-thumb" href={document.url}>
-								<Icon name="file-text" size={26} />
-								<span class="tj-vh">Document: {document.caption ?? 'no caption'} (PDF)</span>
-							</a>
-						</li>
-					{/each}
-					{#each { length: evidence.leftOut } as _, index (index)}
-						<li>
-							<span class="tj-thumb tj-thumb--excluded">
-								<Icon name="excluded" /><span class="tj-vh">One file left out</span>
-							</span>
+							{#if file.state === 'shown' && file.kind === 'photo'}
+								<a href={file.url}>
+									<img
+										src={file.url}
+										alt={file.caption ?? 'Photo filed as evidence, with no caption'}
+										loading="lazy"
+										decoding="async"
+									/>
+								</a>
+							{:else if file.state === 'shown'}
+								<a class="tj-thumb" href={file.url}>
+									<Icon name="file-text" size={26} />
+									<span class="tj-vh">Document: {file.caption ?? 'no caption'} (PDF)</span>
+								</a>
+							{:else if file.state === 'not_public'}
+								<span class="tj-thumb private">
+									<Icon name="eye-off" /><span class="tj-vh">Not public: {file.kind}</span>
+								</span>
+							{:else}
+								<span class="tj-thumb tj-thumb--excluded">
+									<Icon name="excluded" /><span class="tj-vh">One file left out</span>
+								</span>
+							{/if}
 						</li>
 					{/each}
 				</ul>
-				{#if evidence.leftOut > 0}
-					<p class="left-out">
-						{evidence.leftOut === 1
-							? '1 file was left out'
-							: `${number(evidence.leftOut)} files were left out`}. A file is shown only when Tejido
-						can check it is the one that was filed. Pictures are never shown on a milestone that
-						takes documents only.
+				{#each notPublic as file (file.sha256)}
+					<p class="note">
+						<strong>Not public: {file.kind}.</strong>
+						{file.reason} It is kept off this page.
 					</p>
-				{/if}
+				{/each}
+				{#each leftOutWhy as why (why.sentence)}
+					<p class="note">
+						{why.sentence}{why.count > 1 ? ` (${number(why.count)} files)` : ''}
+					</p>
+				{/each}
 			</div>
 		{/if}
 
@@ -218,7 +228,7 @@
 		{/if}
 
 		{#if deposit?.why}
-			<p class="left-out">{deposit.why}</p>
+			<p class="note">{deposit.why}</p>
 		{/if}
 
 		<footer class="tj-entry__foot">
@@ -269,10 +279,16 @@
 	.thumbs a.tj-thumb {
 		display: grid;
 	}
-	.left-out {
+	.private {
+		background: var(--surface-2);
+	}
+	.note {
 		font-size: 14px;
 		line-height: 20px;
 		color: var(--text-secondary);
+	}
+	.note strong {
+		color: var(--text-primary);
 	}
 	.deposit {
 		display: inline-flex;

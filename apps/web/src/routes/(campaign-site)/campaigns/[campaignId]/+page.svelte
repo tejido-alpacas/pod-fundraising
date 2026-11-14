@@ -221,6 +221,7 @@
 				title={data.campaign.title}
 				current="timeline"
 				part="tabs"
+				counts={{ timeline: data.total, milestones: data.milestones.length }}
 			/>
 
 			<section class="tj-section" aria-labelledby="timeline">

@@ -57,6 +57,13 @@
       "when": 1794688351297,
       "tag": "0007_refund_attempts",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1794688846635,
+      "tag": "0008_faulty_silhouette",
+      "breakpoints": true
     }
   ]
 }

@@ -6,6 +6,7 @@ import {
 	shownRelationship,
 	type DepositStatus,
 	type Entry,
+	type EvidenceNotPublic,
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
@@ -22,7 +23,7 @@ import {
 	todayUtc
 } from '#lib/campaign-site/server/delivery.ts';
 import { depositView } from '#lib/campaign-site/server/deposits.ts';
-import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
+import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
 /**
@@ -54,6 +55,9 @@ export const load = (async ({ params, locals, url }) => {
 	]);
 	const today = todayUtc();
 
+	// Which attached files their uploaders marked not public. Their addresses stay here.
+	const notPublic = await notPublicAmong(db, entries);
+
 	const partyById = new Map(parties.map((party) => [party.id, party]));
 	const milestoneById = new Map(milestones.map((milestone) => [milestone.id, milestone]));
 	const depositByEntry = new Map(
@@ -66,7 +70,8 @@ export const load = (async ({ params, locals, url }) => {
 			milestoneById.get(entry.milestoneId),
 			depositByEntry.get(entry.id),
 			campaign.id,
-			config
+			config,
+			notPublic
 		);
 	const standings = milestoneStandings(milestones, entries, today);
 
@@ -149,7 +154,8 @@ function entryView(
 	milestone: Milestone | undefined,
 	deposit: DepositStatus | undefined,
 	campaignId: string,
-	config: Parameters<typeof sortEvidence>[2]
+	config: Parameters<typeof sortEvidence>[2],
+	notPublic: ReadonlyMap<string, EvidenceNotPublic>
 ) {
 	const { inputs } = entry;
 	const isClaim = entry.item === 'milestone_hit';
@@ -216,7 +222,7 @@ function entryView(
 		unit: isClaim ? entry.inputs.unit || null : null,
 		amountSpent: isClaim ? (entry.inputs.amount_spent ?? null) : null,
 		location: inputs.location || null,
-		evidence: sortEvidence(inputs.photos, milestone?.kind, config),
+		evidence: sortEvidence(inputs.photos, milestone?.kind, config, notPublic),
 		proofPath: `/campaigns/${campaignId}/entries/${entry.id}`
 	};
 }

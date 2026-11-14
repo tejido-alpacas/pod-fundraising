@@ -9,7 +9,8 @@
 		campaignId,
 		title,
 		current,
-		part = 'all'
+		part = 'all',
+		counts = {}
 	}: {
 		campaignId: string;
 		title: string;
@@ -17,6 +18,8 @@
 		current: Section | null;
 		/** The overview places the trail above its header and the tabs under it. */
 		part?: 'all' | 'trail' | 'tabs';
+		/** A count beside a tab's name, where the page knows it: how many updates, how many milestones. */
+		counts?: Partial<Record<Section, number>>;
 	} = $props();
 
 	const base = $derived(`/campaigns/${campaignId}`);
@@ -43,7 +46,7 @@
 	<nav class="tj-tabs" aria-label="This campaign">
 		{#each links as link (link.section)}
 			<a href={link.href} aria-current={current === link.section ? 'page' : undefined}>
-				{link.label}
+				{link.label}{#if counts[link.section] !== undefined}<span>{counts[link.section]}</span>{/if}
 			</a>
 		{/each}
 	</nav>
