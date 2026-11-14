@@ -5,6 +5,7 @@
  * wallet hostnames on that party:
  *   - agentWalletHostname   (claim agent_twin_hostname): deposits are paid from it
  *   - primaryWalletHostname (claim twin_hostname): refunds are sent to it
+ * and keeps the person's tokens, sealed, for the agent chat.
  *
  * Whatever goes wrong, nothing is linked and no session is started, and the person is sent to
  * /auth/problem, which explains it in plain words.
@@ -12,6 +13,7 @@
 import { redirect } from '@sveltejs/kit';
 import { getParty, linkPartyWallets } from '@tejido/db';
 import { QatomError, QatomSignInError } from '@tejido/qatom';
+import { keepPersonTokens } from '#lib/server/person-tokens.ts';
 import { takeSignInState, writeSession } from '#lib/server/session.ts';
 import { problemForSignInError, problemPath } from '#lib/server/sign-in-problem.ts';
 import type { RequestHandler } from './$types';
@@ -50,14 +52,12 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 			agentWalletHostname: person.agentWalletHostname,
 			primaryWalletHostname: person.primaryWalletHostname
 		});
-	}
 
-	// `person.tokens` is deliberately dropped here, not stored.
-	// TODO(Track B, with Track C): the agent chat (B2) needs these tokens to reach the Qatom MCP
-	// server as this person. They belong in our database, one sealed row per party, written
-	// here and read by the chat's server code. That needs a table and two record functions in
-	// packages/db, which is Track C's. Until it exists they are not kept anywhere: not in a
-	// cookie, not in memory, not in a log.
+		// The agent chat reaches the Qatom MCP server as this person, so it needs their tokens.
+		// They are kept sealed, one row per party, in our database: never in a cookie, never in
+		// a log, never sent to the browser. A sign-in without an invite keeps none.
+		await keepPersonTokens(db, config.SESSION_SECRET, party.id, person.tokens);
+	}
 
 	writeSession(cookies, config.SESSION_SECRET, {
 		sub: person.sub,
