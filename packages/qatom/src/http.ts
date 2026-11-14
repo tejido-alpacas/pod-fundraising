@@ -19,7 +19,7 @@ export const SLOW_TIMEOUT_MS = 30_000;
 export interface QatomRequest {
 	/** Names the call in errors, e.g. `account.ledger`. */
 	operation: string;
-	method: 'GET' | 'POST';
+	method: 'GET' | 'POST' | 'PUT';
 	url: string | URL;
 	headers?: Record<string, string>;
 	/** Sent as JSON. */

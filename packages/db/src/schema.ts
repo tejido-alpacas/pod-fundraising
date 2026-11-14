@@ -199,6 +199,42 @@ export const refundDeposits = sqliteTable(
 );
 
 // ---------------------------------------------------------------------------
+// Item provisioning (bookkeeping for creating catalog items; not a contract record)
+// ---------------------------------------------------------------------------
+
+/**
+ * How far the creation of one campaign's catalog item in Qatom has got. One row per campaign
+ * and item. Each column is filled in as soon as Qatom has answered that step, so a run that
+ * stops part-way is picked up where it stopped instead of creating things twice.
+ *
+ * `lockedUntil` is a lease: only the run holding it may call Qatom for this item. A run that
+ * ends with a clear answer releases it. A run that ends without one (a timeout, a dropped
+ * connection, a server error) leaves it to run out, so nothing is tried again while Qatom may
+ * still be finishing the first attempt.
+ *
+ * Nothing secret is kept here: not the twin's key, and not the check-in secret.
+ */
+export const itemProvisioning = sqliteTable(
+	'item_provisioning',
+	{
+		campaignId: text('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		item: text('item').$type<EntryItem>().notNull(),
+		/** The twin made to be paid for this item, as Qatom numbers it. */
+		twinId: integer('twin_id'),
+		twinHostname: text('twin_hostname'),
+		commodityHash: text('commodity_hash'),
+		commodityId: integer('commodity_id'),
+		catalogItemId: integer('catalog_item_id'),
+		/** An ISO 8601 time. Null when no run holds the lease. */
+		lockedUntil: text('locked_until'),
+		updatedAt: text('updated_at').notNull()
+	},
+	(table) => [primaryKey({ columns: [table.campaignId, table.item] })]
+);
+
+// ---------------------------------------------------------------------------
 // Sign-in tokens (not a contract record: only the App's server reads or writes these)
 // ---------------------------------------------------------------------------
 

@@ -71,6 +71,53 @@ export interface TransferRequest {
 	note?: string;
 }
 
+/** A twin created to be paid for one catalog item. Its key is never read or kept. */
+export interface ProviderTwin {
+	/** Qatom's number for the twin: what a new commodity names as `twin_id`. */
+	twinId: number;
+	hostname: string;
+}
+
+/** A commodity as a twin's public listing shows it. The listing does not give its id. */
+export interface TwinCommodity {
+	hash: string;
+	/** Null when the listing left the field out. */
+	descriptor: string | null;
+	cost: number | null;
+	dq: string | null;
+}
+
+export interface NewCommodity {
+	/** The twin that is paid. One priced item per twin: a twin holds one paywall configuration. */
+	twinId: number;
+	/** The line on the receipt. 1 to 255 characters. */
+	descriptor: string;
+	/** The price, a positive whole number of the digital quantity's smallest unit. */
+	cost: number;
+	/** The digital quantity the price is in. */
+	dq: string;
+}
+
+export interface NewCatalogItem {
+	/** The commodity to sell, by its id (not its hash). */
+	commodityId: number;
+	/** The JSON Schema of the inputs a buyer supplies. */
+	serviceSchema: { [key: string]: unknown };
+	/** The https URL Qatom POSTs the inputs to after a purchase. No `{…}` placeholders. */
+	externalEndpoint: string;
+	/**
+	 * A sensitive header Qatom sends with every call to the endpoint. The value goes to Qatom
+	 * in this one request and nowhere else: it is not returned, kept or put in an error.
+	 */
+	secretHeader: { name: string; value: string };
+}
+
+/** A catalog item the merchant account may manage. */
+export interface CatalogItem {
+	catalogItemId: number;
+	commodityId: number;
+}
+
 export interface MerchantAccount {
 	/**
 	 * Turns a catalog item's commodity id into the commodity hash its ledger is read by.
@@ -100,6 +147,64 @@ export interface MerchantAccount {
 	 * not cover the amount and nothing moved.
 	 */
 	transfer(request: TransferRequest): Promise<void>;
+
+	/**
+	 * Creates a provider twin for the merchant account, in one digital quantity.
+	 * POST /v4/twin with `type: "provider"`.
+	 *
+	 * NOT repeatable: every call makes another twin, and nothing in Qatom's document lets a
+	 * twin made here be found again afterwards. It is never retried here, apart from once
+	 * after a 401, where nothing was made. After QatomTimeoutError, QatomNetworkError or a 5xx
+	 * the outcome is unknown: a twin may exist.
+	 */
+	createProviderTwin(request: { dq: string }): Promise<ProviderTwin>;
+
+	/**
+	 * Lists what one twin sells. GET /v4/twin/{hostname}/commodities.
+	 * Use it to see whether a commodity already exists on a twin before creating one.
+	 */
+	listTwinCommodities(hostname: string): Promise<TwinCommodity[]>;
+
+	/**
+	 * Creates a commodity on a twin and answers its hash. POST /v4/commodity.
+	 *
+	 * NOT repeatable: every call makes another commodity. Never retried here, apart from once
+	 * after a 401. After a timeout, a network error or a 5xx the outcome is unknown: look with
+	 * `listTwinCommodities` before creating again.
+	 */
+	createCommodity(request: NewCommodity): Promise<{ commodityHash: string }>;
+
+	/**
+	 * Sets a commodity's display name and description, and answers the commodity's id.
+	 * PUT /v4/commodity/{hash}. The name becomes the item's tool name on the MCP server.
+	 *
+	 * Creating a commodity returns only its hash; this answer is where Qatom's document gives
+	 * the id a catalog item is created with. Sending the same name and description again
+	 * changes nothing, so this call may be repeated.
+	 */
+	describeCommodity(
+		commodityHash: string,
+		text: { name: string; description: string }
+	): Promise<{ commodityId: number }>;
+
+	/**
+	 * The catalog item selling a commodity, on sale or not, or null when there is none that the
+	 * account may manage. GET /v4/catalog/items?commodity_id=…&mine=true&active=all.
+	 * Use it to see whether an item already exists before creating one.
+	 */
+	findCatalogItem(commodityId: number): Promise<CatalogItem | null>;
+
+	/**
+	 * Puts a commodity on sale as a catalog item that POSTs to `externalEndpoint`, featured (a
+	 * tool on the account's managed MCP server), with its secret header written in the same
+	 * step. POST /v4/catalog/items.
+	 *
+	 * NOT repeatable. Never retried here, apart from once after a 401. Qatom's document says a
+	 * 400, 403, 409, 502 or 503 means nothing was created; a 500 is also what it answers when
+	 * the commodity already has an item. After a timeout, a network error or a 500 the outcome
+	 * is unknown: look with `findCatalogItem` before creating again.
+	 */
+	createCatalogItem(request: NewCatalogItem): Promise<CatalogItem>;
 }
 
 // Qatom returns a token with five minutes or more left as it is. Asking only in the last
@@ -126,6 +231,39 @@ const ledgerTransactionSchema = z.object({
 	fromAddress: z.string().min(1),
 	destinationAddress: z.string().min(1)
 });
+
+// The 201 of POST /v4/twin also carries the twin's `key`, a secret. It is not read.
+const twinResponseSchema = z.object({ id: z.number().int().positive(), hostname: z.string() });
+
+const HOSTNAME = /^[0-9a-z]([0-9a-z.-]*[0-9a-z])?$/;
+
+const twinCommoditySchema = z.object({
+	hash: z.string(),
+	descriptor: z.string().optional(),
+	cost: z.number().optional(),
+	dq: z.string().optional()
+});
+
+const createdCommoditySchema = z.object({ hash: z.string() });
+
+const updatedCommoditySchema = z.object({
+	commodity: z.object({ id: z.number().int().positive(), hash: z.string() })
+});
+
+const managedItemSchema = z.object({
+	id: z.number().int().positive(),
+	commodity_id: z.number().int().positive()
+});
+
+const createdItemSchema = z.object({ item: managedItemSchema });
+
+// Qatom: a header value is 1 to 4096 printable ASCII characters, not starting or ending with a space.
+const HEADER_NAME = /^[0-9A-Za-z_-]{1,64}$/;
+const HEADER_VALUE = /^[\x21-\x7e]([\x20-\x7e]{0,4094}[\x21-\x7e])?$/;
+
+function isId(value: number): boolean {
+	return Number.isSafeInteger(value) && value > 0;
+}
 
 export function createMerchantAccount(config: MerchantAccountConfig): MerchantAccount {
 	let cached: { token: string; expiresAtMs: number } | null = null;
@@ -300,6 +438,184 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 					timeoutMs: SLOW_TIMEOUT_MS
 				})
 			);
+		},
+
+		async createProviderTwin({ dq }) {
+			const operation = 'account.create-twin';
+			if (!HASH.test(dq)) throw new TypeError('dq must be a digital quantity hash');
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'POST',
+					url: apiUrl(config.paymentApiUrl, '/v4/twin'),
+					headers: { authorization },
+					json: { dq, type: 'provider' },
+					timeoutMs: SLOW_TIMEOUT_MS
+				})
+			);
+			const parsed = twinResponseSchema.safeParse(body);
+			if (!parsed.success || !HOSTNAME.test(parsed.data.hostname)) {
+				throw new QatomResponseError(operation, 'id or hostname is missing');
+			}
+			return { twinId: parsed.data.id, hostname: parsed.data.hostname };
+		},
+
+		async listTwinCommodities(hostname) {
+			const operation = 'account.twin-commodities';
+			if (!HOSTNAME.test(hostname)) throw new TypeError('hostname must be a twin hostname');
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'GET',
+					url: apiUrl(config.paymentApiUrl, `/v4/twin/${hostname}/commodities`),
+					headers: { authorization },
+					timeoutMs: DEFAULT_TIMEOUT_MS
+				})
+			);
+			const parsed = z.array(twinCommoditySchema).safeParse(body);
+			if (!parsed.success || parsed.data.some((commodity) => !HASH.test(commodity.hash))) {
+				throw new QatomResponseError(operation, 'not a list of commodities with a hash each');
+			}
+			return parsed.data.map((commodity) => ({
+				hash: commodity.hash,
+				descriptor: commodity.descriptor ?? null,
+				cost: commodity.cost ?? null,
+				dq: commodity.dq ?? null
+			}));
+		},
+
+		async createCommodity({ twinId, descriptor, cost, dq }) {
+			const operation = 'account.create-commodity';
+			if (!isId(twinId)) throw new RangeError('twinId must be a positive whole number');
+			if (!Number.isSafeInteger(cost) || cost <= 0) {
+				throw new RangeError('cost must be a positive whole number of the smallest unit');
+			}
+			if (!HASH.test(dq)) throw new TypeError('dq must be a digital quantity hash');
+			if (descriptor.length < 1 || descriptor.length > 255) {
+				throw new RangeError('descriptor must be 1 to 255 characters');
+			}
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'POST',
+					url: apiUrl(config.paymentApiUrl, '/v4/commodity'),
+					headers: { authorization },
+					json: { descriptor, cost, dq, twin_id: twinId },
+					timeoutMs: SLOW_TIMEOUT_MS
+				})
+			);
+			const parsed = createdCommoditySchema.safeParse(body);
+			if (!parsed.success || !HASH.test(parsed.data.hash)) {
+				throw new QatomResponseError(operation, 'hash is missing');
+			}
+			return { commodityHash: parsed.data.hash };
+		},
+
+		async describeCommodity(commodityHash, { name, description }) {
+			const operation = 'account.describe-commodity';
+			if (!HASH.test(commodityHash)) {
+				throw new TypeError('commodityHash must be letters and digits only');
+			}
+			if (name.trim() === '' || description.trim() === '') {
+				throw new RangeError('name and description must not be empty');
+			}
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'PUT',
+					url: apiUrl(config.paymentApiUrl, `/v4/commodity/${commodityHash}`),
+					headers: { authorization },
+					json: { name, description },
+					timeoutMs: SLOW_TIMEOUT_MS
+				})
+			);
+			const parsed = updatedCommoditySchema.safeParse(body);
+			if (!parsed.success) throw new QatomResponseError(operation, 'commodity.id is missing');
+			if (parsed.data.commodity.hash !== commodityHash) {
+				throw new QatomResponseError(operation, 'the answer is about another commodity');
+			}
+			return { commodityId: parsed.data.commodity.id };
+		},
+
+		async findCatalogItem(commodityId) {
+			const operation = 'account.find-item';
+			if (!isId(commodityId)) throw new RangeError('commodityId must be a positive whole number');
+			const url = apiUrl(config.paymentApiUrl, '/v4/catalog/items');
+			url.searchParams.set('commodity_id', String(commodityId));
+			url.searchParams.set('mine', 'true');
+			url.searchParams.set('active', 'all');
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'GET',
+					url,
+					headers: { authorization },
+					timeoutMs: DEFAULT_TIMEOUT_MS
+				})
+			);
+			const listing = catalogListingSchema.safeParse(body);
+			if (!listing.success) throw new QatomResponseError(operation, 'items is missing');
+
+			const found: CatalogItem[] = [];
+			for (const raw of listing.data.items) {
+				const item = managedItemSchema.safeParse(raw);
+				if (!item.success) {
+					throw new QatomResponseError(operation, 'an item has no id or commodity_id');
+				}
+				// Trust the filter only as far as the answer shows it was applied.
+				if (item.data.commodity_id !== commodityId) continue;
+				found.push({ catalogItemId: item.data.id, commodityId });
+			}
+			if (found.length > 1) {
+				throw new QatomResponseError(operation, 'more than one item for one commodity_id');
+			}
+			return found[0] ?? null;
+		},
+
+		async createCatalogItem({ commodityId, serviceSchema, externalEndpoint, secretHeader }) {
+			const operation = 'account.create-item';
+			if (!isId(commodityId)) throw new RangeError('commodityId must be a positive whole number');
+			const endpoint = URL.parse(externalEndpoint);
+			if (endpoint?.protocol !== 'https:' || /[{}]/.test(externalEndpoint)) {
+				throw new TypeError('externalEndpoint must be an https URL with no placeholders');
+			}
+			if (!HEADER_NAME.test(secretHeader.name) || !HEADER_VALUE.test(secretHeader.value)) {
+				// Says nothing about the value itself.
+				throw new TypeError('secretHeader is not a header name and value Qatom accepts');
+			}
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'POST',
+					url: apiUrl(config.paymentApiUrl, '/v4/catalog/items'),
+					headers: { authorization },
+					json: {
+						commodity_id: commodityId,
+						service_method: 'POST',
+						service_schema: serviceSchema,
+						external_endpoint: externalEndpoint,
+						active: true,
+						featured: true,
+						dispatch_params: [
+							{
+								kind: 'header',
+								name: secretHeader.name,
+								sensitive: true,
+								value: secretHeader.value
+							}
+						]
+					},
+					timeoutMs: SLOW_TIMEOUT_MS
+				})
+			);
+			const parsed = createdItemSchema.safeParse(body);
+			if (!parsed.success) {
+				throw new QatomResponseError(operation, 'item.id or item.commodity_id is missing');
+			}
+			if (parsed.data.item.commodity_id !== commodityId) {
+				throw new QatomResponseError(operation, 'the item is for another commodity');
+			}
+			return { catalogItemId: parsed.data.item.id, commodityId };
 		}
 	};
 }

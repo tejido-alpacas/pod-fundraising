@@ -11,6 +11,7 @@ import {
 	type Campaign,
 	type Deposit,
 	type Entry,
+	type EntryItem,
 	type EntryStatus,
 	type Milestone,
 	type MilestoneState,
@@ -18,13 +19,14 @@ import {
 	type PrimaryWalletHostname,
 	type Timestamp
 } from '@tejido/contracts';
-import { and, asc, count, desc, eq, inArray, isNull, notExists, sql } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, isNull, lt, notExists, or, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Database, Executor } from './client.ts';
 import {
 	campaigns,
 	deposits,
 	entries,
+	itemProvisioning,
 	milestones,
 	parties,
 	partySignInTokens,
@@ -588,4 +590,107 @@ export async function listRefunds(
 		.from(refunds)
 		.where(and(eq(refunds.campaignId, campaignId), eq(refunds.milestoneId, milestoneId)))
 		.orderBy(asc(refunds.startedAt), asc(refunds.id));
+}
+
+// --- Item provisioning ---
+
+export type ItemProvisioning = typeof itemProvisioning.$inferSelect;
+
+/** What one step of creating an item learned from Qatom. */
+export type ItemProvisioningProgress = Partial<
+	Pick<
+		ItemProvisioning,
+		'twinId' | 'twinHostname' | 'commodityHash' | 'commodityId' | 'catalogItemId'
+	>
+>;
+
+const provisioningRow = (campaignId: string, item: EntryItem) =>
+	and(eq(itemProvisioning.campaignId, campaignId), eq(itemProvisioning.item, item));
+
+/**
+ * Takes the lease on one campaign's item until `lockedUntil`, and answers the row with the
+ * progress saved so far. Answers undefined when another run holds a lease that has not run
+ * out: the caller must then not call Qatom for this item.
+ *
+ * The lease is taken by one conditional update, so of two requests arriving together only
+ * one gets the row back.
+ */
+export async function claimItemProvisioning(
+	db: Database,
+	campaignId: string,
+	item: EntryItem,
+	now: Timestamp,
+	lockedUntil: Timestamp
+): Promise<ItemProvisioning | undefined> {
+	await db
+		.insert(itemProvisioning)
+		.values({ campaignId, item, updatedAt: now })
+		.onConflictDoNothing();
+	const [row] = await db
+		.update(itemProvisioning)
+		.set({ lockedUntil, updatedAt: now })
+		.where(
+			and(
+				provisioningRow(campaignId, item),
+				or(isNull(itemProvisioning.lockedUntil), lt(itemProvisioning.lockedUntil, now))
+			)
+		)
+		.returning();
+	return row;
+}
+
+/** Saves what a step learned, straight after Qatom answered it. */
+export async function saveItemProvisioningProgress(
+	db: Database,
+	campaignId: string,
+	item: EntryItem,
+	progress: ItemProvisioningProgress,
+	now: Timestamp
+): Promise<void> {
+	await db
+		.update(itemProvisioning)
+		.set({ ...progress, updatedAt: now })
+		.where(provisioningRow(campaignId, item));
+}
+
+/** Gives the lease back, so the item can be tried again at once. */
+export async function releaseItemProvisioning(
+	db: Database,
+	campaignId: string,
+	item: EntryItem,
+	now: Timestamp
+): Promise<void> {
+	await db
+		.update(itemProvisioning)
+		.set({ lockedUntil: null, updatedAt: now })
+		.where(provisioningRow(campaignId, item));
+}
+
+/**
+ * The last step: stores the item's commodity id on the campaign and gives the lease back,
+ * together. A commodity id already on the campaign is never replaced.
+ */
+export async function finishItemProvisioning(
+	db: Database,
+	campaignId: string,
+	item: EntryItem,
+	commodityId: number,
+	now: Timestamp
+): Promise<void> {
+	const column =
+		item === 'log_work' ? campaigns.logWorkCommodityId : campaigns.milestoneHitCommodityId;
+	const value =
+		item === 'log_work'
+			? { logWorkCommodityId: commodityId }
+			: { milestoneHitCommodityId: commodityId };
+	await db.batch([
+		db
+			.update(campaigns)
+			.set(value)
+			.where(and(eq(campaigns.id, campaignId), isNull(column))),
+		db
+			.update(itemProvisioning)
+			.set({ lockedUntil: null, updatedAt: now })
+			.where(provisioningRow(campaignId, item))
+	]);
 }

@@ -14,6 +14,7 @@ export {
 	campaigns,
 	deposits,
 	entries,
+	itemProvisioning,
 	milestones,
 	parties,
 	partySignInTokens,
