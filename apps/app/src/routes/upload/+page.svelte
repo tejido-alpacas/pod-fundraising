@@ -26,6 +26,7 @@
 		type EvidenceProblem
 	} from '#lib/evidence.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
+	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
@@ -265,13 +266,13 @@
 
 <svelte:head><title>Add evidence · Tejido</title></svelte:head>
 
-<FieldPage actions={enhanced && uploaded.length > 0 ? actions : undefined}>
-	<p class="text-eyebrow">Evidence</p>
-	<h1>Add photos and documents</h1>
-	<p class="tj-fieldpage__lede">
-		Take a photo or choose files that show your work. Each one is sent to Tejido as soon as you
-		choose it and gets a file fingerprint. Then you hand the files to your report.
-	</p>
+<FieldPage
+	title="Add evidence"
+	subtitle={page.data.nav?.party?.name ?? 'Photos and documents'}
+	back="/"
+	actions={enhanced && uploaded.length > 0 ? actions : undefined}
+>
+	<h1 class="tj-vh">Add photos and documents</h1>
 
 	{#if data.viewer === 'signed_out'}
 		<Banner tone="attention" icon="alert-circle" title="Sign in to add evidence">
@@ -296,66 +297,6 @@
 				if (enhanced) event.preventDefault();
 			}}
 		>
-			<fieldset class="app-who">
-				<legend class="tj-label">Who may see the files you choose next</legend>
-				<label class="tj-check">
-					<input
-						type="checkbox"
-						name={EVIDENCE_VISIBILITY_FIELD}
-						value="not_public"
-						aria-describedby="who-help"
-						bind:checked={keepFromDonors}
-					/>
-					<span class="tj-check__text">
-						<span>Keep these files from donors</span>
-						<small>Decide before you choose a file. It is sent as soon as you choose it.</small>
-					</span>
-				</label>
-				<p class="tj-help" id="who-help">
-					Leave this off and donors see the files. Turn it on for something donors should not see,
-					such as a list with pupils’ names. Then only you and this project’s confirmers can open
-					the file. Donors are told it exists, with the two lines below, and are not shown it. A
-					file kept from donors does not count as the photo or document a milestone report needs.
-				</p>
-				<!-- Without the page's script the two lines cannot appear on a tick, so they are always there. -->
-				{#if keepFromDonors || !enhanced}
-					<div class="tj-field tj-field--field">
-						<label class="tj-label" for="np-kind">What it is</label>
-						<input
-							class="tj-input"
-							id="np-kind"
-							type="text"
-							name={EVIDENCE_NOT_PUBLIC_KIND_FIELD}
-							maxlength={EVIDENCE_NOT_PUBLIC_KIND_MAX}
-							aria-describedby="np-kind-help"
-							bind:value={notPublicKind}
-						/>
-						<p class="tj-help" id="np-kind-help">
-							For example: Class list. Fill this in before choosing the file.
-						</p>
-					</div>
-					<div class="tj-field tj-field--field">
-						<label class="tj-label" for="np-reason">Why donors are not shown it</label>
-						<input
-							class="tj-input"
-							id="np-reason"
-							type="text"
-							name={EVIDENCE_NOT_PUBLIC_REASON_FIELD}
-							maxlength={EVIDENCE_NOT_PUBLIC_REASON_MAX}
-							aria-describedby="np-reason-help"
-							bind:value={notPublicReason}
-						/>
-						<p class="tj-help" id="np-reason-help">For example: It has pupils’ names on it.</p>
-					</div>
-					<p class="tj-toolresult tj-tone--attention">
-						<Icon name="alert-circle" size={18} />
-						<span>
-							Donors read both lines. Do not put anyone’s name, or anything else private, in them.
-						</span>
-					</p>
-				{/if}
-			</fieldset>
-
 			<label class="tj-picker__opt tj-picker__opt--primary">
 				<Icon name="camera" size={28} />
 				<span>Take a photo</span>
@@ -398,6 +339,66 @@
 				Photos ({PICTURE_TYPE_NAMES}) or {DOCUMENT_TYPE_NAMES} documents, up to
 				{EVIDENCE_MAX_MEGABYTES} MB each. Up to {MAX_PHOTOS_PER_ENTRY} files per report.
 			</p>
+			<fieldset class="app-who">
+				<legend class="tj-label">Who may see the files you choose next</legend>
+				<label class="tj-check">
+					<input
+						type="checkbox"
+						name={EVIDENCE_VISIBILITY_FIELD}
+						value="not_public"
+						bind:checked={keepFromDonors}
+					/>
+					<span class="tj-check__text">
+						<span>Keep these files from donors</span>
+						<small>
+							Tick this before you choose a file. A file is sent as soon as you choose it.
+						</small>
+					</span>
+				</label>
+				<!-- Without the page's script the two lines cannot appear on a tick, so they are always there. -->
+				{#if keepFromDonors || !enhanced}
+					<p class="tj-help" id="who-help">
+						Left unticked, donors see the files. Tick it for something donors should not see, such
+						as a list with pupils’ names. Then only you and this project’s confirmers can open the
+						file. Donors are told it exists, with the two lines below, and are not shown it. A file
+						kept from donors does not count as the photo or document a milestone report needs.
+					</p>
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-kind">What it is</label>
+						<input
+							class="tj-input"
+							id="np-kind"
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_KIND_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_KIND_MAX}
+							aria-describedby="np-kind-help"
+							bind:value={notPublicKind}
+						/>
+						<p class="tj-help" id="np-kind-help">
+							For example: Class list. Fill this in before choosing the file.
+						</p>
+					</div>
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-reason">Why donors are not shown it</label>
+						<input
+							class="tj-input"
+							id="np-reason"
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_REASON_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_REASON_MAX}
+							aria-describedby="np-reason-help"
+							bind:value={notPublicReason}
+						/>
+						<p class="tj-help" id="np-reason-help">For example: It has pupils’ names on it.</p>
+					</div>
+					<p class="tj-toolresult tj-tone--attention">
+						<Icon name="alert-circle" size={18} />
+						<span>
+							Donors read both lines. Do not put anyone’s name, or anything else private, in them.
+						</span>
+					</p>
+				{/if}
+			</fieldset>
 			<!-- Without the page's script nothing starts by itself, so the inputs are shown as the
 			     browser draws them and the form gets a button. -->
 			<noscript class="app-noscript">

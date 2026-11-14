@@ -106,7 +106,7 @@
 {/snippet}
 
 {#if data.viewer !== 'party'}
-	<FieldPage>
+	<FieldPage title="Fix your report" subtitle="Tejido field app" back="/">
 		<p class="text-eyebrow">Incomplete reports</p>
 		<h1>Fix an incomplete report</h1>
 		{@render result()}
@@ -125,7 +125,14 @@
 		{/if}
 	</FieldPage>
 {:else if !selected}
-	<FieldPage actions={data.entries.length === 0 ? back : undefined}>
+	<FieldPage
+		title="Fix your reports"
+		subtitle={data.entries.length === 0
+			? 'Nothing is incomplete'
+			: `${data.entries.length} incomplete`}
+		back="/"
+		actions={data.entries.length === 0 ? back : undefined}
+	>
 		<p class="text-eyebrow">Incomplete reports</p>
 		{#if data.entries.length === 0}
 			<h1>Nothing to fix</h1>
@@ -163,12 +170,14 @@
 {:else}
 	{@const entry = selected}
 	{@const report = REPORTS[entry.report]}
-	<FieldPage actions={entry.room > 0 ? save : back}>
-		{#if data.entries.length > 1}
-			<a class="tj-link tj-link--standalone" href="/fix">
-				<Icon name="arrow-left" size={18} /> All {data.entries.length} incomplete reports
-			</a>
-		{/if}
+	<FieldPage
+		title="Fix your report"
+		subtitle={entry.milestonePosition === null
+			? entry.milestoneTitle
+			: `${entry.milestoneTitle} · Milestone ${entry.milestonePosition}`}
+		back={data.entries.length > 1 ? '/fix' : '/'}
+		actions={entry.room > 0 ? save : back}
+	>
 		<div class="tj-badges">
 			<StatusBadge state="incomplete" />
 			<span class="tj-badge tj-tone--neutral">
@@ -183,10 +192,6 @@
 		</p>
 
 		{@render result()}
-
-		<Banner tone="attention" icon="receipt-missing" title="What is missing">
-			{entry.missing ?? 'The reason was not recorded.'}
-		</Banner>
 
 		<div class="tj-card">
 			<p class="text-eyebrow">Already saved</p>
@@ -208,6 +213,15 @@
 						{/if}
 					</span>
 				</li>
+				{#each entry.notPublic as file, index (index)}
+					<li class="is-done">
+						<Icon name="eye-off" />
+						<span class="app-wrap">
+							Not public: {file.kind}. {file.reason} Donors are told it exists and are not shown it, so
+							it does not count as the photo or document this report needs.
+						</span>
+					</li>
+				{/each}
 				<li class="is-done">
 					<Icon name="check" />
 					<span>

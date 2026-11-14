@@ -1,6 +1,5 @@
 <script lang="ts">
 	import { Banner, Button, Icon } from '@tejido/ui';
-	import { shortDay } from '#lib/dates.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
 	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
 	import Strength from '#lib/Strength.svelte';
@@ -10,12 +9,14 @@
 
 	const role = $derived(ROLES[data.party.role]);
 	const confirmer = $derived(data.party.role === 'confirmer');
+	/** Between milestones on one line. Its spaces must survive. */
+	const SEPARATOR = ' · ';
 	const signIn = $derived(`/auth/sign-in?party=${data.party.id}`);
 </script>
 
 <svelte:head><title>Your invitation to {data.campaign.title} · Tejido</title></svelte:head>
 
-<FieldPage>
+<FieldPage title="Invitation" subtitle="Tejido field app">
 	<p class="text-eyebrow">You’re invited</p>
 	<h1>
 		{data.party.name}, you’re invited to
@@ -26,31 +27,17 @@
 		here, and they will see your name and your role.
 	</p>
 
-	{#if data.signedInAsThisParty}
-		<Banner tone="neutral" icon="check" title="You are signed in on this invitation" role="status">
-			Your wallets are linked. There is nothing more to do on this page.
-		</Banner>
-	{:else if data.party.walletsLinked}
-		<Banner tone="neutral" icon="wallet" title="Wallets are already linked for this invitation">
-			Signing in again signs you in on this phone and keeps them up to date. Nothing else changes.
-		</Banner>
-	{/if}
-
 	<div class="tj-card">
 		<dl class="tj-dl">
 			<div>
 				<dt>Project</dt>
 				<dd>
-					{data.campaign.title}
-					{#if data.campaign.summary}<p class="tj-help">{data.campaign.summary}</p>{/if}
+					{data.campaign.title}{#if data.campaign.beneficiary}, for {data.campaign.beneficiary.replace(
+							/^The /,
+							'the '
+						)}{/if}
 				</dd>
 			</div>
-			{#if data.campaign.beneficiary}
-				<div>
-					<dt>Who it is for</dt>
-					<dd>{data.campaign.beneficiary}</dd>
-				</div>
-			{/if}
 			<div>
 				<dt>Your role</dt>
 				<dd>
@@ -60,22 +47,15 @@
 				</dd>
 			</div>
 			<div>
-				<dt>{confirmer ? 'The milestones you confirm' : 'The milestones you report on'}</dt>
+				<dt>{confirmer ? 'Your milestones to confirm' : 'Your milestones to report on'}</dt>
 				<dd>
 					{#if data.milestones.length === 0}
 						None has been given to you yet. {data.campaign.creatorName} can add them.
 					{:else}
-						<ul class="app-milestones">
-							{#each data.milestones as milestone (milestone.id)}
-								<li>
-									<span class="app-milestones__n" aria-hidden="true">{milestone.position}</span>
-									<span>
-										<span class="tj-vh">Milestone {milestone.position}: </span>{milestone.title}
-										<small>Due {shortDay(milestone.dueDate)}</small>
-									</span>
-								</li>
-							{/each}
-						</ul>
+						{#each data.milestones as milestone, index (milestone.id)}{#if index > 0}{SEPARATOR}{/if}<span
+								class="app-nowrap"><span class="tj-vh">Milestone </span>{milestone.position}</span
+							>
+							{milestone.title}{/each}
 					{/if}
 				</dd>
 			</div>
@@ -101,11 +81,21 @@
 				</div>
 			{/if}
 			<div>
-				<dt>Invitation sent to</dt>
+				<dt>Invite sent to</dt>
 				<dd class="app-wrap">{data.party.emailHint}</dd>
 			</div>
 		</dl>
 	</div>
+
+	{#if data.signedInAsThisParty}
+		<Banner tone="neutral" icon="check" title="You are signed in on this invitation" role="status">
+			Your wallets are linked. There is nothing more to do on this page.
+		</Banner>
+	{:else if data.party.walletsLinked}
+		<Banner tone="neutral" icon="wallet" title="Wallets are already linked for this invitation">
+			Signing in again signs you in on this phone and keeps them up to date. Nothing else changes.
+		</Banner>
+	{/if}
 
 	<p class="tj-plain">
 		<Icon name="wallet" />
@@ -134,31 +124,8 @@
 	.app-strengthnote {
 		margin-top: var(--space-2);
 	}
-	.app-milestones {
-		display: grid;
-		gap: var(--space-2);
-		margin-top: var(--space-1);
-	}
-	.app-milestones li {
-		display: grid;
-		grid-template-columns: auto minmax(0, 1fr);
-		gap: var(--space-3);
-		align-items: start;
-	}
-	.app-milestones__n {
-		width: 24px;
-		height: 24px;
-		display: grid;
-		place-items: center;
-		border: var(--border-thread) solid var(--border-strong);
-		border-radius: var(--radius-full);
-		font: 600 13px/1 var(--font-sans);
-		color: var(--text-secondary);
-	}
-	.app-milestones small {
-		display: block;
-		font-size: 14px;
-		line-height: 20px;
-		color: var(--text-secondary);
+	.app-nowrap {
+		white-space: nowrap;
+		font-weight: 600;
 	}
 </style>

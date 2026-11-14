@@ -1,6 +1,7 @@
 <!--
   MobileNav: the App's tab bar on a phone. The design keeps it off task flows (filing, evidence,
-  fixing), which is why only the home page shows it. From 900px the header's links do this job.
+  fixing), which is why only the home page shows it. From 900px the links under the home page's
+  header do this job (see FieldPage).
 -->
 <script lang="ts">
 	import { Icon, type IconName } from '@tejido/ui';
@@ -33,16 +34,9 @@
 	.app-tabbar {
 		grid-template-columns: repeat(var(--tabs), minmax(0, 1fr));
 	}
-	/* While the tab bar is on screen it replaces the row of links under the header. */
-	:global(.tj-screen:has(.app-tabbar) .tj-fieldnav) {
-		display: none;
-	}
 	@container (min-width: 900px) {
 		.app-tabbar {
 			display: none;
-		}
-		:global(.tj-screen:has(.app-tabbar) .tj-fieldnav) {
-			display: flex;
 		}
 	}
 </style>

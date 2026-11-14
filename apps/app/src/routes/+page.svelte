@@ -55,7 +55,7 @@
 <svelte:head><title>Tejido</title></svelte:head>
 
 {#if data.viewer === 'signed_out'}
-	<FieldPage>
+	<FieldPage title="Tejido" subtitle="Field app">
 		<p class="text-eyebrow">Tejido field app</p>
 		<h1>Report your work on a funded project</h1>
 		<p class="tj-fieldpage__lede">
@@ -85,7 +85,7 @@
 		{/snippet}
 	</FieldPage>
 {:else if data.viewer === 'no_party'}
-	<FieldPage>
+	<FieldPage title="Tejido" subtitle={data.email}>
 		<p class="text-eyebrow">Signed in</p>
 		<h1>You’re not on a project yet</h1>
 		<p class="tj-fieldpage__lede app-wrap">
@@ -100,27 +100,20 @@
 	</FieldPage>
 {:else}
 	{@const { party, campaign } = data}
-	<FieldPage tabs={{ current: '/', incompleteReports: incomplete }}>
-		<header class="app-head">
-			<p class="text-eyebrow">Your project</p>
-			<h1>{campaign.title}</h1>
-			<div class="tj-party">
-				<span class="tj-avatar" aria-hidden="true">
-					<Icon name={confirmer ? 'conf-stakeholder' : 'user'} size={18} />
-				</span>
-				<div>
-					<p class="tj-party__name">{party.name}</p>
-					<p class="tj-party__role">{roleName(party)}</p>
-				</div>
-			</div>
-			<p class="tj-help">
-				{#if confirmer}
-					{ROLES.confirmer.does}
-				{:else}
-					You log your work {CADENCE[campaign.cadence]} and report each milestone when it is done.
-				{/if}
-			</p>
-		</header>
+	<FieldPage
+		title={campaign.title}
+		subtitle="{party.name} · {roleName(party)}"
+		tabs={{ current: '/', incompleteReports: incomplete }}
+	>
+		<p class="text-eyebrow">Your project</p>
+		<h1>{campaign.title}</h1>
+		<p class="tj-fieldpage__lede">
+			{#if confirmer}
+				{ROLES.confirmer.does}
+			{:else}
+				You log your work {CADENCE[campaign.cadence]} and report each milestone when it is done.
+			{/if}
+		</p>
 
 		{#if !party.walletsLinked}
 			<Banner
@@ -272,10 +265,6 @@
 {/if}
 
 <style>
-	.app-head {
-		display: grid;
-		gap: var(--space-3);
-	}
 	.app-cardtitle {
 		font: 600 17px/24px var(--font-sans);
 	}

@@ -1,46 +1,101 @@
 <!--
-  FieldPage: the frame of one App page built on the design system. A single column at the
-  design's width, with an optional bar of actions stuck to the bottom of the screen and, on the
-  home page, the phone's tab bar.
+  FieldPage: the frame of one App page, as the design draws a field screen. The header names the
+  page (with a back arrow inside a task), the content is a single column at the design's width,
+  and the page's one primary action sits in a bar stuck to the bottom of the screen. The home
+  page also gets the phone's tab bar.
 
-  <FieldPage>
-    <h1>…</h1>
+  <FieldPage title="Add evidence" subtitle="Coral Ridge Builders" back="/">
+    …
     {#snippet actions()}<Button variant="primary" size="field" block>…</Button>{/snippet}
   </FieldPage>
 -->
 <script lang="ts">
+	import { page } from '$app/state';
+	import { FieldHeader } from '@tejido/ui';
 	import type { Snippet } from 'svelte';
 	import MobileNav from './MobileNav.svelte';
 
 	let {
+		title,
+		subtitle = undefined,
+		back = undefined,
 		children,
 		actions = undefined,
 		tabs = undefined
 	}: {
+		title: string;
+		subtitle?: string;
+		/** Inside a task: where the back arrow goes. It replaces the weave mark. */
+		back?: string;
 		children: Snippet;
 		/** The page's primary action, kept in reach of a thumb. */
 		actions?: Snippet;
 		/** The phone's tab bar. Only on the home page: a task flow has no tab bar. */
 		tabs?: { current: string; incompleteReports: number };
 	} = $props();
+
+	// From 900px there is no tab bar, so the home page's header carries the same links.
+	const links = $derived.by(() => {
+		if (!tabs) return [];
+		const list = [
+			{ href: '/', label: 'Home' },
+			{ href: '/chat', label: 'File a report' },
+			{ href: '/upload', label: 'Add evidence' }
+		];
+		if (tabs.incompleteReports > 0) {
+			list.push({ href: '/fix', label: `Fix reports (${tabs.incompleteReports})` });
+		}
+		return list;
+	});
 </script>
 
-<div class="tj-fieldpage app-page">
-	{@render children()}
-	{#if actions || tabs}
-		<div class="app-dock">
-			{#if actions}<div class="tj-stickyactions">{@render actions()}</div>{/if}
-			{#if tabs}<MobileNav {...tabs} />{/if}
-		</div>
-	{/if}
+<div class="tj-fieldapp app-frame">
+	<FieldHeader {title} {subtitle} {back} {links} current={tabs?.current}>
+		{#snippet end()}
+			{#if page.data.nav}
+				<form method="POST" action="/auth/sign-out">
+					<button type="submit" class="tj-btn tj-btn--quiet tj-btn--field">Sign out</button>
+				</form>
+			{/if}
+		{/snippet}
+	</FieldHeader>
+	<div class="tj-fieldpage app-page">
+		{@render children()}
+		{#if actions || tabs}
+			<div class="app-dock">
+				{#if actions}<div class="tj-stickyactions">{@render actions()}</div>{/if}
+				{#if tabs}<MobileNav {...tabs} />{/if}
+			</div>
+		{/if}
+	</div>
 </div>
 
 <style>
 	/* The layout's <main> hands its whole height to the page, so the dock rests at the bottom of
 	   the screen on a short page too. */
-	:global(main:has(> .app-page)) {
+	:global(main:has(> .app-frame)) {
 		display: flex;
 		flex-direction: column;
+	}
+	/* This page names itself in its own header, as the design draws it. The layout's general
+	   header and its row of links stand down while a page built on this frame is showing. */
+	:global(.tj-screen:has(.app-frame) > .tj-fieldheader),
+	:global(.tj-screen:has(.app-frame) > .tj-fieldnav) {
+		display: none;
+	}
+	.app-frame {
+		display: flex;
+		flex-direction: column;
+		flex: 1 0 auto;
+		min-height: 0;
+	}
+	/* The design's header is 60px. A 48px control inside it needs the smaller padding to fit. */
+	.app-frame > :global(.tj-fieldheader) {
+		padding-block: var(--space-1);
+	}
+	/* Below 900px the tab bar is the navigation; the links under the header are for wide screens. */
+	.app-frame > :global(.tj-fieldnav) {
+		display: none;
 	}
 	.app-page {
 		display: flex;
@@ -72,6 +127,10 @@
 		padding-bottom: var(--space-3);
 	}
 	@container (min-width: 900px) {
+		.app-frame > :global(.tj-fieldnav) {
+			display: flex;
+			justify-content: center;
+		}
 		.app-page {
 			padding-top: var(--space-8);
 		}
