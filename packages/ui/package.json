@@ -1,0 +1,35 @@
+{
+	"name": "@tejido/ui",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Tejido's design system: tokens, the component stylesheet, icons, the trust vocabulary and the Svelte components both apps share.",
+	"type": "module",
+	"svelte": "./src/index.ts",
+	"exports": {
+		".": {
+			"types": "./src/index.ts",
+			"svelte": "./src/index.ts",
+			"default": "./src/index.ts"
+		},
+		"./states": "./src/states.ts",
+		"./icons": "./src/icons.ts",
+		"./styles.css": "./src/styles.css",
+		"./legacy.css": "./src/legacy.css",
+		"./tokens.css": "./src/tokens.css",
+		"./tejido.css": "./src/tejido.css"
+	},
+	"scripts": {
+		"typecheck": "svelte-check --tsconfig ./tsconfig.json",
+		"lint": "eslint --max-warnings=0 .",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@tejido/contracts": "*"
+	},
+	"devDependencies": {
+		"@sveltejs/vite-plugin-svelte": "^7.3.1",
+		"svelte": "^5.57.3",
+		"svelte-check": "^4.7.8",
+		"vite": "^8.3.8"
+	}
+}
