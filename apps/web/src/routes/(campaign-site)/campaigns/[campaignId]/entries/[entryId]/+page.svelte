@@ -250,7 +250,8 @@
 		<Crumbs
 			items={[
 				{ label: data.campaign.title, href: base },
-				{ label: `Milestone ${milestone.position}`, href: milestoneHref },
+				// "Updates" is the campaign's timeline, where this entry is listed.
+				{ label: 'Updates', href: base },
 				{ label: `${kind}, ${day(entry.filedAt, today)}` }
 			]}
 		/>
