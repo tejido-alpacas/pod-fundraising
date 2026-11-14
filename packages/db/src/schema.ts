@@ -13,6 +13,8 @@ import type {
 	Deposit,
 	Entry,
 	EntryItem,
+	EvidenceFileRecord,
+	EvidenceVisibility,
 	EntryStatus,
 	FundingTotals,
 	LogWorkInput,
@@ -135,6 +137,26 @@ export const deposits = sqliteTable('deposits', {
 	// A whole number of Qatom's smallest unit. See money.ts in @tejido/contracts.
 	amount: integer('amount').notNull(),
 	refundedAt: text('refunded_at')
+});
+
+/**
+ * One row per stored evidence file, by the SHA-256 of its bytes: who uploaded it and who may
+ * see it. The file itself is in the evidence store (R2) under the same SHA-256.
+ *
+ * A file with no row was uploaded before rows were kept, and is public.
+ */
+export const evidenceFiles = sqliteTable('evidence_files', {
+	sha256: text('sha256').primaryKey(),
+	/** Only this party can change `visibility`. */
+	uploadedByPartyId: text('uploaded_by_party_id')
+		.notNull()
+		.references(() => parties.id),
+	visibility: text('visibility').$type<EvidenceVisibility>().notNull(),
+	// Both are shown to donors, and both are set exactly when the file is `not_public`.
+	notPublicKind: text('not_public_kind'),
+	notPublicReason: text('not_public_reason'),
+	createdAt: text('created_at').notNull(),
+	updatedAt: text('updated_at').notNull()
 });
 
 // ---------------------------------------------------------------------------
@@ -318,5 +340,6 @@ export type TablesMatchContracts = [
 	Assert<Same<typeof milestones.$inferSelect, Milestone>>,
 	Assert<Same<typeof entries.$inferSelect, EntryRow>>,
 	Assert<Same<typeof deposits.$inferSelect, Deposit>>,
+	Assert<Same<typeof evidenceFiles.$inferSelect, EvidenceFileRecord>>,
 	Assert<Same<Omit<typeof campaignFunding.$inferSelect, 'campaignId'>, FundingTotals>>
 ];

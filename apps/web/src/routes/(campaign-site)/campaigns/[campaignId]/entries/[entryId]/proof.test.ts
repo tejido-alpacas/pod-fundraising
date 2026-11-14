@@ -1,13 +1,18 @@
 // Calls the proof page's own load against a real, migrated, seeded database. Nothing here
 // reaches the network.
 import { isHttpError } from '@sveltejs/kit';
-import { agentWalletHostnameSchema, primaryWalletHostnameSchema } from '@tejido/contracts';
+import {
+	agentWalletHostnameSchema,
+	EVIDENCE_LEFT_OUT_SENTENCES,
+	primaryWalletHostnameSchema
+} from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import {
 	campaigns,
 	claimDepositsForRefund,
 	deposits,
 	entries,
+	evidenceFiles,
 	linkPartyWallets,
 	markRefundFailed,
 	markRefundUnknown,
@@ -332,9 +337,59 @@ describe('the proof page', () => {
 		const { evidence } = await proof('ent-good');
 
 		expect(evidence).toEqual([
-			{ shown: true, kind: 'photo', url: photo.url, sha256: 'a'.repeat(64), caption: 'East wall' },
-			{ shown: true, kind: 'document', url: document.url, sha256: 'b'.repeat(64), caption: null }
+			{
+				state: 'shown',
+				kind: 'photo',
+				url: photo.url,
+				sha256: 'a'.repeat(64),
+				caption: 'East wall'
+			},
+			{
+				state: 'shown',
+				kind: 'document',
+				url: document.url,
+				sha256: 'b'.repeat(64),
+				caption: null
+			}
 		]);
+	});
+
+	it('says what a not-public file is and why, with its SHA-256 and without its address', async () => {
+		const photo = stored('jpg', 'a');
+		const classList = { ...stored('pdf', 'b'), caption: 'Form 3: every pupil by name' };
+		await addEntry('ent-private', {
+			inputs: {
+				reporter_code: contractor.reporterCode,
+				milestone_id: 'm2-walls',
+				summary: 'Books handed to form 3.',
+				photos: [photo, classList]
+			}
+		});
+		await test.db.insert(evidenceFiles).values({
+			sha256: classList.sha256,
+			uploadedByPartyId: contractor.id,
+			visibility: 'not_public',
+			notPublicKind: 'Class list',
+			notPublicReason: 'It has pupils’ names on it.',
+			createdAt: '2026-11-14T08:00:00.000Z',
+			updatedAt: '2026-11-14T08:00:00.000Z'
+		});
+
+		const data = await proof('ent-private');
+
+		expect(data.evidence).toEqual([
+			{ state: 'shown', kind: 'photo', url: photo.url, sha256: photo.sha256, caption: null },
+			{
+				state: 'not_public',
+				kind: 'Class list',
+				reason: 'It has pupils’ names on it.',
+				sha256: classList.sha256
+			}
+		]);
+		const sent = JSON.stringify(data);
+		expect(sent).not.toContain(classList.url);
+		expect(sent).not.toContain(`${classList.sha256}.pdf`);
+		expect(sent).not.toContain('every pupil by name');
 	});
 
 	it('leaves out a file that is not in our store, or whose hash is not its own', async () => {
@@ -355,8 +410,18 @@ describe('the proof page', () => {
 		const { evidence } = await proof('ent-bad');
 
 		expect(evidence).toEqual([
-			{ shown: false, why: 'not_in_our_store', sha256: 'c'.repeat(64), caption: null },
-			{ shown: false, why: 'hash_mismatch', sha256: 'e'.repeat(64), caption: null }
+			{
+				state: 'left_out',
+				reason: 'not_in_our_store',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.not_in_our_store,
+				sha256: 'c'.repeat(64)
+			},
+			{
+				state: 'left_out',
+				reason: 'hash_mismatch',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.hash_mismatch,
+				sha256: 'e'.repeat(64)
+			}
 		]);
 		expect(JSON.stringify(evidence)).not.toContain('elsewhere.example');
 	});
@@ -364,7 +429,7 @@ describe('the proof page', () => {
 	it('leaves out the seeded example files, which are not in the evidence store', async () => {
 		const { evidence } = await proof('ent-m1-claim');
 
-		expect(evidence.map((file: { shown: boolean }) => file.shown)).toEqual([false, false]);
+		expect(evidence.map((file: { state: string }) => file.state)).toEqual(['left_out', 'left_out']);
 	});
 
 	it('leaves out a picture on a documents-only milestone, and keeps the document', async () => {
@@ -401,9 +466,14 @@ describe('the proof page', () => {
 
 		expect(data.documentsOnly).toBe(true);
 		expect(data.evidence).toEqual([
-			{ shown: false, why: 'picture_on_documents_only', sha256: 'a'.repeat(64), caption: null },
 			{
-				shown: true,
+				state: 'left_out',
+				reason: 'picture_on_documents_only',
+				sentence: EVIDENCE_LEFT_OUT_SENTENCES.picture_on_documents_only,
+				sha256: 'a'.repeat(64)
+			},
+			{
+				state: 'shown',
 				kind: 'document',
 				url: stored('pdf', 'b').url,
 				sha256: 'b'.repeat(64),

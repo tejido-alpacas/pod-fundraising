@@ -5,6 +5,18 @@
  * Send multipart/form-data with the file in the `file` field. Files are stored under their
  * own SHA-256, so uploading the same bytes twice gives the same URL.
  *
+ * WHO MAY SEE THE FILE. Add the field `visibility` to choose:
+ *
+ * - `public`: donors are shown the file.
+ * - `not_public`: only you and the campaign's confirmers can open it. Then `not_public_kind`
+ *   (what it is, at most 80 characters) and `not_public_reason` (why donors are not shown it,
+ *   at most 200) are required. BOTH ARE SHOWN TO DONORS: put no names in them.
+ * - left out: a new file is stored as `public`; a file you uploaded before stays as it is.
+ *
+ * The answer's `visibility` says what the file is now. Only the party who first uploaded a
+ * file can change who may see it; anyone else asking for a change is answered 409.
+ * None of this is part of a check-in: the `photos` list still takes `{ url, sha256 }` only.
+ *
  * SvelteKit refuses form posts from another origin. A script or agent calling this from
  * outside a browser must send an `Origin` header equal to the app's own origin.
  *
@@ -16,10 +28,12 @@ import {
 	EVIDENCE_CONTENT_TYPES,
 	EVIDENCE_FILE_FIELD,
 	EVIDENCE_MAX_BYTES,
+	EVIDENCE_NOT_PUBLIC_KIND_MAX,
+	EVIDENCE_NOT_PUBLIC_REASON_MAX,
 	isEvidenceContentType,
 	type EvidenceUploadResponse
 } from '@tejido/contracts';
-import { storeEvidence } from '#lib/server/evidence.ts';
+import { readVisibilityChoice, storeEvidence } from '#lib/server/evidence.ts';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals, url }) => {
@@ -51,8 +65,31 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		error(413, `Evidence can be at most ${EVIDENCE_MAX_BYTES / 1024 / 1024} MB.`);
 	}
 
-	// The upload page's form action stores files through the same function.
-	const stored = await storeEvidence(locals.ctx.evidence, file, file.type, url.origin);
+	const chosen = readVisibilityChoice(form);
+	if (!chosen.ok) {
+		error(
+			422,
+			`"visibility" must be "public" or "not_public". With "not_public", send "not_public_kind" (what the file is, at most ${EVIDENCE_NOT_PUBLIC_KIND_MAX} characters) and "not_public_reason" (why donors are not shown it, at most ${EVIDENCE_NOT_PUBLIC_REASON_MAX}). Both are shown to donors, so put no names in them.`
+		);
+	}
 
-	return json(stored satisfies EvidenceUploadResponse, { status: 201 });
+	// The upload page's form action stores files through the same function.
+	const outcome = await storeEvidence({
+		evidence: locals.ctx.evidence,
+		db: locals.ctx.db,
+		file,
+		type: file.type,
+		origin: url.origin,
+		partyId: locals.session.partyId,
+		choice: chosen.choice
+	});
+	if (!outcome.stored) {
+		error(
+			409,
+			'This exact file was uploaded before by someone else, and only they can change who may see it. Nothing was changed.'
+		);
+	}
+	const { stored: _stored, ...answer } = outcome;
+
+	return json(answer satisfies EvidenceUploadResponse, { status: 201 });
 };

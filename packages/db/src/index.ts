@@ -15,6 +15,7 @@ export {
 	campaigns,
 	deposits,
 	entries,
+	evidenceFiles,
 	itemProvisioning,
 	milestones,
 	parties,
