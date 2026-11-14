@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { formatAmount } from '@tejido/contracts';
+	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -108,16 +109,12 @@
 
 <svelte:head><title>Milestones · {data.campaign.title} · Tejido</title></svelte:head>
 
-<p class="eyebrow">
-	<a href="/campaigns/{data.campaign.id}">{data.campaign.title}</a> · {CAMPAIGN_STATUS[
-		data.campaign.status
-	]}
-</p>
+<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current="milestones" />
+
 <h1>Milestones</h1>
-<p class="muted">Where each milestone of this campaign stands, and how strongly it is confirmed.</p>
 <p class="muted">
-	<a href="/campaigns/{data.campaign.id}/report">Final report</a>: every milestone, who confirmed
-	it, and what is still outstanding.
+	{CAMPAIGN_STATUS[data.campaign.status]}. Where each milestone of this campaign stands, and how
+	strongly it is confirmed.
 </p>
 
 {#if campaignOverdue || late.length > 0}
@@ -263,26 +260,30 @@
 									{#if entry.filedBy}· {entry.filedBy}{/if} · {dateTime(entry.filedAt)}
 								</span>
 							</span>
-							<a href="/campaigns/{data.campaign.id}/entries/{entry.id}">proof</a>
+							<a class="tap" href="/campaigns/{data.campaign.id}/entries/{entry.id}">
+								See the proof<span class="sr"> behind this entry</span>
+							</a>
 						</li>
 					{/each}
 				</ul>
 			{/if}
 		</li>
 	{:else}
-		<li class="muted">This campaign has no milestones.</li>
+		<li class="muted">
+			No milestones have been set for this campaign yet. Each one will appear here with who owes it,
+			who confirms it and how far along it is.
+		</li>
 	{/each}
 </ol>
 
-<p class="muted back"><a href="/campaigns/{data.campaign.id}">Back to the timeline</a></p>
+<p class="muted back">
+	<a class="tap" href="/campaigns/{data.campaign.id}">Back to the timeline</a>
+</p>
 
 <style>
 	.muted {
 		color: var(--muted);
 		font-size: 0.9rem;
-	}
-	.eyebrow a {
-		color: inherit;
 	}
 	.warn {
 		color: var(--warn);
@@ -484,7 +485,15 @@
 		color: var(--c);
 	}
 	.back {
-		margin-top: 1.5rem;
+		margin-top: 1rem;
+	}
+	.sr {
+		position: absolute;
+		width: 1px;
+		height: 1px;
+		overflow: hidden;
+		clip-path: inset(50%);
+		white-space: nowrap;
 	}
 	@media (max-width: 34rem) {
 		.facts,

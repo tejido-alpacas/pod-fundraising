@@ -1,4 +1,5 @@
 <script lang="ts">
+	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
 	import EntryStatus from '#lib/campaign-site/EntryStatus.svelte';
 	import {
 		CAMPAIGN_STATUS_LABEL,
@@ -23,27 +24,37 @@
 
 <svelte:head><title>{data.campaign.title} · Tejido</title></svelte:head>
 
+<CampaignNav campaignId={data.campaign.id} title={data.campaign.title} current="timeline" />
+
 <header class="campaign">
-	<p class="eyebrow">Donor timeline</p>
 	<h1>{data.campaign.title}</h1>
 	<p class="for">
 		<span class="pill campaign-{data.campaign.status}">
 			{CAMPAIGN_STATUS_LABEL[data.campaign.status]}
 		</span>
-		Beneficiary: {data.campaign.beneficiary}. Organised by {data.campaign.creatorName}.
+		{#if data.campaign.beneficiary}Who it is for: {data.campaign.beneficiary}.{/if}
+		Organised by {data.campaign.creatorName}.
 	</p>
+	{#if data.campaign.summary}<p class="about">{data.campaign.summary}</p>{/if}
 
 	{#if data.milestones.length > 0}
 		<ul class="milestones" aria-label="Milestones">
 			{#each data.milestones as milestone (milestone.id)}
 				<li>
-					<a href={milestonesPath}>{milestone.title}</a>
+					<a class="tap" href="{milestonesPath}#{milestone.id}">{milestone.title}</a>
 					<span class="pill state-{milestone.state}">{MILESTONE_STATE_LABEL[milestone.state]}</span>
 					<span class="muted">due {formatDate(milestone.dueDate)}</span>
 				</li>
 			{/each}
 		</ul>
-		<p class="muted more"><a href={milestonesPath}>Progress on each milestone</a></p>
+		<p class="muted more">
+			<a class="tap" href={milestonesPath}>Progress on each milestone</a>
+		</p>
+	{:else}
+		<p class="empty">
+			No milestones have been set for this campaign yet. They will be listed here, each with who
+			owes it and who confirms it.
+		</p>
 	{/if}
 </header>
 
@@ -88,8 +99,8 @@
 
 {#if data.total === 0}
 	<p class="empty">
-		Nothing has been reported on this campaign yet. Work logs and milestone claims will appear here
-		as soon as they are filed.
+		Nothing has been reported on this campaign yet. Each report from the people doing the work will
+		appear here as soon as it is filed, with its photos and the proof behind it.
 	</p>
 {:else}
 	<ol class="timeline">
@@ -215,13 +226,15 @@
 					<p class="left-out">
 						{entry.evidence.leftOut === 1
 							? '1 attached file is not shown'
-							: `${entry.evidence.leftOut} attached files are not shown`}: we could not confirm
-						{entry.evidence.leftOut === 1 ? 'it is' : 'they are'} from Tejido's evidence store and allowed
-						on this milestone.
+							: `${entry.evidence.leftOut} attached files are not shown`}, because
+						{entry.evidence.leftOut === 1 ? 'it' : 'they'} could not be verified. Tejido shows a photo
+						or document only when it can check that it is the file that was filed.
 					</p>
 				{/if}
 
-				<p class="proof"><a href={entry.proofPath}>See the proof behind this entry</a></p>
+				<p class="proof">
+					<a class="tap" href={entry.proofPath}>See the proof behind this entry</a>
+				</p>
 			</li>
 		{/each}
 	</ol>
@@ -269,8 +282,8 @@
 		display: flex;
 		flex-wrap: wrap;
 		align-items: baseline;
-		gap: 0.15rem 0.6rem;
-		padding: 0.4rem 0;
+		gap: 0 0.6rem;
+		padding: 0 0 0.4rem;
 		border-bottom: 1px solid var(--line);
 	}
 	.milestones a {
@@ -278,7 +291,11 @@
 		color: var(--ink);
 	}
 	.more {
-		margin: 0.4rem 0 0;
+		margin: 0;
+	}
+	.about {
+		margin: 0 0 0.9rem;
+		overflow-wrap: anywhere;
 	}
 	.pill {
 		font-size: 0.75rem;
@@ -510,7 +527,7 @@
 		padding-left: 0.6rem;
 	}
 	.entry .proof {
-		margin-top: 0.7rem;
+		margin: 0.2rem 0 -0.5rem;
 		font-size: 0.95rem;
 		font-weight: 600;
 	}
@@ -526,8 +543,10 @@
 		margin-top: 1.25rem;
 	}
 	.button {
-		display: inline-block;
-		padding: 0.5rem 1rem;
+		display: inline-flex;
+		align-items: center;
+		min-height: 2.75rem;
+		padding: 0 1rem;
 		border: 1.5px solid var(--a);
 		border-radius: 8px;
 		background: var(--surface);

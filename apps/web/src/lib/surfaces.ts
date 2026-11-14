@@ -1,6 +1,7 @@
 /**
- * Every surface we have to build, by track. The index page lists these, and each placeholder
- * page reads its own entry. When you build a surface, replace its page and set `working`.
+ * Every surface we have to build, by track. Each placeholder page reads its own entry. The
+ * home page no longer lists these: it is for donors. When you build a surface, replace its page
+ * and set `working`.
  */
 export type TrackId = 'A' | 'B' | 'C';
 
