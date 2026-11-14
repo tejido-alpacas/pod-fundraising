@@ -1,6 +1,6 @@
 <!--
 	The review step in the chat (B2): the report as the assistant is about to file it, the filing
-	deposit, and the assistant's limit. Track B owns this file.
+	deposit. The assistant's limit is written above the card by the page. Track B owns this file.
 
 	Every word of the report here is the assistant's own message, taken apart by `chatReview`. The
 	card adds only the title, the steps and the two buttons. "File this entry" files nothing by
@@ -54,7 +54,7 @@
 				{/each}
 			</ol>
 			<p class="tj-steps__now">
-				Drafted. Step {now} of {steps.length} is next: you file it with Tejido.
+				Step {now} of {steps.length} · Next: you file it with Tejido
 			</p>
 		</div>
 	{/if}
@@ -70,12 +70,8 @@
 
 	<p class="tj-review__deposit">
 		<Icon name="deposit" size={18} />
-		<span><strong>Filing deposit:</strong> {review.deposit}</span>
+		<span><strong>Filing deposit.</strong> {review.deposit}</span>
 	</p>
-
-	{#each review.closing as line, index (index)}
-		<p>{line}</p>
-	{/each}
 
 	{#if current}
 		<div class="tj-btn-row">

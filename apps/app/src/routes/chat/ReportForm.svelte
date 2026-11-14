@@ -274,11 +274,6 @@
 		<p class="tj-inform__title" id="{uid}-title">
 			Report details <StatusBadge state="pending" label="Draft" plain />
 		</p>
-		<p class="tj-help">
-			Sending this form does not file the report and pays no deposit. The assistant shows you the
-			report first and files it only when you say yes.
-		</p>
-
 		<div class="tj-field">
 			<label class="tj-label" for="{uid}-milestone">Milestone</label>
 			<span class="tj-select-wrap">

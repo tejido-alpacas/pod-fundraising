@@ -489,17 +489,6 @@
 										)}{overdue(next) > 0 ? `. It is ${days(overdue(next))} overdue` : ''}.
 									{/if}
 								</p>
-								<p>
-									I draft the report and file it only when you say yes. Filing pays a deposit from
-									the wallet your filings are paid from: {data.deposit?.log_work} USD-TDN for a work log,
-									{data.deposit?.milestone_hit} USD-TDN for a milestone report. It comes back when the
-									milestone is confirmed. It isn’t a donation or a payment for the work.
-								</p>
-								<p>
-									I can’t check the work myself. For photos and documents, use the report form, or
-									the <a href="/upload" target="_blank" rel="noopener">upload page</a> (opens in a new
-									tab) and paste the link and the file fingerprint here.
-								</p>
 								{#if next}
 									<p>
 										{party.role === 'confirmer'
@@ -507,38 +496,37 @@
 											: 'What did you get done?'}
 									</p>
 									<div class="tj-chips">
-										{#if party.role === 'confirmer'}
-											<Button
-												disabled={waiting || !connected}
-												onclick={() => quick('I want to confirm a milestone.')}
-											>
-												Confirm a milestone
-											</Button>
-											<Button
-												disabled={waiting || !connected}
-												onclick={() => quick('What is waiting for me to confirm?')}
-											>
-												What is waiting for me?
-											</Button>
-										{:else}
-											<Button
-												disabled={waiting || !connected}
-												onclick={() => quick('I want to log this week’s work.')}
-											>
-												Log this week’s work
-											</Button>
-											<Button
-												disabled={waiting || !connected}
-												onclick={() => quick('What do I owe?')}
-											>
-												What is due from me?
-											</Button>
-										{/if}
+										<Button
+											variant="primary"
+											disabled={waiting || !connected}
+											onclick={() =>
+												quick(
+													party.role === 'confirmer'
+														? 'I want to confirm a milestone.'
+														: 'I want to log this week’s work.'
+												)}
+										>
+											{party.role === 'confirmer' ? 'Confirm a milestone' : 'Log this week’s work'}
+										</Button>
 										{#if canFill}
 											<Button icon="list" disabled={!connected} onclick={toggleForm}>
-												{formOpen ? 'Close the report form' : 'Fill in the report form'}
+												{formOpen ? 'Close the form' : 'Fill in the form'}
 											</Button>
 										{/if}
+										<Button
+											variant="quiet"
+											disabled={waiting || !connected}
+											onclick={() =>
+												quick(
+													party.role === 'confirmer'
+														? 'What is waiting for me to confirm?'
+														: 'What do I owe?'
+												)}
+										>
+											{party.role === 'confirmer'
+												? 'What is waiting for me?'
+												: 'What is due from me?'}
+										</Button>
 									</div>
 								{/if}
 							</div>
@@ -606,13 +594,18 @@
 										<div class="tj-msg tj-msg--assistant">
 											{@render who(message.at)}
 											{#if review}
-												<ReviewCard
-													{review}
-													current={last && at === message.parts.length - 1}
-													disabled={waiting || !connected}
-													onfile={() => quick('Yes, file this entry as shown.')}
-													onchange={() => composer?.focus()}
-												/>
+												<div class="tj-msg__bubble tj-msg__bubble--wide">
+													{#each review.closing.filter((line) => line !== 'File this entry?') as line, n (n)}
+														<p>{line}</p>
+													{/each}
+													<ReviewCard
+														{review}
+														current={last && at === message.parts.length - 1}
+														disabled={waiting || !connected}
+														onfile={() => quick('Yes, file this entry as shown.')}
+														onchange={() => composer?.focus()}
+													/>
+												</div>
 											{:else}
 												<div class="tj-msg__bubble words">{part.text.trim()}</div>
 											{/if}
@@ -644,8 +637,19 @@
 					</div>
 
 					{#if canFill}
-						<div class="form" bind:this={formPlace} hidden={!formOpen}>
-							<ReportForm milestones={mine} disabled={waiting || !connected} submit={sendForm} />
+						<div class="tj-msg tj-msg--assistant form" bind:this={formPlace} hidden={!formOpen}>
+							<p class="tj-msg__who">
+								<Icon name="weave" size={16} /><span>Tejido assistant</span>
+							</p>
+							<div class="tj-msg__bubble tj-msg__bubble--wide">
+								<p>
+									Fill in what applies. Sending this files nothing and pays no deposit: I show you
+									the report first and file it only when you say yes. The deposit is
+									{data.deposit?.log_work} USD-TDN for a work log and {data.deposit?.milestone_hit} USD-TDN
+									for a milestone report.
+								</p>
+								<ReportForm milestones={mine} disabled={waiting || !connected} submit={sendForm} />
+							</div>
 						</div>
 					{/if}
 
@@ -661,12 +665,14 @@
 						<button
 							type="button"
 							class="tj-btn tj-btn--secondary tj-btn--icon"
-							aria-label={formOpen ? 'Close the report form' : 'Open the report form'}
+							aria-label={formOpen
+								? 'Close the report form'
+								: 'Open the report form, to add photos and details'}
 							aria-expanded={formOpen}
 							disabled={!connected}
 							onclick={toggleForm}
 						>
-							<Icon name="list" />
+							<Icon name="camera" />
 						</button>
 					{/if}
 					<div class="write">
@@ -706,8 +712,7 @@
 						</button>
 					{/if}
 					<p class="tj-composer__hint" id="draft-hint">
-						Enter sends. This conversation isn’t saved: reloading the page clears it. Reports
-						already filed stay filed.
+						Not saved: reloading the page clears this conversation. Filed reports stay filed.
 					</p>
 				</form>
 			</div>
@@ -860,6 +865,9 @@
 	}
 	.form {
 		scroll-margin-top: 72px;
+	}
+	.form[hidden] {
+		display: none;
 	}
 	.write {
 		min-width: 0;
