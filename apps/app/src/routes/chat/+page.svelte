@@ -15,13 +15,18 @@
 		type ChatRefusal,
 		type ChatTurn
 	} from '#lib/chat.ts';
+	import { DOCUMENT_TYPES, EVIDENCE_MAX_MEGABYTES, PICTURE_TYPES } from '#lib/evidence.ts';
 	import {
 		reportFormLines,
 		reportKindsFor,
 		type ReportFormProblems,
 		type ReportFormValues
 	} from '#lib/report-form.ts';
+	import { afterNavigate } from '$app/navigation';
+	import { page } from '$app/state';
+	import { uploadFromChat, uploadedFileMessage } from '#lib/chat-upload.ts';
 	import { onMount, tick } from 'svelte';
+	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
 	import ReportForm from './ReportForm.svelte';
 	import ReviewCard from './ReviewCard.svelte';
@@ -36,7 +41,22 @@
 	type Part =
 		| { kind: 'text'; text: string }
 		| { kind: 'tool'; id: string; name: string; state: ToolState; at: string };
+	/** A file chosen from the message box. Each state is shown only once it is true. */
+	interface Attachment {
+		name: string;
+		picture: boolean;
+		state: 'uploading' | 'uploaded' | 'failed';
+		/** The person's own file, shown as a thumbnail while and after it uploads. */
+		preview?: string;
+		/** Set once uploaded, exactly as POST /api/evidence answered. */
+		url?: string;
+		sha256?: string;
+		/** Why the upload failed, and whether sending the same file again could help. */
+		problem?: string;
+		again?: boolean;
+	}
 	interface Message {
+		id: number;
 		role: 'user' | 'assistant';
 		text: string;
 		/** A reply in the order it arrived: words, then a tool, then more words. */
@@ -45,6 +65,8 @@
 		problem: string | null;
 		/** Set when the person sent the report form instead of typing. */
 		form?: ReportFormValues;
+		/** Set when the person added a file from the message box. */
+		attachment?: Attachment;
 		/** Local time, 24-hour. */
 		at: string;
 		/** A reply that has ended, or a message of the person's that reached the assistant. */
@@ -81,6 +103,10 @@
 	let signInAgain = $state(false);
 	let stopper: AbortController | null = null;
 	let formOpen = $state(false);
+	let attachOpen = $state(false);
+	let count = 0;
+	/** The files chosen from the message box, kept until uploaded so a failed one can be retried. */
+	const chosen = new SvelteMap<number, File>();
 	let root: HTMLElement | undefined = $state();
 	let composer: HTMLTextAreaElement | undefined = $state();
 	let formPlace: HTMLElement | undefined = $state();
@@ -121,6 +147,11 @@
 		return 'Working on a reply…';
 	});
 
+	// The header's menu opens the report form with /chat?form.
+	afterNavigate(() => {
+		if (page.url.searchParams.has('form') && canFill) void showForm();
+	});
+
 	onMount(() => {
 		if (root) top = Math.round(root.getBoundingClientRect().top + window.scrollY);
 	});
@@ -157,15 +188,22 @@
 		composer.style.height = `${composer.scrollHeight + 2}px`;
 	}
 
-	/** What the server needs: who said what. A reply that produced no words is left out. */
-	function conversation(): ChatTurn[] {
+	/**
+	 * What the server needs: who said what. A reply that produced no words is left out, and so is
+	 * a file that has not reached the assistant yet, unless it is the one being sent now.
+	 */
+	function conversation(sending: number): ChatTurn[] {
 		return messages
 			.filter((message) => message.form !== undefined || message.text.trim() !== '')
+			.filter(
+				(message) => message.attachment === undefined || message.settled || message.id === sending
+			)
 			.map(({ role, text, form }) => (form ? { role, text, form } : { role, text }));
 	}
 
 	function said(text: string, form?: ReportFormValues): Message {
 		const message: Message = {
+			id: count++,
 			role: 'user',
 			text,
 			parts: [],
@@ -211,10 +249,67 @@
 
 	async function toggleForm() {
 		formOpen = !formOpen;
-		if (!formOpen) return;
+		if (formOpen) await showForm();
+	}
+
+	async function showForm() {
+		formOpen = true;
 		await tick();
 		formPlace?.scrollIntoView({ block: 'start' });
 		formPlace?.querySelector<HTMLElement>('select, input, textarea')?.focus();
+	}
+
+	/** A file from the message box: it gets its row at once, is uploaded, then goes to the assistant. */
+	async function attach(event: Event & { currentTarget: HTMLInputElement }) {
+		const input = event.currentTarget;
+		const file = input.files?.[0];
+		input.value = '';
+		attachOpen = false;
+		if (!file || !connected) return;
+
+		const message = said('');
+		const picture = file.type.startsWith('image/');
+		message.attachment = { name: file.name, picture, state: 'uploading' };
+		if (picture) message.attachment.preview = URL.createObjectURL(file);
+		chosen.set(message.id, file);
+		messages.push(message);
+		void scrollDown();
+		await upload(message.id);
+	}
+
+	async function upload(id: number) {
+		const message = messages.find((candidate) => candidate.id === id);
+		const file = chosen.get(id);
+		if (!message?.attachment || !file) return;
+		const attachment = message.attachment;
+		attachment.state = 'uploading';
+
+		const result = await uploadFromChat(file);
+		if (!result.ok) {
+			attachment.state = 'failed';
+			attachment.problem = result.problem;
+			attachment.again = result.again;
+			return;
+		}
+		attachment.state = 'uploaded';
+		attachment.url = result.url;
+		attachment.sha256 = result.sha256;
+		message.text = uploadedFileMessage({ ...result, picture: attachment.picture });
+		chosen.delete(id);
+		await sendFile(id);
+	}
+
+	/** Tells the assistant about an uploaded file. While a reply is arriving it waits to be sent. */
+	async function sendFile(id: number) {
+		if (waiting || !connected) return;
+		const at = messages.findIndex((candidate) => candidate.id === id);
+		const [message] = at === -1 ? [] : messages.splice(at, 1);
+		if (message) await deliver(message);
+	}
+
+	function removeFile(id: number) {
+		chosen.delete(id);
+		messages = messages.filter((candidate) => candidate.id !== id);
 	}
 
 	/** Adds what the person said to the conversation and reads the assistant's reply to it. */
@@ -223,7 +318,7 @@
 		messages.push(theirs);
 		// Read it back out of the list, so that changing it changes the page.
 		const sent = messages[messages.length - 1];
-		const turns = conversation();
+		const turns = conversation(theirs.id);
 		waiting = true;
 		void scrollDown();
 
@@ -244,12 +339,14 @@
 					signInAgain = true;
 				}
 				problem = refusal?.message ?? NO_ANSWER;
-				messages.pop();
+				// An uploaded file keeps its row, marked as not sent, so it can be sent again.
+				if (!theirs.attachment) messages.pop();
 				return { sent: false, fields: refusal?.fields ?? null };
 			}
 
 			if (sent) sent.settled = true;
 			messages.push({
+				id: count++,
 				role: 'assistant',
 				text: '',
 				parts: [],
@@ -301,7 +398,7 @@
 				return { sent: true };
 			}
 			if (!stop.signal.aborted) problem = NO_ANSWER;
-			messages.pop();
+			if (!theirs.attachment) messages.pop();
 			return { sent: false, fields: null };
 		} finally {
 			if (reply) {
@@ -428,14 +525,7 @@
 		bind:this={root}
 		style:--chat-top={top === null ? undefined : `${top}px`}
 	>
-		<div class="context">
-			<h1 class="tj-vh">File a report</h1>
-			<p class="project">{party.campaignTitle}</p>
-			<p class="person">
-				{party.name}{party.title ? ` · ${party.title}` : ''} ·
-				{party.role === 'confirmer' ? 'Confirmer' : 'Reports the work'}
-			</p>
-		</div>
+		<h1 class="tj-vh">File a report</h1>
 
 		<div class="notices">
 			{#if !connected}
@@ -463,6 +553,12 @@
 		<div class="tj-fieldapp__body body">
 			<div class="column">
 				<div class="tj-chat">
+					<p class="tj-toolresult tj-tone--neutral">
+						<Icon name="info" size={18} />
+						<span>
+							This conversation isn’t kept. Reloading the page clears it. Filed reports stay filed.
+						</span>
+					</p>
 					<div class="log" aria-live="polite" aria-label="Conversation">
 						<div class="tj-msg tj-msg--assistant">
 							<p class="tj-msg__who">
@@ -532,12 +628,66 @@
 							</div>
 						</div>
 
-						{#each messages as message, index (index)}
+						{#each messages as message, index (message.id)}
 							{@const last = index === messages.length - 1}
 							{#if message.role === 'user'}
 								<div class="tj-msg tj-msg--human">
 									<p class="tj-msg__who"><span>You</span><time>· {message.at}</time></p>
-									{#if message.form}
+									{#if message.attachment}
+										{@const file = message.attachment}
+										<div class="tj-attach">
+											{#if file.preview}
+												<img src={file.preview} alt="" />
+											{:else}
+												<span class="doc"><Icon name="file-text" size={24} /></span>
+											{/if}
+											<div class="about">
+												<p class="tj-attach__name">{file.name}</p>
+												{#if file.state === 'uploading'}
+													<p class="tj-attach__meta"><Icon name="upload" size={14} />Uploading</p>
+												{:else if file.state === 'uploaded' && file.sha256}
+													<p class="tj-attach__meta">
+														<Icon name="check" size={14} />
+														<span>
+															Uploaded · <span class="tj-id fingerprint"
+																>{shortId(file.sha256)}</span
+															>
+														</span>
+													</p>
+												{:else}
+													<p class="tj-attach__meta">Not uploaded</p>
+												{/if}
+											</div>
+										</div>
+										{#if file.state === 'failed'}
+											<div class="after-file" role="alert">
+												<p class="tj-error">
+													<Icon name="alert-circle" size={18} />{file.problem}
+												</p>
+												<div class="tj-btn-row">
+													{#if file.again}
+														<Button size="sm" icon="retry" onclick={() => upload(message.id)}>
+															Retry
+														</Button>
+													{/if}
+													<Button size="sm" variant="quiet" onclick={() => removeFile(message.id)}>
+														Remove
+													</Button>
+												</div>
+											</div>
+										{:else if file.state === 'uploaded' && !message.settled && !(waiting && last)}
+											<div class="after-file">
+												<p class="tj-help">Uploaded, but the assistant hasn’t been told yet.</p>
+												<Button
+													size="sm"
+													disabled={waiting || !connected}
+													onclick={() => sendFile(message.id)}
+												>
+													Tell the assistant
+												</Button>
+											</div>
+										{/if}
+									{:else if message.form}
 										{@const form = message.form}
 										<div class="tj-msg__bubble sent-form">
 											<p><strong>Report form</strong></p>
@@ -660,21 +810,46 @@
 					{/if}
 				</div>
 
-				<form class="tj-composer" class:no-lead={!canFill} onsubmit={send}>
-					{#if canFill}
-						<button
-							type="button"
-							class="tj-btn tj-btn--secondary tj-btn--icon"
-							aria-label={formOpen
-								? 'Close the report form'
-								: 'Open the report form, to add photos and details'}
-							aria-expanded={formOpen}
-							disabled={!connected}
-							onclick={toggleForm}
-						>
-							<Icon name="camera" />
-						</button>
+				<form class="tj-composer" onsubmit={send}>
+					{#if attachOpen}
+						<div class="tj-chips attach" id="attach-choices">
+							<label class="tj-btn tj-btn--primary pick">
+								<Icon name="camera" /><span>Take photo</span>
+								<input
+									class="tj-vh"
+									type="file"
+									accept={PICTURE_TYPES.join(',')}
+									capture="environment"
+									onchange={attach}
+								/>
+							</label>
+							<label class="tj-btn tj-btn--secondary pick">
+								<Icon name="paperclip" /><span>Choose file</span>
+								<input
+									class="tj-vh"
+									type="file"
+									accept={[...PICTURE_TYPES, ...DOCUMENT_TYPES].join(',')}
+									onchange={attach}
+								/>
+							</label>
+							<p class="tj-help">
+								Photos or PDF documents, up to {EVIDENCE_MAX_MEGABYTES} MB. The file is uploaded so donors
+								can see it, then the assistant is told. To keep a file from donors, use Upload evidence
+								in the menu.
+							</p>
+						</div>
 					{/if}
+					<button
+						type="button"
+						class="tj-btn tj-btn--secondary tj-btn--icon"
+						aria-label="Add photo or file"
+						aria-expanded={attachOpen}
+						aria-controls="attach-choices"
+						disabled={!connected}
+						onclick={() => (attachOpen = !attachOpen)}
+					>
+						<Icon name="camera" />
+					</button>
 					<div class="write">
 						<label class="tj-vh" for="draft">Message</label>
 						<textarea
@@ -687,7 +862,6 @@
 							oninput={fit}
 							onkeydown={onKeydown}
 							disabled={!connected}
-							aria-describedby="draft-hint"
 							placeholder={party.role === 'confirmer'
 								? 'What did you see?'
 								: 'What did you do today?'}></textarea>
@@ -706,18 +880,15 @@
 							type="submit"
 							class="tj-btn tj-btn--primary tj-btn--icon"
 							aria-label="Send"
-							disabled={!connected || draft.trim() === ''}
+							disabled={!connected}
 						>
 							<Icon name="arrow-up" />
 						</button>
 					{/if}
-					<p class="tj-composer__hint" id="draft-hint">
-						Not saved: reloading the page clears this conversation. Filed reports stay filed.
-					</p>
 				</form>
 			</div>
 
-			<aside class="tj-fieldapp__side" aria-label="Context">
+			<aside class="tj-fieldapp__side side" aria-label="Context">
 				<div class="tj-card">
 					<p class="text-eyebrow">This conversation</p>
 					<ul class="tj-checklist">
@@ -793,22 +964,7 @@
 	/* Tall enough that the composer sits at the bottom of the screen when little has been said. */
 	.chat {
 		min-height: calc(100dvh - var(--chat-top, 108px));
-		grid-template-rows: auto auto minmax(0, 1fr);
-	}
-	.context {
-		padding: var(--space-3) var(--space-4);
-		background: var(--surface);
-		border-bottom: var(--border-hair) solid var(--border);
-	}
-	.project {
-		font: 600 16px/22px var(--font-sans);
-		overflow-wrap: anywhere;
-	}
-	.person {
-		font-size: 13px;
-		line-height: 18px;
-		color: var(--text-secondary);
-		overflow-wrap: anywhere;
+		grid-template-rows: auto minmax(0, 1fr);
 	}
 	.notices:not(:empty) {
 		padding: var(--space-4) var(--space-4) 0;
@@ -873,8 +1029,29 @@
 		min-width: 0;
 		display: grid;
 	}
-	.no-lead {
-		grid-template-columns: minmax(0, 1fr) auto;
+	.after-file {
+		display: grid;
+		gap: var(--space-2);
+		justify-items: end;
+		max-width: 320px;
+		text-align: right;
+	}
+	.attach {
+		grid-column: 1 / -1;
+	}
+	.attach .tj-help {
+		flex-basis: 100%;
+	}
+	/* The file input is invisible, so the label shows where the keyboard is. */
+	.pick:focus-within {
+		outline: var(--border-focus) solid var(--focus-ring);
+		outline-offset: 2px;
+	}
+	/* The context column stays in view beside a long conversation. */
+	.side {
+		position: sticky;
+		top: 60px;
+		align-self: start;
 	}
 	.due {
 		display: grid;
@@ -894,9 +1071,6 @@
 		gap: var(--space-2);
 	}
 	@container (min-width: 900px) {
-		.context {
-			padding-inline: var(--space-8);
-		}
 		.notices:not(:empty) {
 			padding-inline: var(--space-8);
 		}

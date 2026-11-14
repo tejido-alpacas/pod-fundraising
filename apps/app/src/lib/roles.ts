@@ -11,3 +11,12 @@ export const ROLES: Record<PartyRole, { name: string; does: string }> = {
 		does: 'You are independent of the work. You sign a milestone off once you have seen it is done.'
 	}
 };
+
+/**
+ * Who a party is, on one line under the project's name: their name, then what they do on the
+ * project in the organiser's words, or their part in it when the organiser gave none.
+ */
+export function partyLine(party: { name: string; title: string; role: PartyRole }): string {
+	const part = party.title || (party.role === 'confirmer' ? 'Confirmer' : 'Reports the work');
+	return `${party.name} · ${part}`;
+}

@@ -204,6 +204,10 @@ describe('the header on every page', () => {
 	it('shows a party their name and no reports to fix when none is incomplete', async () => {
 		const sent = await header(sessionFor(contractor));
 		expect(sent).toEqual({
+			header: {
+				title: fixtures.campaign.title,
+				subtitle: `${contractor.name} · ${contractor.title}`
+			},
 			nav: { email: contractor.email, party: { name: contractor.name, incompleteReports: 0 } }
 		});
 		expectNothingPrivate(sent, contractor);
@@ -212,6 +216,7 @@ describe('the header on every page', () => {
 	it('counts the incomplete reports of the party looking, and nobody else', async () => {
 		const sent = await header(sessionFor(supplier));
 		expect(sent).toEqual({
+			header: { title: fixtures.campaign.title, subtitle: `${supplier.name} · ${supplier.title}` },
 			nav: { email: supplier.email, party: { name: supplier.name, incompleteReports: 1 } }
 		});
 		expectNothingPrivate(sent, supplier);

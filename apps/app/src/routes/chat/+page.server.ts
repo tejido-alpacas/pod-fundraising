@@ -1,5 +1,6 @@
 import { DEPOSIT_AMOUNT, formatAmount } from '@tejido/contracts';
 import { getCampaign, getParty, listMilestones } from '@tejido/db';
+import { partyLine } from '#lib/roles.ts';
 import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
 import type { PageServerLoad } from './$types';
 
@@ -20,6 +21,8 @@ export const load: PageServerLoad = async ({ locals }) => {
 	const milestones = await listMilestones(db, campaign.id);
 
 	return {
+		// The chat is a flow off the home page: the header's back arrow goes there.
+		header: { title: campaign.title, subtitle: partyLine(party), backHref: '/' },
 		/** Today, as YYYY-MM-DD, so the page can say what is overdue. */
 		today: new Date().toISOString().slice(0, 10),
 		/** The filing deposit for each kind of report, as it is written everywhere else. */
