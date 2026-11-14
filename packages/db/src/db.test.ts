@@ -1,0 +1,192 @@
+import { DEPOSIT_AMOUNT, type Deposit, type Entry } from '@tejido/contracts';
+import { fixtures } from '@tejido/contracts/fixtures';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { hasCampaigns, runMigrations, seedFixtures } from './admin.ts';
+import {
+	findPartyByReporterCode,
+	getCampaign,
+	getEntry,
+	getMilestone,
+	getParty,
+	insertEntryWithDeposit,
+	linkPartyWallets,
+	listCampaigns,
+	listDeposits,
+	listEntries,
+	listMilestones,
+	listParties,
+	openDatabase
+} from './index.ts';
+import { deposits, entries } from './schema.ts';
+import { createTestDatabase, type TestDatabase } from './testing.ts';
+
+const byId = <T extends { id: string }>(records: T[]) =>
+	[...records].sort((a, b) => a.id.localeCompare(b.id));
+
+let test: TestDatabase;
+
+afterEach(() => test?.destroy());
+
+describe('a seeded database', () => {
+	beforeEach(async () => {
+		test = await createTestDatabase({ seed: true });
+	});
+
+	it('returns the fixtures exactly as the contracts define them', async () => {
+		const { db } = test;
+		const { campaign } = fixtures;
+
+		expect(await listCampaigns(db)).toEqual([campaign]);
+		expect(await getCampaign(db, campaign.id)).toEqual(campaign);
+		expect(await listParties(db, campaign.id)).toEqual(fixtures.parties);
+		expect(await listMilestones(db, campaign.id)).toEqual(fixtures.milestones);
+		expect(byId(await listEntries(db, campaign.id))).toEqual(byId(fixtures.entries));
+		expect(byId(await listDeposits(db, campaign.id))).toEqual(byId(fixtures.deposits));
+	});
+
+	it('lists entries newest first', async () => {
+		const filedAt = (await listEntries(test.db, fixtures.campaign.id)).map(
+			(entry) => entry.filedAt
+		);
+		expect(filedAt).toEqual([...filedAt].sort().reverse());
+		expect(filedAt).toHaveLength(5);
+	});
+
+	it('lists milestones in their campaign order', async () => {
+		const ids = (await listMilestones(test.db, fixtures.campaign.id)).map((m) => m.id);
+		expect(ids).toEqual(['m1-foundation', 'm2-walls', 'm3-books-delivered']);
+	});
+
+	it('finds single records, and nothing for unknown ids', async () => {
+		const { db } = test;
+		const [party] = fixtures.parties;
+		const [entry] = fixtures.entries;
+
+		expect(await getParty(db, party?.id ?? '')).toEqual(party);
+		expect(await getEntry(db, entry?.id ?? '')).toEqual(entry);
+		expect(await getMilestone(db, fixtures.campaign.id, 'm2-walls')).toEqual(
+			fixtures.milestones[1]
+		);
+
+		expect(await getCampaign(db, 'nope')).toBeUndefined();
+		expect(await getParty(db, 'nope')).toBeUndefined();
+		expect(await getEntry(db, 'nope')).toBeUndefined();
+		expect(await getMilestone(db, fixtures.campaign.id, 'nope')).toBeUndefined();
+		expect(await getMilestone(db, 'nope', 'm2-walls')).toBeUndefined();
+	});
+
+	it('resolves a reporter code to its one party', async () => {
+		for (const party of fixtures.parties) {
+			expect(await findPartyByReporterCode(test.db, party.reporterCode)).toEqual(party);
+		}
+		expect(await findPartyByReporterCode(test.db, 'rc_22222222222222222222')).toBeUndefined();
+	});
+
+	it('refuses to seed twice', async () => {
+		expect(await hasCampaigns(test.db)).toBe(true);
+		await expect(seedFixtures(test.db)).rejects.toThrow();
+		expect(await listCampaigns(test.db)).toHaveLength(1);
+	});
+});
+
+describe('writing', () => {
+	const party = fixtures.parties[0];
+	const now = '2026-11-14T12:00:00.000Z';
+
+	const entry: Entry = {
+		id: 'ent-new',
+		campaignId: fixtures.campaign.id,
+		milestoneId: 'm2-walls',
+		partyId: party?.id ?? '',
+		item: 'log_work',
+		inputs: {
+			reporter_code: party?.reporterCode ?? '',
+			milestone_id: 'm2-walls',
+			summary: 'East wall at lintel height.'
+		},
+		status: 'filed',
+		statusReason: null,
+		payingWallet: null,
+		twistId: null,
+		filedAt: now,
+		stampedAt: null,
+		updatedAt: now
+	};
+	const deposit: Deposit = {
+		id: 'dep-new',
+		entryId: entry.id,
+		amount: DEPOSIT_AMOUNT.log_work,
+		refundedAt: null
+	};
+
+	beforeEach(async () => {
+		test = await createTestDatabase({ seed: true });
+	});
+
+	it('saves an entry together with its deposit', async () => {
+		await insertEntryWithDeposit(test.db, entry, deposit);
+
+		expect(await getEntry(test.db, entry.id)).toEqual(entry);
+		expect(await listDeposits(test.db, fixtures.campaign.id)).toContainEqual(deposit);
+		expect((await listEntries(test.db, fixtures.campaign.id))[0]).toEqual(entry);
+	});
+
+	it('saves neither when the deposit cannot be saved', async () => {
+		const clash = { ...deposit, id: fixtures.deposits[0]?.id ?? '' };
+
+		await expect(insertEntryWithDeposit(test.db, entry, clash)).rejects.toThrow();
+		expect(await getEntry(test.db, entry.id)).toBeUndefined();
+	});
+
+	it('refuses an entry for a milestone that is not in its campaign', async () => {
+		const stray = { ...entry, milestoneId: 'm9-nowhere' };
+
+		await expect(insertEntryWithDeposit(test.db, stray, deposit)).rejects.toThrow();
+		expect(await getEntry(test.db, entry.id)).toBeUndefined();
+	});
+
+	it('refuses a second deposit on one entry, and a twist id used twice', async () => {
+		const [first, second] = fixtures.entries;
+
+		await expect(
+			test.db.insert(deposits).values({ ...deposit, entryId: first?.id ?? '' })
+		).rejects.toThrow();
+		await expect(
+			test.db.insert(entries).values({ ...entry, twistId: second?.twistId ?? null })
+		).rejects.toThrow();
+	});
+
+	it('stores both wallet hostnames on the party, each in its own column', async () => {
+		const id = party?.id ?? '';
+		const agent = fixtures.parties[1]?.agentWalletHostname;
+		const primary = fixtures.parties[1]?.primaryWalletHostname;
+		if (!agent || !primary) throw new Error('fixture parties have wallets');
+
+		await linkPartyWallets(test.db, id, {
+			agentWalletHostname: agent,
+			primaryWalletHostname: primary
+		});
+
+		const linked = await getParty(test.db, id);
+		expect(linked?.agentWalletHostname).toBe(agent);
+		expect(linked?.primaryWalletHostname).toBe(primary);
+	});
+});
+
+describe('setting a database up', () => {
+	it('starts empty after migrations, and migrating again changes nothing', async () => {
+		test = await createTestDatabase();
+
+		expect(await hasCampaigns(test.db)).toBe(false);
+		await runMigrations(test.db);
+		await seedFixtures(test.db);
+		await runMigrations(test.db);
+		expect(await listEntries(test.db, fixtures.campaign.id)).toHaveLength(5);
+	});
+
+	it('refuses a relative database path, which would depend on where the process started', () => {
+		expect(() => openDatabase('file:./data/tejido.db')).toThrow(/absolute file: URL/);
+		expect(() => openDatabase('data/tejido.db')).toThrow(/absolute file: URL/);
+		expect(() => openDatabase(':memory:')).toThrow(/absolute file: URL/);
+	});
+});

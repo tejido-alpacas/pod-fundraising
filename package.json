@@ -1,0 +1,49 @@
+{
+	"name": "tejido",
+	"version": "0.0.0",
+	"private": true,
+	"description": "Tejido proof-of-delivery fundraising. Hackathon monorepo.",
+	"type": "module",
+	"packageManager": "npm@11.19.1",
+	"engines": {
+		"node": ">=24 <25",
+		"npm": ">=11"
+	},
+	"workspaces": [
+		"apps/*",
+		"packages/*"
+	],
+	"scripts": {
+		"preinstall": "node scripts/require-npm.mjs",
+		"predev": "npm run db:prepare",
+		"dev": "npm run dev --workspaces --if-present",
+		"build": "npm run build --workspaces --if-present",
+		"test": "npm run test --workspaces --if-present",
+		"lint": "prettier --check . && eslint --max-warnings=0 \"*.js\" scripts && npm run lint --workspaces --if-present",
+		"typecheck": "npm run typecheck --workspaces --if-present",
+		"format": "prettier --write .",
+		"start": "npm run start --workspace @tejido/web",
+		"db:prepare": "npm run db:prepare --workspace @tejido/db",
+		"db:generate": "npm run db:generate --workspace @tejido/db",
+		"db:migrate": "npm run db:migrate --workspace @tejido/db",
+		"db:seed": "npm run db:seed --workspace @tejido/db",
+		"db:reset": "npm run db:reset --workspace @tejido/db"
+	},
+	"devDependencies": {
+		"@eslint/js": "^10.0.1",
+		"@types/node": "^24.10.0",
+		"eslint": "^10.15.0",
+		"eslint-config-prettier": "^10.1.8",
+		"eslint-plugin-svelte": "^3.24.1",
+		"globals": "^17.14.0",
+		"prettier": "^3.10.1",
+		"prettier-plugin-svelte": "^4.1.1",
+		"svelte": "^5.57.3",
+		"typescript": "^6.0.3",
+		"typescript-eslint": "^8.72.2",
+		"vitest": "^5.1.0"
+	},
+	"allowScripts": {
+		"esbuild": false
+	}
+}

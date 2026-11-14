@@ -1,0 +1,17 @@
+# Lockfile
+package-lock.json
+
+# Generated
+.svelte-kit
+build
+dist
+coverage
+
+# Drizzle writes these; do not hand-format them
+packages/db/drizzle
+
+# Local data
+/data
+
+# Static assets
+apps/web/static

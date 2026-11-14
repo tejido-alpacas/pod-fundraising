@@ -1,0 +1,19 @@
+{
+	"name": "@tejido/contracts",
+	"version": "0.0.0",
+	"private": true,
+	"description": "What the three tracks agree on: schemas, types and fixtures.",
+	"type": "module",
+	"exports": {
+		".": "./src/index.ts",
+		"./fixtures": "./src/fixtures.ts"
+	},
+	"scripts": {
+		"typecheck": "tsc --noEmit",
+		"lint": "eslint --max-warnings=0 .",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"zod": "^4.6.7"
+	}
+}
