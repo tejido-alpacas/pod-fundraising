@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { LANGS, resolveLang, STRINGS, t } from './index.ts';
+import { LANGS, privacyItems, resolveLang, STRINGS, t } from './index.ts';
 
 describe('the four languages', () => {
 	it('has every string in all four, none of them empty', () => {
@@ -14,6 +14,16 @@ describe('the four languages', () => {
 		expect(t('en', 'x_nav_explore')).toBe('Explore');
 		expect(t('fr', 'x_nav_explore')).toBe('Explorer');
 		expect(t('pt', 'x_nav_explore')).toBe('Explorar');
+	});
+
+	it('has the same privacy points in every language', () => {
+		const english = privacyItems('en');
+		expect(english.length).toBeGreaterThan(0);
+		for (const lang of LANGS) {
+			const items = privacyItems(lang);
+			expect(items, lang).toHaveLength(english.length);
+			for (const item of items) expect(item.trim(), lang).not.toBe('');
+		}
 	});
 
 	it('fills placeholders and leaves unknown ones as they are', () => {

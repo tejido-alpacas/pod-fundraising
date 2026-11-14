@@ -42,6 +42,8 @@
 
 	<div class="x-actions x-mt">
 		<a class="btn btn-ghost" href="/explore">{t(lang, 'x_nav_explore')}</a>
+		<a class="btn btn-ghost" href="/help">{t(lang, 'help_title')}</a>
+		<a class="btn btn-ghost" href="/privacy">{t(lang, 'privacy_title')}</a>
 		<a class="btn btn-ghost" href="https://tejido.org">tejido.org</a>
 	</div>
 </div>

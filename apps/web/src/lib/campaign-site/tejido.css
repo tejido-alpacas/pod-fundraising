@@ -110,6 +110,9 @@ p {
 	margin: 0 auto;
 	padding: 0 24px;
 }
+.small {
+	font-size: 14px;
+}
 .skip {
 	position: absolute;
 	left: -999px;
@@ -131,6 +134,7 @@ p {
 .card,
 .top,
 .tabbar,
+.notice,
 .langs,
 dialog {
 	background: var(--glass);
@@ -315,6 +319,14 @@ a.card:hover {
 .card .card {
 	background: rgba(255, 255, 255, 0.55);
 }
+.notice {
+	border-radius: var(--r-sm);
+	padding: 16px 20px;
+	display: flex;
+	gap: 12px;
+	align-items: flex-start;
+	border-left: 4px solid var(--orange);
+}
 
 /* Hero: deep blue light with glass on top */
 .hero {
@@ -441,6 +453,7 @@ dialog::backdrop {
 	.card,
 	.top,
 	.tabbar,
+	.notice,
 	.langs,
 	dialog,
 	.btn-ghost {
@@ -844,6 +857,10 @@ li {
 h1,
 h2 {
 	text-wrap: balance;
+}
+.small {
+	font-size: 14.5px;
+	line-height: 1.55;
 }
 a {
 	text-underline-offset: 3px;
@@ -1330,6 +1347,13 @@ textarea:focus-visible {
 .x-grid > * {
 	min-width: 0;
 }
+.x-narrow {
+	max-width: 600px;
+}
+.wrap.x-narrow {
+	margin-left: auto;
+	margin-right: auto;
+}
 .x-actions {
 	display: flex;
 	flex-wrap: wrap;
@@ -1780,6 +1804,12 @@ a.card:active,
 }
 .x-disc p {
 	color: var(--muted);
+}
+.x-plain {
+	margin: 0;
+	padding-left: 20px;
+	display: grid;
+	gap: 10px;
 }
 
 /* Header: account area */

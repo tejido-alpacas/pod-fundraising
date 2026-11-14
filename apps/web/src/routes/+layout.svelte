@@ -25,7 +25,9 @@
 		'/',
 		'/(campaign-site)/about',
 		'/(campaign-site)/explore',
-		'/(campaign-site)/needs'
+		'/(campaign-site)/needs',
+		'/(campaign-site)/help',
+		'/(campaign-site)/privacy'
 	]);
 	const fullWidth = $derived(FIRST_SITE_PAGES.has(page.route.id ?? ''));
 
@@ -183,6 +185,8 @@
 		</div>
 		<nav class="fa-links" aria-label={t(lang, 'x_foot_more')}>
 			{#each NAV as item (item.href)}<a href={item.href}>{t(lang, item.key)}</a>{/each}
+			<a href="/help">{t(lang, 'help_title')}</a>
+			<a href="/privacy">{t(lang, 'privacy_title')}</a>
 			<a href={ORG_URL}>tejido.org</a>
 		</nav>
 		<div class="fa-base">

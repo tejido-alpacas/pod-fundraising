@@ -9,6 +9,7 @@
  * No server-only import here: pages use this in the browser too.
  */
 import type { CampaignStatus } from '@tejido/contracts';
+import { V1_HELP_PRIVACY_STRINGS, V1_PRIVACY_ITEMS } from './v1-help-privacy.ts';
 import { V1_STRINGS } from './v1-strings.ts';
 
 export const LANGS = ['es', 'en', 'fr', 'pt'] as const;
@@ -125,8 +126,17 @@ const NEW_STRINGS = {
 	status_delivered: ['Entregada', 'Delivered', 'Livrée', 'Entregue']
 } as const satisfies Record<string, Row>;
 
-export const STRINGS = { ...V1_STRINGS, ...NEW_STRINGS } as const satisfies Record<string, Row>;
+export const STRINGS = {
+	...V1_STRINGS,
+	...V1_HELP_PRIVACY_STRINGS,
+	...NEW_STRINGS
+} as const satisfies Record<string, Row>;
 export type StringKey = keyof typeof STRINGS;
+
+/** The Privacy page's points, copied from the first site, in one language. */
+export function privacyItems(lang: Lang): readonly string[] {
+	return V1_PRIVACY_ITEMS[LANG_INDEX[lang]];
+}
 
 /** One string in one language, with `{name}` placeholders filled from `vars`. */
 export function t(lang: Lang, key: StringKey, vars?: Record<string, string | number>): string {
