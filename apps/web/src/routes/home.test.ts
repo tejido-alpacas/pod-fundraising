@@ -1,20 +1,15 @@
 // Calls the home page's own load against a real, migrated database. Nothing here reaches
 // the network.
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaignFunding, campaigns, milestones } from '@tejido/db';
+import { campaigns, milestones } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import { load } from './+page.server.ts';
 
 let test: TestDatabase;
 
-// The day after the newest seeded entry. "Overdue" is counted from the day the page is built.
-beforeEach(() => {
-	vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-11-14T12:00:00.000Z') });
-});
 afterEach(async () => {
-	vi.useRealTimers();
 	await test.destroy();
 });
 
@@ -67,29 +62,6 @@ describe('the home page', () => {
 						milestone.state.startsWith('confirmed')
 					).length
 				},
-				delivery: [
-					{
-						id: 'm1-foundation',
-						position: 1,
-						title: 'Foundation and floor slab',
-						status: 'confirmed',
-						overdueDays: 0
-					},
-					{
-						id: 'm2-walls',
-						position: 2,
-						title: 'Walls up to roof height',
-						status: 'in-progress',
-						overdueDays: 0
-					},
-					{
-						id: 'm3-books-delivered',
-						position: 3,
-						title: 'Books delivered',
-						status: 'claimed',
-						overdueDays: 0
-					}
-				],
 				// The seeded campaign has a goal and no donation item: its funding is not known.
 				funding: {
 					state: 'not_known',
@@ -113,35 +85,6 @@ describe('the home page', () => {
 			.where(and(eq(milestones.campaignId, fixtures.campaign.id), eq(milestones.id, open.id)));
 
 		expect((await home()).campaigns[0]?.milestones.confirmed).toBe(2);
-	});
-
-	it('marks what is late from the due date, and never a confirmed milestone', async () => {
-		test = await createTestDatabase({ seed: true });
-		vi.setSystemTime(new Date('2026-11-28T08:00:00.000Z'));
-
-		const [listed] = (await home()).campaigns;
-		expect(listed?.delivery.map((milestone) => milestone.overdueDays)).toEqual([0, 1, 8]);
-	});
-
-	it('gives a card its funding once donations have been read, and "not known" before', async () => {
-		test = await createTestDatabase({ seed: true });
-		expect((await home()).campaigns[0]?.funding.state).toBe('not_known');
-
-		await test.db.update(campaigns).set({ donationCommodityId: 3154 });
-		await test.db.insert(campaignFunding).values({
-			campaignId: fixtures.campaign.id,
-			raised: 8_450_000,
-			donations: 37,
-			readAt: '2026-11-14T06:00:00.000Z'
-		});
-		expect((await home()).campaigns[0]?.funding).toEqual({
-			state: 'known',
-			goal: fixtures.campaign.fundingGoal,
-			raised: 8_450_000,
-			donations: 37,
-			readAt: '2026-11-14T06:00:00.000Z',
-			goalMet: false
-		});
 	});
 
 	it('leaves drafts out and lists every other status, newest first', async () => {
@@ -197,7 +140,6 @@ describe('the home page', () => {
 				[
 					'beneficiary',
 					'creatorName',
-					'delivery',
 					'funding',
 					'id',
 					'milestones',

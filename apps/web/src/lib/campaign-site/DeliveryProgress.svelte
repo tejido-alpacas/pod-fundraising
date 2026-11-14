@@ -20,17 +20,11 @@
 	let {
 		segments,
 		confirmed,
-		total,
-		eyebrow = true,
-		legend = true
+		total
 	}: {
 		segments: Segment[];
 		confirmed: number;
 		total: number;
-		/** The small "Delivery" label above the count. */
-		eyebrow?: boolean;
-		/** The key under the track, and the milestone numbers. Left off in a compact card. */
-		legend?: boolean;
 	} = $props();
 
 	const SEGMENT = {
@@ -60,7 +54,7 @@
 </script>
 
 <div class="tj-delivery">
-	{#if eyebrow}<p class="text-eyebrow">Delivery</p>{/if}
+	<p class="text-eyebrow">Delivery</p>
 	{#if total === 0}
 		<p class="tj-delivery__headline"><span>No milestones have been set yet</span></p>
 	{:else}
@@ -76,18 +70,14 @@
 					</li>
 				{/each}
 			</ol>
-			{#if legend}
-				<div class="tj-track-labels" aria-hidden="true">
-					{#each segments as segment (segment.id)}<span>{segment.position}</span>{/each}
-				</div>
-			{/if}
+			<div class="tj-track-labels" aria-hidden="true">
+				{#each segments as segment (segment.id)}<span>{segment.position}</span>{/each}
+			</div>
 		</div>
-		{#if legend}
-			<ul class="tj-legend" aria-hidden="true">
-				{#each KEY as [name, label] (name)}
-					<li><span class="tj-track__seg tj-track__seg--{name}"></span>{label}</li>
-				{/each}
-			</ul>
-		{/if}
+		<ul class="tj-legend" aria-hidden="true">
+			{#each KEY as [name, label] (name)}
+				<li><span class="tj-track__seg tj-track__seg--{name}"></span>{label}</li>
+			{/each}
+		</ul>
 	{/if}
 </div>

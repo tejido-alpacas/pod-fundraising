@@ -1,9 +1,4 @@
-import { getFundingSummary, listCampaigns, listEntries, listMilestones } from '@tejido/db';
-import {
-	confirmedCount,
-	milestoneStandings,
-	todayUtc
-} from '#lib/campaign-site/server/delivery.ts';
+import { getFundingSummary, listCampaigns, listMilestones } from '@tejido/db';
 import type { PageServerLoad } from './$types';
 
 // The home page: the campaigns a donor can follow, newest first.
@@ -13,15 +8,13 @@ import type { PageServerLoad } from './$types';
 // altogether, and each campaign that is listed is rebuilt from the fields a donor may see.
 export const load = (async ({ locals }) => {
 	const { db } = locals.ctx;
-	const today = todayUtc();
 
 	const listed = (await listCampaigns(db)).filter((campaign) => campaign.status !== 'draft');
 
 	const campaigns = await Promise.all(
 		listed.map(async (campaign) => {
-			const [milestones, entries, funding] = await Promise.all([
+			const [milestones, funding] = await Promise.all([
 				listMilestones(db, campaign.id),
-				listEntries(db, campaign.id),
 				getFundingSummary(db, campaign)
 			]);
 			return {
@@ -33,10 +26,11 @@ export const load = (async ({ locals }) => {
 				status: campaign.status,
 				milestones: {
 					total: milestones.length,
-					confirmed: confirmedCount(milestones)
+					confirmed: milestones.filter(
+						(milestone) =>
+							milestone.state === 'confirmed_independent' || milestone.state === 'confirmed_creator'
+					).length
 				},
-				/** One segment of the delivery track per milestone, in order. */
-				delivery: milestoneStandings(milestones, entries, today),
 				/**
 				 * Money given, against the goal: totals from our own database, as last read from
 				 * Qatom's ledger. `state: 'not_known'` is not zero. No donor is identified. A different

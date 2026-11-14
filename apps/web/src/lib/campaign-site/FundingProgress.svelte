@@ -5,19 +5,11 @@
   Give it funding only when it is known. "Not known" is not zero: the page shows nothing then.
 
   <FundingProgress funding={data.funding} />
-  <FundingProgress funding={campaign.funding} compact />
 -->
 <script lang="ts">
 	import { formatAmount, fundingPercent, type FundingSummary } from '@tejido/contracts';
 
-	let {
-		funding,
-		compact = false
-	}: {
-		funding: Extract<FundingSummary, { state: 'known' }>;
-		/** One line and the bar, for a campaign card. */
-		compact?: boolean;
-	} = $props();
+	let { funding }: { funding: Extract<FundingSummary, { state: 'known' }> } = $props();
 
 	/** "12,000.00": the amount as `formatAmount` writes it, with the thousands grouped. */
 	function amount(value: number): string {
@@ -43,9 +35,9 @@
 </script>
 
 <div class="tj-funding">
-	{#if !compact}<p class="text-eyebrow">Funding</p>{/if}
+	<p class="text-eyebrow">Funding</p>
 	<p class="tj-funding__amount">
-		<span class={compact ? 'figure' : 'text-figure'}>{raised}</span>
+		<span class="text-figure">{raised}</span>
 		<span>{UNIT} raised{goal === null ? '' : ` of ${goal} goal`}</span>
 	</p>
 	{#if funding.goal !== null && percent !== null}
@@ -69,10 +61,5 @@
 <style>
 	.tj-funding__amount {
 		overflow-wrap: anywhere;
-	}
-	.figure {
-		font-weight: 600;
-		color: var(--text-primary);
-		font-variant-numeric: tabular-nums;
 	}
 </style>
