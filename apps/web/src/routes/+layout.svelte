@@ -14,8 +14,13 @@
 	let { children, data }: LayoutProps = $props();
 
 	const lang = $derived(data.lang);
+	/** The signed-in donor's email, or null. */
+	const donorEmail = $derived(data.donorEmail);
 	/** Where the language buttons return the visitor to. */
 	const here = $derived(page.url.pathname + page.url.search);
+	/** Signing in or out comes back to this page. */
+	const signInHref = $derived(`/auth/sign-in?return_to=${encodeURIComponent(here)}`);
+	const signOutAction = $derived(`/auth/sign-out?return_to=${encodeURIComponent(here)}`);
 
 	/**
 	 * Pages ported from the first site lay out their own full-width sections. Every other page
@@ -127,7 +132,19 @@
 				</form>
 			</div>
 			<div class="acct">
-				<!-- Donors will sign in here with Qatom. That is its own task: see the pull request. -->
+				<!-- Donors sign in with Qatom (identity 1, a person). -->
+				{#if donorEmail}
+					<span class="acct-who" title={t(lang, 'signed_in_as', { email: donorEmail })}
+						>{donorEmail}</span
+					>
+					<form method="post" action={signOutAction}>
+						<button class="btn btn-ghost btn-sm" type="submit">{t(lang, 'signout')}</button>
+					</form>
+				{:else}
+					<a class="btn btn-ghost btn-sm" href={signInHref} title={t(lang, 'signin_hint')}
+						>{t(lang, 'signin')}</a
+					>
+				{/if}
 				<a class="btn btn-orange btn-sm" href="/needs">{t(lang, 'x_give_now')}</a>
 			</div>
 			<button
@@ -149,6 +166,16 @@
 					aria-current={isOn(item.href) ? 'page' : undefined}>{t(lang, item.key)}</a
 				>
 			{/each}
+		</div>
+		<div class="mnav-acct">
+			{#if donorEmail}
+				<p>{t(lang, 'signed_in_as', { email: donorEmail })}</p>
+				<form method="post" action={signOutAction}>
+					<button class="btn btn-ghost btn-sm" type="submit">{t(lang, 'signout')}</button>
+				</form>
+			{:else}
+				<a class="btn btn-ghost btn-sm" href={signInHref}>{t(lang, 'signin')}</a>
+			{/if}
 		</div>
 		<form
 			class="mnav-langs"
@@ -215,6 +242,27 @@
 </nav>
 
 <style>
+	/* The signed-in donor's email in the header: short, so it never pushes the buttons off. */
+	.acct-who {
+		max-width: 16ch;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: 0.875rem;
+		color: var(--muted);
+	}
+	.mnav-acct {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 10px;
+		padding: 12px 0;
+	}
+	.mnav-acct p {
+		margin: 0;
+		font-size: 0.875rem;
+		overflow-wrap: anywhere;
+	}
 	/*
 		The campaign pages built before the port style themselves with these names. They now take
 		the first site's colours: white surfaces, navy ink and its darker blue for links.

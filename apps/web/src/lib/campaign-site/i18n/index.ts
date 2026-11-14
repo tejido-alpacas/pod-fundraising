@@ -122,7 +122,35 @@ const NEW_STRINGS = {
 		'Rapport en retard',
 		'Relatório atrasado'
 	],
-	status_delivered: ['Entregada', 'Delivered', 'Livrée', 'Entregue']
+	status_delivered: ['Entregada', 'Delivered', 'Livrée', 'Entregue'],
+	// Donor sign-in with Qatom, in the header.
+	signin: ['Iniciar sesión', 'Sign in', 'Se connecter', 'Entrar'],
+	signin_hint: [
+		'Inicia sesión con tu cuenta de Qatom',
+		'Sign in with your Qatom account',
+		'Connectez-vous avec votre compte Qatom',
+		'Entre com sua conta Qatom'
+	],
+	signout: ['Cerrar sesión', 'Sign out', 'Se déconnecter', 'Sair'],
+	signed_in_as: [
+		'Sesión iniciada: {email}',
+		'Signed in: {email}',
+		'Connexion : {email}',
+		'Sessão iniciada: {email}'
+	],
+	signin_problem_title: [
+		'No pudimos iniciar tu sesión',
+		'We could not sign you in',
+		"Nous n'avons pas pu vous connecter",
+		'Não conseguimos iniciar sua sessão'
+	],
+	signin_problem_body: [
+		'El inicio de sesión con Qatom no terminó: se agotó el tiempo, se canceló o Qatom no respondió. No se cambió nada. Puedes intentarlo de nuevo.',
+		'The sign-in with Qatom did not finish: it ran out of time, it was cancelled, or Qatom did not answer. Nothing was changed. You can try again.',
+		"La connexion avec Qatom n'a pas abouti : le délai a expiré, elle a été annulée ou Qatom n'a pas répondu. Rien n'a été modifié. Vous pouvez réessayer.",
+		'O login com o Qatom não terminou: o tempo acabou, foi cancelado ou o Qatom não respondeu. Nada foi alterado. Você pode tentar de novo.'
+	],
+	signin_try_again: ['Intentar de nuevo', 'Try again', 'Réessayer', 'Tentar de novo']
 } as const satisfies Record<string, Row>;
 
 export const STRINGS = { ...V1_STRINGS, ...NEW_STRINGS } as const satisfies Record<string, Row>;

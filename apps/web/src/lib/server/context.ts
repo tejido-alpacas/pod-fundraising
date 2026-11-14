@@ -51,7 +51,8 @@ export function initContext(): ServerContext {
 				paymentApiUrl: config.PAYMENT_API_URL,
 				clientId: config.OIDC_CLIENT_ID,
 				clientSecret: config.OIDC_CLIENT_SECRET,
-				redirectUri: config.OIDC_REDIRECT_URI
+				// The Campaign Site's own callback. OIDC_REDIRECT_URI is the App's.
+				redirectUri: config.WEB_OIDC_REDIRECT_URI
 			}),
 			account: createMerchantAccount({
 				paymentApiUrl: config.PAYMENT_API_URL,
