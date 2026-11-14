@@ -6,6 +6,38 @@ track. You need to know what to ask for, what a good answer looks like, and when
 The agents' own rules are in [`CLAUDE.md`](../CLAUDE.md) (`AGENTS.md` is the same file). They
 read it at the start of every session.
 
+## Branches, pull requests and checks, in plain words
+
+You do not have to run any of this yourself. Your agent does it. You only need the picture.
+
+- **`main`** is the one shared, official copy of the project. It is what gets deployed and what
+  the other two build on. If `main` breaks, all three of us are stuck.
+- **A branch** is a private copy where your agent makes its changes. Nothing on a branch affects
+  anyone else. Your agent makes a new one for every task.
+- **A worktree** is a separate folder on your computer for that branch, so two tasks never trip
+  over each other. Your agent sets it up and removes it afterwards.
+- **A pull request** (PR) is the proposal to copy a branch's changes into `main`. It is a page on
+  GitHub that shows what changed and whether the checks passed. Your agent opens it and gives
+  you the link.
+- **The checks** (also called CI) are four automatic tests GitHub runs on every pull request. On
+  the pull request page each shows a green tick, a red cross, or a yellow dot while it is still
+  running.
+- **Merging** is pressing the button that copies the changes into `main`. From that moment
+  everyone has them.
+
+**The one rule that is ours to keep.** GitHub will let anyone merge at any time; we are not on
+a plan that can lock it. So: **never merge unless every check has a green tick.** Not on red,
+not on yellow, not "it's a tiny change". Your agent has been told to refuse, too.
+
+What you say to your agent, in order:
+
+1. "I'm on Track B. Make the invite page show the party's name." It makes a branch and builds.
+2. "Open a pull request." It sends you a link. Open it and look for the ticks.
+3. "Are the checks green?" If not, "Fix what is failing." It should fix the cause, never
+   switch the check off.
+4. Open the page yourself and see the change work.
+5. "Merge it." It merges, then tidies up the branch.
+
 ## Asking for something
 
 - **Start by naming your track.** "I'm on Track B, the App." The agent then knows which
@@ -48,6 +80,7 @@ Your agent should never suggest them. If it does, say no and tell the team.
 
 - Deploying, or running anything against the live site or live database.
 - Pushing straight to `main`, or "force" pushing.
+- Merging while a check is red or still running.
 - Skipping, deleting or "temporarily disabling" a test or a check to get past an error.
 - You pasting a password, key or token into the chat.
 - Sending or refunding money to "check that it works".
@@ -66,9 +99,15 @@ changed so far and what is failing." If the answer does not make sense to you, t
 "Discard all your uncommitted changes," and start a new session with a smaller request. Losing
 twenty minutes of an agent's work costs less than untangling it later.
 
-## Before your work goes into `main`
+## Before you say "merge it"
 
-- Your agent pushed a branch, not `main`.
-- The checks on GitHub are green for that branch.
+- There is a pull request, and you have its link.
+- Every check on that page has a green tick. Scroll to the bottom of the pull request to see
+  them.
 - The files changed are in your track's folders, or the team agreed to the ones that are not.
+  The pull request's "Files outside my track" section should say "None".
 - You opened the page and saw it work yourself.
+
+If a merge does break `main`, tell the team straight away. On the merged pull request's page
+there is a "Revert" button that opens a new pull request undoing it; ask your agent to do
+that.

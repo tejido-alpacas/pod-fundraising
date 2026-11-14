@@ -24,6 +24,10 @@ bun.lockb
 .pnp.*
 .yarn
 
+# Worktrees agents make for their branches
+.worktrees
+.claude/worktrees
+
 # Tooling
 *.tsbuildinfo
 .eslintcache
