@@ -62,9 +62,12 @@ export type RefundSkipReason =
 	| 'refund_outcome_unknown'
 	/** The party has not signed in with Qatom, so there is no primary wallet to send to. */
 	| 'no_primary_wallet'
-	/** The campaign does not have the catalog item's commodity hash stored. */
-	| 'no_commodity_hash'
-	/** The ledger could not be read, so the digital quantity is not known. */
+	/** The campaign does not have the catalog item's commodity id stored. */
+	| 'no_commodity_id'
+	/**
+	 * The ledger could not be read, so the digital quantity is not known. That includes a
+	 * commodity id Qatom does not know or could not look up.
+	 */
 	| 'ledger_unavailable'
 	/** The ledger did not report a usable digital quantity. */
 	| 'no_dq'
@@ -129,7 +132,7 @@ export type RefundResult =
 export interface RefundMilestoneOptions {
 	db: Database;
 	/** Tejido's merchant account. Refunds are paid from its wallet. */
-	account: Pick<MerchantAccount, 'listCommodityTransactions' | 'transfer'>;
+	account: Pick<MerchantAccount, 'resolveCommodityHash' | 'listCommodityTransactions' | 'transfer'>;
 	campaignId: string;
 	milestoneId: string;
 }
@@ -145,8 +148,8 @@ const SKIP_MESSAGES: Record<RefundSkipReason, string> = {
 		'Not sent: an earlier transfer of these deposits got no answer, so it may already have gone through. A person must check the wallet.',
 	no_primary_wallet:
 		'Not sent: this party has not signed in with Qatom, so there is no primary wallet to send to.',
-	no_commodity_hash:
-		"Not sent: the campaign does not have this catalog item's commodity hash, so its ledger cannot be read.",
+	no_commodity_id:
+		"Not sent: the campaign does not have this catalog item's commodity id, so its ledger cannot be read.",
 	ledger_unavailable:
 		'Not sent: the ledger could not be read, so the digital quantity to send is not known. Ask again later.',
 	no_dq: 'Not sent: the ledger did not say which digital quantity the deposits were paid in.',
@@ -189,7 +192,7 @@ function reasonToSkip({ entry, claim }: UnrefundedDeposit): RefundSkipReason | n
 	return null;
 }
 
-type DqLookup = { dq: string } | { skip: 'no_commodity_hash' | 'ledger_unavailable' | 'no_dq' };
+type DqLookup = { dq: string } | { skip: 'no_commodity_id' | 'ledger_unavailable' | 'no_dq' };
 
 /** Reads the digital quantity of each of the campaign's two catalog items, once per item. */
 function digitalQuantities(
@@ -199,10 +202,12 @@ function digitalQuantities(
 	const found = new Map<EntryItem, Promise<DqLookup>>();
 
 	async function read(item: EntryItem): Promise<DqLookup> {
-		const hash =
-			item === 'log_work' ? campaign.logWorkCommodityHash : campaign.milestoneHitCommodityHash;
-		if (hash === null) return { skip: 'no_commodity_hash' };
+		const commodityId =
+			item === 'log_work' ? campaign.logWorkCommodityId : campaign.milestoneHitCommodityId;
+		if (commodityId === null) return { skip: 'no_commodity_id' };
 		try {
+			// The ledger is read by hash. The account looks it up from the id and remembers it.
+			const hash = await account.resolveCommodityHash(commodityId);
 			const { dq } = await account.listCommodityTransactions(hash);
 			return dq !== null && DQ_HASH.test(dq) ? { dq } : { skip: 'no_dq' };
 		} catch (error) {
