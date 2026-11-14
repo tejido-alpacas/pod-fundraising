@@ -120,7 +120,11 @@ message, changes them.
   `.claude/settings.json` denies these commands in Claude Code. A denied command is not an
   obstacle to work around: do not rephrase it, wrap it in a script, or edit that file.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
-  one-off command or a "quick check". Tests stub `fetch`.
+  one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid spec
+  of the end-to-end suite, `e2e/specs/paid-filing.spec.ts`: it files one work log for a real
+  0.10 deposit, only when `E2E_PAID` is exactly `true`, which only a person sets (see
+  `e2e/README.md`). Never set it yourself, never run that suite from your session, and never
+  add a second place where a test moves money.
 - **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
   pull request, as described above. Delete only your own branch, after it has merged.
 - **Never merge a pull request whose checks are not all green**, and never merge without being
@@ -218,7 +222,10 @@ only when the task says so.
   Node can strip: no enums, no parameter properties, no namespaces.
 - This is SvelteKit 3: configuration is in `vite.config.ts`, hook types come from
   `@sveltejs/kit/hooks`, and `building`/`dev` come from `$app/env`.
-- Tests never reach the network.
+- Tests never reach the network: everything `npm test` runs stubs `fetch` and needs no
+  credentials. The one exception is the end-to-end suite in `e2e/`, which signs in to the live
+  site through real Qatom. It is not part of `npm test` or the four checks; GitHub runs it
+  after a deploy (`.github/workflows/e2e.yml`).
 
 ## Before you finish
 

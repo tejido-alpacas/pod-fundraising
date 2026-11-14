@@ -14,6 +14,7 @@ const contractor = fixtures.parties[0]!;
 /** What the page is sent about one milestone. */
 interface Row {
 	id: string;
+	position: number;
 	state: string;
 	strength: string | null;
 	confirmedAt: string | null;
@@ -22,8 +23,19 @@ interface Row {
 	owner: unknown;
 	confirmer: unknown;
 	progress: unknown;
-	entries: { id: string }[];
-	deposits: { paid: number; returned: number };
+	entries: {
+		id: string;
+		deposit: {
+			entryId: string;
+			amount: number;
+			state: string;
+			label: string;
+			refundedAt: string | null;
+			outstandingReason: string | null;
+			outstandingMeaning: string | null;
+		} | null;
+	}[];
+	deposits: { paid: number; held: number; refunded: number; outstanding: number; returned: number };
 }
 
 let test: TestDatabase;
@@ -81,6 +93,13 @@ describe('the milestone status page', () => {
 			['m2-walls', 'open'],
 			['m3-books-delivered', 'claimed']
 		]);
+	});
+
+	it('numbers each milestone and sends the server’s date for writing dates', async () => {
+		const { data, rows } = await status();
+
+		expect(data.today).toBe('2026-11-14');
+		expect(rows.map((row) => row.position)).toEqual([1, 2, 3]);
 	});
 
 	it('shows the strength of a confirmation from how the confirmer relates to the project', async () => {
@@ -210,7 +229,16 @@ describe('the milestone status page', () => {
 				claim: 'confirm',
 				status: 'verified',
 				filedAt: '2026-10-30T09:41:07.000Z',
-				filedBy: 'Yvonne Campbell'
+				filedBy: 'Yvonne Campbell',
+				deposit: {
+					entryId: 'ent-m1-confirm',
+					amount: 1000,
+					state: 'refunded',
+					label: 'Deposit refunded',
+					refundedAt: '2026-10-30T09:45:00.000Z',
+					outstandingReason: null,
+					outstandingMeaning: null
+				}
 			},
 			{
 				id: 'ent-m1-claim',
@@ -218,7 +246,16 @@ describe('the milestone status page', () => {
 				claim: 'completed',
 				status: 'verified',
 				filedAt: '2026-10-29T15:12:40.000Z',
-				filedBy: 'Coral Ridge Builders'
+				filedBy: 'Coral Ridge Builders',
+				deposit: {
+					entryId: 'ent-m1-claim',
+					amount: 1000,
+					state: 'refunded',
+					label: 'Deposit refunded',
+					refundedAt: '2026-10-30T09:45:00.000Z',
+					outstandingReason: null,
+					outstandingMeaning: null
+				}
 			}
 		]);
 		expect(row('m2-walls').entries.map((entry) => entry.id)).toEqual([
@@ -227,21 +264,88 @@ describe('the milestone status page', () => {
 		]);
 	});
 
-	it('totals the deposits paid and returned on each milestone', async () => {
+	it('totals the deposits on each milestone by state: held, refunded, outstanding', async () => {
 		const { row } = await status();
 
-		expect(row('m1-foundation').deposits).toEqual({ paid: 2000, returned: 2000 });
-		expect(row('m2-walls').deposits).toEqual({ paid: 200, returned: 0 });
-		expect(row('m3-books-delivered').deposits).toEqual({ paid: 1000, returned: 0 });
+		expect(row('m1-foundation').deposits).toEqual({
+			paid: 2000,
+			held: 0,
+			refunded: 2000,
+			outstanding: 0,
+			returned: 2000
+		});
+		// Not confirmed yet, so these deposits are held.
+		expect(row('m2-walls').deposits).toEqual({
+			paid: 200,
+			held: 200,
+			refunded: 0,
+			outstanding: 0,
+			returned: 0
+		});
+		expect(row('m3-books-delivered').deposits).toEqual({
+			paid: 1000,
+			held: 1000,
+			refunded: 0,
+			outstanding: 0,
+			returned: 0
+		});
 	});
 
-	it('counts a deposit as returned only once it has been refunded', async () => {
+	it('counts a deposit as refunded only once it has been refunded', async () => {
 		await test.db
 			.update(deposits)
 			.set({ refundedAt: '2026-11-14T09:00:00.000Z' })
 			.where(eq(deposits.id, 'dep-m2-log-1'));
 
-		expect((await status()).row('m2-walls').deposits).toEqual({ paid: 200, returned: 100 });
+		expect((await status()).row('m2-walls').deposits).toEqual({
+			paid: 200,
+			held: 100,
+			refunded: 100,
+			outstanding: 0,
+			returned: 100
+		});
+	});
+
+	it('gives each entry its deposit with one of the three labels', async () => {
+		const { row } = await status();
+
+		expect(row('m1-foundation').entries.map((entry) => entry.deposit?.label)).toEqual([
+			'Deposit refunded',
+			'Deposit refunded'
+		]);
+		expect(row('m2-walls').entries[0]?.deposit).toEqual({
+			entryId: 'ent-m2-log-2',
+			amount: 100,
+			state: 'held',
+			label: 'Deposit held',
+			refundedAt: null,
+			outstandingReason: null,
+			outstandingMeaning: null
+		});
+	});
+
+	it('calls deposits on a confirmed milestone outstanding, not held, until they are refunded', async () => {
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: '2026-11-14T09:00:00.000Z' })
+			.where(eq(milestones.id, 'm2-walls'));
+
+		const walls = (await status()).row('m2-walls');
+
+		expect(walls.deposits).toEqual({
+			paid: 200,
+			held: 0,
+			refunded: 0,
+			outstanding: 200,
+			returned: 0
+		});
+		// Newest first: the filed entry, then the flagged one.
+		expect(
+			walls.entries.map((entry) => [entry.deposit?.label, entry.deposit?.outstandingReason])
+		).toEqual([
+			['Refund outstanding', 'entry_not_verified'],
+			['Refund outstanding', 'entry_flagged']
+		]);
 	});
 
 	it('marks no milestone late while every unconfirmed one is still before its due date', async () => {

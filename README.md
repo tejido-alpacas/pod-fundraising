@@ -60,7 +60,7 @@ the two apps side by side, since a server never exits to let the next one begin.
 | --------------------- | -------------------------------------------------------------------- |
 | `npm run dev`         | Prepares the database, then starts both apps                         |
 | `npm run build`       | Builds both apps as Cloudflare Workers                               |
-| `npm test`            | Runs every test. Tests never reach the network                       |
+| `npm test`            | Runs every unit test. They never reach the network                   |
 | `npm run lint`        | Prettier check, then ESLint                                          |
 | `npm run typecheck`   | TypeScript and Svelte type checks                                    |
 | `npm run format`      | Formats everything with Prettier                                     |
@@ -72,6 +72,17 @@ the two apps side by side, since a server never exits to let the next one begin.
 
 `typecheck`, `lint`, `test` and `build` need no `.env` and no Qatom credentials. CI runs exactly
 those four.
+
+## End-to-end checks against the live site
+
+`e2e/` holds a Playwright suite that signs two fixed test people in to the live App through real
+Qatom (it reads each emailed sign-in code from a queue), walks the App and the Campaign Site, and
+keeps a screenshot of every step at phone and desktop size. GitHub runs it after each release of
+`main` and keeps the screenshots with the run for a week. A run a person starts by hand can also
+file one work log for a real 0.10 deposit.
+
+It is not one of the four checks and `npm test` never runs it. What a person sets up once, how
+to run it, what it costs and how to read a failure are in [`e2e/README.md`](e2e/README.md).
 
 ## Configuration
 
@@ -158,6 +169,8 @@ same eleven configuration values.
 - **Code runs in a Worker, not in Node.** `node:crypto` and `Buffer` work (the `nodejs_compat`
   flag); the file system does not. Store files in R2. D1 has no interactive transactions:
   writes that must land together go in one `db.batch([...])`.
+- **The campaign builder's endpoints** (`POST /api/campaigns/check`, `POST /api/campaigns`) are
+  described in [`docs/campaign-api.md`](docs/campaign-api.md).
 - In production each app is a Worker at its own hostname. `infra/deploy.sh` deploys both.
 
 ## The two Qatom identities

@@ -1,17 +1,25 @@
 <script lang="ts">
-	// The way around one campaign: the same three links, in the same place, on every page of
-	// it. The page a donor is on is marked, and the campaign's name leads back to its timeline.
+	// The way around one campaign: the same trail and the same three tabs on every page of it.
+	// The page a donor is on is marked, and the campaign's name leads back to its overview.
+	import { Icon } from '@tejido/ui';
+
 	type Section = 'timeline' | 'milestones' | 'report';
 
 	let {
 		campaignId,
 		title,
-		current
+		current,
+		part = 'all',
+		counts = {}
 	}: {
 		campaignId: string;
 		title: string;
 		/** The section this page is, or null for a page under one, such as an entry's proof. */
 		current: Section | null;
+		/** The overview places the trail above its header and the tabs under it. */
+		part?: 'all' | 'trail' | 'tabs';
+		/** A count beside a tab's name, where the page knows it: how many updates, how many milestones. */
+		counts?: Partial<Record<Section, number>>;
 	} = $props();
 
 	const base = $derived(`/campaigns/${campaignId}`);
@@ -22,75 +30,49 @@
 	]);
 </script>
 
-<nav class="campaign-nav" aria-label="This campaign">
-	<p class="trail">
+{#snippet trail()}
+	<nav class="tj-crumbs" aria-label="Where you are">
 		<a href="/">All campaigns</a>
-		<span aria-hidden="true">/</span>
+		<Icon name="chevron-right" size={14} />
 		{#if current === 'timeline'}
-			<span>{title}</span>
+			<span aria-current="page">{title}</span>
 		{:else}
 			<a href={base}>{title}</a>
 		{/if}
-	</p>
-	<ul>
+	</nav>
+{/snippet}
+
+{#snippet tabs()}
+	<nav class="tj-tabs" aria-label="This campaign">
 		{#each links as link (link.section)}
-			<li>
-				<a href={link.href} aria-current={current === link.section ? 'page' : undefined}>
-					{link.label}
-				</a>
-			</li>
+			<a href={link.href} aria-current={current === link.section ? 'page' : undefined}>
+				{link.label}{#if counts[link.section] !== undefined}<span>{counts[link.section]}</span>{/if}
+			</a>
 		{/each}
-	</ul>
-</nav>
+	</nav>
+{/snippet}
+
+{#if part === 'trail'}
+	{@render trail()}
+{:else if part === 'tabs'}
+	{@render tabs()}
+{:else}
+	<div class="tj-section campaign-nav">
+		{@render trail()}
+		{@render tabs()}
+	</div>
+{/if}
 
 <style>
 	.campaign-nav {
-		max-width: 46rem;
-		margin-bottom: 1.25rem;
+		gap: var(--space-1);
+		margin-bottom: var(--space-5);
 	}
-	.trail {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 0 0.5rem;
-		margin: 0;
-		font-size: 0.9rem;
-		color: var(--muted);
+	.tj-crumbs {
 		overflow-wrap: anywhere;
 	}
-	.trail a {
-		display: inline-flex;
-		align-items: center;
-		min-height: 2.75rem;
-		color: var(--muted);
-	}
-	ul {
-		list-style: none;
-		display: flex;
-		gap: 0.25rem;
-		margin: 0;
-		padding: 0;
-		border-bottom: 1px solid var(--line);
-	}
-	li {
-		flex: 0 1 auto;
-	}
-	ul a {
-		display: flex;
-		align-items: center;
-		min-height: 2.75rem;
-		padding: 0 0.9rem;
-		margin-bottom: -1px;
-		border-bottom: 3px solid transparent;
-		color: var(--muted);
-		font-weight: 600;
-		text-decoration: none;
-	}
-	ul a:hover {
-		color: var(--ink);
-	}
-	ul a[aria-current='page'] {
-		color: var(--ink);
-		border-bottom-color: var(--a);
+	/* The design system's trail links are 32px tall. Ours are tapped on a phone: 44px. */
+	.tj-crumbs a {
+		min-height: var(--size-touch);
 	}
 </style>

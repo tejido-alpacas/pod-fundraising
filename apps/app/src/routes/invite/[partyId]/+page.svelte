@@ -1,128 +1,131 @@
 <script lang="ts">
-	import { ROLES } from '#lib/roles.ts';
+	import { Banner, Button, Icon } from '@tejido/ui';
+	import FieldPage from '#lib/FieldPage.svelte';
+	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
+	import Strength from '#lib/Strength.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
 
 	const role = $derived(ROLES[data.party.role]);
+	const confirmer = $derived(data.party.role === 'confirmer');
+	/** Between milestones on one line. Its spaces must survive. */
+	const SEPARATOR = ' · ';
+	const signIn = $derived(`/auth/sign-in?party=${data.party.id}`);
 </script>
 
-<svelte:head><title>Your invite to {data.campaign.title} · Tejido</title></svelte:head>
+<svelte:head><title>Your invitation to {data.campaign.title} · Tejido</title></svelte:head>
 
-<article>
-	<p class="eyebrow">Invitation</p>
-	<h1>{data.party.name}, you are invited to “{data.campaign.title}”</h1>
-	<p class="lede">
-		{data.campaign.creatorName} named you on this fundraising campaign. Donors will follow the work through
-		the reports filed here.
+<FieldPage title="Invitation" subtitle="Tejido field app">
+	<p class="text-eyebrow">You’re invited</p>
+	<h1>
+		{data.party.name}, you’re invited to
+		{confirmer ? 'confirm milestones' : 'report your work'} on “{data.campaign.title}”
+	</h1>
+	<p class="tj-fieldpage__lede">
+		{data.campaign.creatorName} named you on this project. Donors follow the work through what is filed
+		here, and they will see your name and your role.
 	</p>
 
-	<dl>
-		<dt>Campaign</dt>
-		<dd>
-			<strong>{data.campaign.title}</strong>
-			{#if data.campaign.summary}<p>{data.campaign.summary}</p>{/if}
-		</dd>
-		{#if data.campaign.beneficiary}
-			<dt>Who it is for</dt>
-			<dd>{data.campaign.beneficiary}</dd>
-		{/if}
-		<dt>Invited</dt>
-		<dd>
-			<strong>{data.party.name}</strong>{#if data.party.title}, {data.party.title}{/if}
-		</dd>
-		<dt>Your role</dt>
-		<dd>
-			<strong>{role.name}</strong>
-			<p>{role.does}</p>
-		</dd>
-		<dt>Invite sent to</dt>
-		<dd>{data.party.emailHint}</dd>
-	</dl>
+	<div class="tj-card">
+		<dl class="tj-dl">
+			<div>
+				<dt>Project</dt>
+				<dd>
+					{data.campaign.title}{#if data.campaign.beneficiary}, for {data.campaign.beneficiary.replace(
+							/^The /,
+							'the '
+						)}{/if}
+				</dd>
+			</div>
+			<div>
+				<dt>Your role</dt>
+				<dd>
+					<strong>{roleName(data.party)}.</strong>
+					{role.does}
+					{#if !confirmer}Your work log is due {CADENCE[data.campaign.cadence]}.{/if}
+				</dd>
+			</div>
+			<div>
+				<dt>{confirmer ? 'Your milestones to confirm' : 'Your milestones to report on'}</dt>
+				<dd>
+					{#if data.milestones.length === 0}
+						None has been given to you yet. {data.campaign.creatorName} can add them.
+					{:else}
+						{#each data.milestones as milestone, index (milestone.id)}{#if index > 0}{SEPARATOR}{/if}<span
+								class="app-nowrap"><span class="tj-vh">Milestone </span>{milestone.position}</span
+							>
+							{milestone.title}{/each}
+					{/if}
+				</dd>
+			</div>
+			{#if data.party.shownAs}
+				<div>
+					<dt>Shown to donors as</dt>
+					<dd>
+						<Strength
+							relationship={data.party.shownAs.relationship}
+							who={data.party.shownAs.reason}
+						/>
+						<p class="tj-help app-strengthnote">
+							This describes how you relate to the project. It is not a score.
+						</p>
+					</dd>
+				</div>
+			{:else}
+				<div>
+					<dt>Shown to donors as</dt>
+					<dd>
+						{data.party.name}, {roleName(data.party).toLowerCase()}, on every report you file.
+					</dd>
+				</div>
+			{/if}
+			<div>
+				<dt>Invite sent to</dt>
+				<dd class="app-wrap">{data.party.emailHint}</dd>
+			</div>
+		</dl>
+	</div>
 
 	{#if data.signedInAsThisParty}
-		<p class="note">You are signed in on this invitation, and your wallets are linked.</p>
-		<p><a class="button" href="/">Go to your campaign</a></p>
-		<p class="again">
-			Asked to sign in again?
-			<a href="/auth/sign-in?party={data.party.id}">Sign in with Qatom once more</a>. It renews your
-			connection and changes nothing else.
-		</p>
-	{:else}
-		<h2>Accept by signing in with Qatom</h2>
-		<p>
-			Sign in with the email address this invite was sent to. Signing in links your two Qatom
-			wallets to this campaign: the one your reports are paid from, and the one your deposits are
-			returned to. No money moves when you sign in.
-		</p>
-		{#if data.party.walletsLinked}
-			<p class="note">
-				Wallets are already linked for this invite. Signing in again signs you in on this device and
-				keeps them up to date.
-			</p>
-		{/if}
-		<p><a class="button" href="/auth/sign-in?party={data.party.id}">Sign in with Qatom</a></p>
+		<Banner tone="neutral" icon="check" title="You are signed in on this invitation" role="status">
+			Your wallets are linked. There is nothing more to do on this page.
+		</Banner>
+	{:else if data.party.walletsLinked}
+		<Banner tone="neutral" icon="wallet" title="Wallets are already linked for this invitation">
+			Signing in again signs you in on this phone and keeps them up to date. Nothing else changes.
+		</Banner>
 	{/if}
-</article>
+
+	<p class="tj-plain">
+		<Icon name="wallet" />
+		<span>
+			Signing in links two Qatom wallets to this project: {role.deposit}. No money moves when you
+			sign in. Use the email address this invitation was sent to.
+		</span>
+	</p>
+
+	{#snippet actions()}
+		{#if data.signedInAsThisParty}
+			<Button variant="primary" size="field" block href="/">Go to your project</Button>
+			<Button variant="quiet" size="field" block href={signIn}>
+				Asked to sign in again? Sign in with Qatom
+			</Button>
+		{:else}
+			<Button variant="primary" size="field" block href={signIn}>Sign in with Qatom</Button>
+		{/if}
+	{/snippet}
+</FieldPage>
 
 <style>
-	article {
-		max-width: 44rem;
+	.app-wrap {
+		overflow-wrap: anywhere;
 	}
-	.lede {
-		color: var(--muted);
+	.app-strengthnote {
+		margin-top: var(--space-2);
 	}
-	dl {
-		display: grid;
-		grid-template-columns: minmax(7rem, max-content) 1fr;
-		gap: 0.75rem 1.25rem;
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 1rem 1.25rem;
-		margin: 1.5rem 0;
-	}
-	dt {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	dd {
-		margin: 0;
-	}
-	dd p {
-		margin: 0.2rem 0 0;
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	.note {
-		border-left: 3px solid var(--line);
-		padding-left: 0.75rem;
-		color: var(--muted);
-	}
-	.again {
-		font-size: 0.9rem;
-		color: var(--muted);
-	}
-	.again a {
-		display: inline-block;
-		padding-block: 0.6rem;
-	}
-	.button {
-		display: inline-block;
-		background: var(--a);
-		color: var(--surface);
+	.app-nowrap {
+		white-space: nowrap;
 		font-weight: 600;
-		text-decoration: none;
-		padding: 0.6rem 1.1rem;
-		border-radius: 6px;
-	}
-	@media (max-width: 32rem) {
-		dl {
-			grid-template-columns: 1fr;
-			gap: 0.15rem;
-		}
-		dd {
-			margin-bottom: 0.6rem;
-		}
 	}
 </style>

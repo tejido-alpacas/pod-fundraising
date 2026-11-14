@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { shownRelationship, type Party, type PartyRelationship } from './party.ts';
+import { amountSchema } from './money.ts';
 import { dateSchema, emailSchema, idSchema, timestampSchema } from './primitives.ts';
 
 /**
@@ -45,6 +46,18 @@ export const campaignSchema = z.object({
 	logWorkCommodityId: commodityIdSchema.nullable(),
 	/** The same, for this campaign's "Milestone hit" catalog item. */
 	milestoneHitCommodityId: commodityIdSchema.nullable(),
+	/**
+	 * What the campaign is trying to raise, in the same unit as every other amount (money.ts).
+	 * Null when no goal has been set. A goal is never invented: with none, the campaign's
+	 * funding cannot be "met" and it is not moved to `funded`.
+	 */
+	fundingGoal: amountSchema.positive().nullable(),
+	/**
+	 * The commodity behind this campaign's donation catalog item in Qatom, owned by Tejido's
+	 * merchant account. Donors pay for it through Qatom; we only read its ledger, for totals
+	 * (funding.ts). Null until the item has been created: funding then reads "not known".
+	 */
+	donationCommodityId: commodityIdSchema.nullable(),
 	createdAt: timestampSchema
 });
 export type Campaign = z.infer<typeof campaignSchema>;

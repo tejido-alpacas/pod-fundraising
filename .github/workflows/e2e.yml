@@ -1,0 +1,125 @@
+name: End-to-end
+
+# Signs in to the LIVE site through real Qatom and walks it, keeping screenshots. See e2e/README.md.
+#
+# It runs after every successful release of `main`, and by hand from the Actions tab. Only a run
+# started by hand, with "paid" ticked, spends a filing deposit. It is a workflow of its own, so
+# it can never fail or hold up a deploy.
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      paid:
+        description: Also file one work log for a real 0.10 deposit from the test contractor's wallet
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  # Lets the job prove to AWS that it is this repository's `main`. There is no AWS key anywhere.
+  id-token: write
+
+# One run at a time: the two test people and their inbox are shared. A run that has started is
+# never cancelled, least of all in the middle of a paid filing.
+concurrency:
+  group: e2e-production
+  cancel-in-progress: false
+
+jobs:
+  e2e:
+    # After CI: only when that run was a push to `main` and every job in it, the deploy
+    # included, succeeded. By hand: always.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # None of these is a secret. The three from `vars` are set once by a person, from the
+      # outputs of the Qatom infrastructure that receives the test people's mail.
+      E2E_INBOX_QUEUE_URL: ${{ vars.E2E_INBOX_QUEUE_URL }}
+      E2E_INBOX_DOMAIN: ${{ vars.E2E_INBOX_DOMAIN }}
+      E2E_AWS_ROLE_ARN: ${{ vars.E2E_AWS_ROLE_ARN }}
+      E2E_INBOX_REGION: ca-central-1
+      # The same Qatom the live site signs people in with (PAYMENT_API_URL in ci.yml).
+      E2E_QATOM_HOST: pay.m.todaq.net
+      # The test campaign and its two people, as `npm run db:seed:e2e:sql` writes them.
+      E2E_CAMPAIGN_ID: e2e-smoke
+      E2E_CONTRACTOR_PARTY_ID: e2e-contractor
+      E2E_CONFIRMER_PARTY_ID: e2e-confirmer
+      # Money moves only in a run a person started by hand with "paid" ticked. Never after a deploy.
+      E2E_PAID: ${{ github.event_name == 'workflow_dispatch' && inputs.paid && 'true' || 'false' }}
+    steps:
+      # Until a person has set the three variables, there is no inbox to read a sign-in code
+      # from. The run then ends here, green, with a notice. It never fails for this.
+      - name: Check that the inbox is set up
+        id: inbox
+        run: |
+          missing=()
+          for name in E2E_INBOX_QUEUE_URL E2E_INBOX_DOMAIN E2E_AWS_ROLE_ARN; do
+            [[ -n ${!name} ]] || missing+=("$name")
+          done
+          if ((${#missing[@]})); then
+            echo "::notice::End-to-end run skipped. These repository variables are not set: ${missing[*]}. Add them under Settings, Secrets and variables, Actions, Variables. See e2e/README.md."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # After a deploy: the commit that was just released, so the suite matches the live site.
+      - uses: actions/checkout@v4
+        if: steps.inbox.outputs.ready == 'true'
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        if: steps.inbox.outputs.ready == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+        if: steps.inbox.outputs.ready == 'true'
+
+      - name: Install Chromium for Playwright
+        if: steps.inbox.outputs.ready == 'true'
+        run: npx playwright install --with-deps chromium
+        working-directory: e2e
+
+      # Short-lived credentials for the role that may read the inbox queue, and nothing else.
+      # AWS trusts this repository's `main` only, so a run from any other branch stops here.
+      - name: Assume the inbox role
+        if: steps.inbox.outputs.ready == 'true'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.E2E_AWS_ROLE_ARN }}
+          aws-region: ca-central-1
+
+      - name: Say whether this run spends a deposit
+        if: steps.inbox.outputs.ready == 'true'
+        run: |
+          if [[ $E2E_PAID == true ]]; then
+            echo "::warning::PAID run: one work log will be filed for a real 0.10 deposit from the test contractor's wallet."
+          else
+            echo "::notice::Unpaid run: the paid spec is skipped. No deposit is spent and nothing is filed."
+          fi
+
+      - name: Run the end-to-end suite
+        if: steps.inbox.outputs.ready == 'true'
+        run: npm run e2e
+
+      # Always, pass or fail: the screenshots are how a person reads what happened. Only this
+      # folder is uploaded. The signed-in browser state is kept outside it and is never uploaded.
+      - name: Keep the screenshots and the report
+        if: always() && steps.inbox.outputs.ready == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-${{ github.run_number }}-${{ github.run_attempt }}
+          path: e2e/artifacts
+          retention-days: 7
+          if-no-files-found: warn

@@ -2,15 +2,23 @@ import { error } from '@sveltejs/kit';
 import {
 	confirmationStrength,
 	isConfirmed,
-	isRefunded,
 	shownRelationship,
+	totalDeposits,
 	type Entry,
 	type Party
 } from '@tejido/contracts';
-import { getCampaign, listDeposits, listEntries, listMilestones, listParties } from '@tejido/db';
+import {
+	getCampaign,
+	listDepositStatuses,
+	listEntries,
+	listMilestones,
+	listParties
+} from '@tejido/db';
+import { depositTotalsView, depositView } from '#lib/campaign-site/server/deposits.ts';
 import type { PageServerLoad } from './$types';
 
-// Milestone status (A4): where every milestone of a campaign stands. Everything returned here
+// Milestones (A3, the index): where every milestone of a campaign stands. Each one has its own
+// page under `[milestoneId]/`. Everything returned here
 // is shown to the public, so it is built field by field: no reporter code, no email address
 // and no wallet leaves this file.
 
@@ -44,11 +52,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 		listMilestones(db, campaign.id),
 		// Newest first.
 		listEntries(db, campaign.id),
-		listDeposits(db, campaign.id)
+		// Every deposit with its state: held, refunded or refund outstanding.
+		listDepositStatuses(db, campaign.id)
 	]);
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
-	const depositByEntry = new Map(deposits.map((deposit) => [deposit.entryId, deposit]));
+	const depositByEntry = new Map(
+		deposits.deposits.map((status) => [status.deposit.entryId, status])
+	);
 	// Due dates are calendar dates with no time zone. A milestone is late from the day after.
 	const today = new Date().toISOString().slice(0, 10);
 
@@ -61,17 +72,11 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			(entry): entry is Extract<Entry, { item: 'log_work' }> => entry.item === 'log_work'
 		);
 
-		let paid = 0;
-		let returned = 0;
-		for (const entry of filed) {
-			const deposit = depositByEntry.get(entry.id);
-			if (!deposit) continue;
-			paid += deposit.amount;
-			if (isRefunded(deposit)) returned += deposit.amount;
-		}
+		const paid = filed.flatMap((entry) => depositByEntry.get(entry.id) ?? []);
 
 		return {
 			id: milestone.id,
+			position: milestone.position,
 			title: milestone.title,
 			description: milestone.description,
 			kind: milestone.kind,
@@ -99,13 +104,20 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 				claim: entry.item === 'milestone_hit' ? entry.inputs.claim : null,
 				status: entry.status,
 				filedAt: entry.filedAt,
-				filedBy: partyById.get(entry.partyId)?.name ?? null
+				filedBy: partyById.get(entry.partyId)?.name ?? null,
+				/** The deposit paid with this entry and its state. Null if none is on record. */
+				deposit:
+					paid.filter(({ deposit }) => deposit.entryId === entry.id).map(depositView)[0] ?? null
 			})),
-			deposits: { paid, returned }
+			// `held`, `refunded` and `outstanding` add up to `paid`. Once a milestone is confirmed
+			// nothing on it is `held`: what has not gone back is `outstanding`.
+			deposits: depositTotalsView(totalDeposits(paid))
 		};
 	});
 
 	return {
+		/** The server's date, so the page writes dates the same on the server and in the browser. */
+		today,
 		campaign: { id: campaign.id, title: campaign.title, status: campaign.status },
 		milestones: rows
 	};

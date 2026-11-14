@@ -11,6 +11,10 @@
  *
  * WHO. Only the party who filed the entry, and only while it is `incomplete`.
  *
+ * NOT-PUBLIC FILES. A file marked not public on the upload page can be pasted in here like
+ * any other, but it never counts as the photo or document a claim owes to donors
+ * (`decideCheckin`). A file chosen here is stored without that choice.
+ *
  * THE RULES are the check-in endpoint's own (`decideCheckin` in @tejido/db), applied again to
  * the entry with the new files added. If they find nothing missing, the entry stops being
  * `incomplete`. If something is still missing, the good files are kept and the reason is
@@ -27,11 +31,11 @@ import { fail } from '@sveltejs/kit';
 import {
 	EVIDENCE_CONTENT_TYPES,
 	EVIDENCE_FILE_FIELD,
-	evidenceUploadResponseSchema,
+	evidenceReferenceSchema,
 	MAX_PHOTOS_PER_ENTRY,
 	type CheckinInputs,
 	type Entry,
-	type EvidenceUploadResponse,
+	type EvidenceReference,
 	type Milestone
 } from '@tejido/contracts';
 import {
@@ -43,6 +47,7 @@ import {
 	getMilestone,
 	getParty,
 	listIncompleteEntries,
+	listNotPublicEvidence,
 	listMilestones,
 	takesDocumentsOnly
 } from '@tejido/db';
@@ -67,17 +72,31 @@ function kindOfReport(entry: Entry): 'work_log' | 'claim' | 'confirmation' {
 }
 
 /** What the page shows of one entry. Never the reporter code, and never the whole inputs. */
-function shown(entry: Entry, milestone: Milestone | undefined) {
-	const attached = entry.inputs.photos?.length ?? 0;
+function shown(
+	entry: Entry,
+	milestone: Milestone | undefined,
+	notPublic: ReadonlyMap<string, { kind: string; reason: string }>
+) {
+	const photos = entry.inputs.photos ?? [];
+	const attached = photos.length;
 	return {
 		id: entry.id,
 		milestoneTitle: milestone?.title ?? entry.milestoneId,
+		milestonePosition: milestone?.position ?? null,
 		report: kindOfReport(entry),
 		summary: entry.inputs.summary,
 		filedAt: entry.filedAt,
 		/** Why it is incomplete, in the words donors are shown. */
 		missing: entry.statusReason,
 		attached,
+		/**
+		 * The attached files kept from donors, in the two lines donors are shown for each. They
+		 * are saved, but do not count as the photo or document a report owes to donors.
+		 */
+		notPublic: photos.flatMap((photo) => {
+			const words = notPublic.get(photo.sha256);
+			return words ? [{ kind: words.kind, reason: words.reason }] : [];
+		}),
 		room: MAX_PHOTOS_PER_ENTRY - attached,
 		documentsOnly: milestone ? takesDocumentsOnly(milestone.kind) : false
 	};
@@ -96,20 +115,25 @@ export const load: PageServerLoad = async ({ locals }) => {
 		listIncompleteEntries(db, party.id),
 		listMilestones(db, party.campaignId)
 	]);
+	const notPublic = await listNotPublicEvidence(
+		db,
+		entries.flatMap((entry) => (entry.inputs.photos ?? []).map((photo) => photo.sha256))
+	);
 	return {
 		viewer: 'party' as const,
 		email: session.email,
 		entries: entries.map((entry) =>
 			shown(
 				entry,
-				milestones.find((milestone) => milestone.id === entry.milestoneId)
+				milestones.find((milestone) => milestone.id === entry.milestoneId),
+				notPublic
 			)
 		)
 	};
 };
 
 /** The entry with more files, in the shape the check-in rules take. */
-function withFiles(entry: Entry, added: EvidenceUploadResponse[]): CheckinInputs {
+function withFiles(entry: Entry, added: EvidenceReference[]): CheckinInputs {
 	const photos = [...(entry.inputs.photos ?? []), ...added];
 	return entry.item === 'log_work'
 		? { item: entry.item, inputs: { ...entry.inputs, photos } }
@@ -120,16 +144,16 @@ function withFiles(entry: Entry, added: EvidenceUploadResponse[]): CheckinInputs
  * Reads what was pasted from the upload page: one `{ url, sha256 }` or a list of them.
  * Null when it is not that.
  */
-function readPasted(text: string): EvidenceUploadResponse[] | null {
+function readPasted(text: string): EvidenceReference[] | null {
 	let value: unknown;
 	try {
 		value = JSON.parse(text);
 	} catch {
 		return null;
 	}
-	const found: EvidenceUploadResponse[] = [];
+	const found: EvidenceReference[] = [];
 	for (const item of Array.isArray(value) ? value : [value]) {
-		const parsed = evidenceUploadResponseSchema.safeParse(item);
+		const parsed = evidenceReferenceSchema.safeParse(item);
 		if (!parsed.success) return null;
 		found.push(parsed.data);
 	}
@@ -137,7 +161,7 @@ function readPasted(text: string): EvidenceUploadResponse[] | null {
 }
 
 /** A file to add, with the name the person knows it by. */
-interface Candidate extends EvidenceUploadResponse {
+interface Candidate extends EvidenceReference {
 	name: string;
 	/** True when it was stored by this request, so it is known to be in the store. */
 	storedNow: boolean;
@@ -151,6 +175,7 @@ export const actions = {
 		if (!session.partyId) {
 			return fail(403, { entryId: null, refused: PROBLEM_SENTENCES.not_a_party });
 		}
+		const partyId = session.partyId;
 		const { config, db, evidence } = locals.ctx;
 
 		const form = await request.formData();
@@ -209,8 +234,26 @@ export const actions = {
 			const check = checkEvidenceFile(file);
 			if (!check.ok) continue;
 			try {
-				const stored = await storeEvidence(evidence, file, check.type, origin);
-				candidates.push({ ...stored, name: file.name, storedNow: true });
+				// A file added here is stored without a choice of who may see it: a new file is
+				// public, and one this party uploaded before stays as they left it.
+				const stored = await storeEvidence({
+					evidence,
+					db,
+					file,
+					type: check.type,
+					origin,
+					partyId,
+					choice: null
+				});
+				if (!stored.stored) {
+					return refuse(409, `Nothing was added. ${file.name}: ${PROBLEM_SENTENCES.unexpected}`);
+				}
+				candidates.push({
+					url: stored.url,
+					sha256: stored.sha256,
+					name: file.name,
+					storedNow: true
+				});
 			} catch {
 				return refuse(500, `Nothing was added. ${file.name}: ${PROBLEM_SENTENCES.unexpected}`);
 			}
@@ -274,6 +317,10 @@ export const actions = {
 			party,
 			milestone,
 			evidenceOrigin: origin,
+			notPublicEvidence: await listNotPublicEvidence(
+				db,
+				[...(entry.inputs.photos ?? []), ...evidenceToAdd].map((photo) => photo.sha256)
+			),
 			now
 		});
 		if (!decision.allowed) {
