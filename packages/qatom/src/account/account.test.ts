@@ -555,3 +555,208 @@ describe('comparing wallet addresses', () => {
 		expect(sameTwin('', '')).toBe(false);
 	});
 });
+
+// The request and answer shapes below are the ones in Qatom's API document
+// ({PAYMENT_API_URL}/v4/openapi.json). They have not been run against Qatom.
+describe('creating a catalog item', () => {
+	const bearer = { accept: 'application/json', authorization: 'Bearer token-1' };
+	const json = { ...bearer, 'content-type': 'application/json' };
+
+	it('creates a provider twin and does not read its key', async () => {
+		answer(tokenAnswer(), {
+			status: 201,
+			json: { id: 3601, hostname: '0f6d2b9e.micro.biz.todaq.net', key: 'twin-key', balances: {} }
+		});
+
+		const twin = await account().createProviderTwin({ dq: '41dq' });
+
+		expect(twin).toEqual({ twinId: 3601, hostname: '0f6d2b9e.micro.biz.todaq.net' });
+		expect(requests[1]).toEqual({
+			method: 'POST',
+			url: `${API}/v4/twin`,
+			headers: json,
+			body: JSON.stringify({ dq: '41dq', type: 'provider' })
+		});
+	});
+
+	it('lists what a twin sells', async () => {
+		answer(tokenAnswer(), {
+			json: [
+				{ hash: '41b0', descriptor: 'Log work', dq: '41dq', cost: 100, hostname: 'h' },
+				{ hash: '41b1' }
+			]
+		});
+
+		expect(await account().listTwinCommodities('0f6d2b9e.micro.biz.todaq.net')).toEqual([
+			{ hash: '41b0', descriptor: 'Log work', dq: '41dq', cost: 100 },
+			{ hash: '41b1', descriptor: null, dq: null, cost: null }
+		]);
+		expect(requests[1]).toMatchObject({
+			method: 'GET',
+			url: `${API}/v4/twin/0f6d2b9e.micro.biz.todaq.net/commodities`,
+			headers: bearer
+		});
+	});
+
+	it('creates a commodity on a twin and answers its hash', async () => {
+		answer(tokenAnswer(), {
+			status: 201,
+			json: { hash: '41b0', descriptor: 'Log work', cost: 100 }
+		});
+
+		const created = await account().createCommodity({
+			twinId: 3601,
+			descriptor: 'Log work',
+			cost: 100,
+			dq: '41dq'
+		});
+
+		expect(created).toEqual({ commodityHash: '41b0' });
+		expect(requests[1]).toEqual({
+			method: 'POST',
+			url: `${API}/v4/commodity`,
+			headers: json,
+			body: JSON.stringify({ descriptor: 'Log work', cost: 100, dq: '41dq', twin_id: 3601 })
+		});
+	});
+
+	it('refuses a commodity with no price, a fraction of a unit or no twin, before any request', async () => {
+		const commodity = { twinId: 3601, descriptor: 'Log work', cost: 100, dq: '41dq' };
+		for (const wrong of [{ cost: 0 }, { cost: 0.5 }, { twinId: 0 }, { descriptor: '' }]) {
+			await expect(account().createCommodity({ ...commodity, ...wrong })).rejects.toBeInstanceOf(
+				RangeError
+			);
+		}
+		expect(requests).toHaveLength(0);
+	});
+
+	it('names a commodity with PUT and answers its id', async () => {
+		answer(tokenAnswer(), { json: { commodity: { id: 118, hash: '41b0', name: 'Log work' } } });
+
+		const described = await account().describeCommodity('41b0', {
+			name: 'Log work',
+			description: 'File a work log.'
+		});
+
+		expect(described).toEqual({ commodityId: 118 });
+		expect(requests[1]).toEqual({
+			method: 'PUT',
+			url: `${API}/v4/commodity/41b0`,
+			headers: json,
+			body: JSON.stringify({ name: 'Log work', description: 'File a work log.' })
+		});
+	});
+
+	it('does not make up a commodity id the answer does not carry', async () => {
+		answer(tokenAnswer(), { json: { commodity: { hash: '41b0' } } });
+		await expect(
+			account().describeCommodity('41b0', { name: 'Log work', description: 'File a work log.' })
+		).rejects.toBeInstanceOf(QatomResponseError);
+	});
+
+	it('finds the catalog item of a commodity, or none', async () => {
+		answer(
+			tokenAnswer(),
+			{ json: { items: [{ id: 42, commodity_id: 118 }], total: 1, limit: null, offset: 0 } },
+			{ json: { items: [], total: 0, limit: null, offset: 0 } }
+		);
+		const merchant = account();
+
+		expect(await merchant.findCatalogItem(118)).toEqual({ catalogItemId: 42, commodityId: 118 });
+		expect(await merchant.findCatalogItem(119)).toBeNull();
+		expect(requests[1]!.url).toBe(`${API}/v4/catalog/items?commodity_id=118&mine=true&active=all`);
+	});
+
+	const newItem = {
+		commodityId: 118,
+		serviceSchema: { type: 'object', properties: { summary: { type: 'string' } } },
+		externalEndpoint: 'https://tejido.net/api/checkins',
+		secretHeader: { name: 'X-Tejido-Checkin-Secret', value: 'a-secret-value-a-secret-value-1234' }
+	};
+
+	it('creates a featured item that POSTs to the endpoint, with its secret header in the same request', async () => {
+		answer(tokenAnswer(), {
+			status: 201,
+			json: { item: { id: 42, commodity_id: 118, featured: true }, dispatch_params: [] }
+		});
+
+		expect(await account().createCatalogItem(newItem)).toEqual({
+			catalogItemId: 42,
+			commodityId: 118
+		});
+		expect(requests[1]).toEqual({
+			method: 'POST',
+			url: `${API}/v4/catalog/items`,
+			headers: json,
+			body: JSON.stringify({
+				commodity_id: 118,
+				service_method: 'POST',
+				service_schema: newItem.serviceSchema,
+				external_endpoint: 'https://tejido.net/api/checkins',
+				active: true,
+				featured: true,
+				dispatch_params: [
+					{
+						kind: 'header',
+						name: 'X-Tejido-Checkin-Secret',
+						sensitive: true,
+						value: 'a-secret-value-a-secret-value-1234'
+					}
+				]
+			})
+		});
+	});
+
+	it('refuses an endpoint that is not https or a header Qatom would not take, without showing the value', async () => {
+		const wrong = [
+			{ externalEndpoint: 'http://tejido.net/api/checkins' },
+			{ externalEndpoint: 'https://tejido.net/{secret.x}' },
+			{ secretHeader: { name: 'X Bad', value: 'value' } },
+			{ secretHeader: { name: 'X-Tejido-Checkin-Secret', value: ' padded-secret ' } }
+		];
+		for (const change of wrong) {
+			const error: unknown = await account()
+				.createCatalogItem({ ...newItem, ...change })
+				.catch((thrown: unknown) => thrown);
+			expect(error).toBeInstanceOf(TypeError);
+			expect((error as Error).message).not.toContain('padded-secret');
+		}
+		expect(requests).toHaveLength(0);
+	});
+
+	it('never sends a create call twice: a timeout, a dropped connection and a 500 are reported once', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), new DOMException('timed out', 'TimeoutError'));
+		await expect(merchant.createProviderTwin({ dq: '41dq' })).rejects.toBeInstanceOf(
+			QatomTimeoutError
+		);
+		answer(new TypeError('fetch failed'));
+		await expect(
+			merchant.createCommodity({ twinId: 3601, descriptor: 'Log work', cost: 100, dq: '41dq' })
+		).rejects.toBeInstanceOf(QatomNetworkError);
+		answer({ status: 500, json: { error: 'Internal Server Error', status: 500 } });
+		await expect(merchant.createCatalogItem(newItem)).rejects.toMatchObject({ status: 500 });
+
+		// The token, then each create call exactly once.
+		expect(requests.map((request) => request.url)).toEqual([
+			`${API}/v4/account/oauth/token`,
+			`${API}/v4/twin`,
+			`${API}/v4/commodity`,
+			`${API}/v4/catalog/items`
+		]);
+	});
+
+	it('keeps the secret out of the error when Qatom refuses the item', async () => {
+		answer(tokenAnswer(), {
+			status: 400,
+			json: { error: 'dispatch_params[0].name is a header payment sets itself', status: 400 }
+		});
+
+		const error: unknown = await account()
+			.createCatalogItem(newItem)
+			.catch((thrown: unknown) => thrown);
+
+		expect(error).toBeInstanceOf(QatomHttpError);
+		expect(JSON.stringify(error) + String(error)).not.toContain(newItem.secretHeader.value);
+	});
+});
