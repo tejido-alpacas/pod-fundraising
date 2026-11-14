@@ -15,6 +15,13 @@
       "when": 1794669877186,
       "tag": "0001_lively_korvac",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794670915729,
+      "tag": "0002_deposit_refunds",
+      "breakpoints": true
     }
   ]
 }
