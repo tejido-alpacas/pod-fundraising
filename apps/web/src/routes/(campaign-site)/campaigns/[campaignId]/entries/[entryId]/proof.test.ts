@@ -9,11 +9,13 @@ import {
 	deposits,
 	entries,
 	linkPartyWallets,
+	markRefundFailed,
 	markRefundUnknown,
 	milestones,
 	parties
 } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { load } from './+page.server.ts';
 
@@ -107,9 +109,14 @@ describe('the proof page', () => {
 			walletsMatch: true
 		});
 		expect(data.deposit).toEqual({
+			entryId: 'ent-m1-claim',
 			amount: 1000,
+			state: 'refunded',
+			label: 'Deposit refunded',
 			refund: 'returned',
-			refundedAt: '2026-10-30T09:45:00.000Z'
+			refundedAt: '2026-10-30T09:45:00.000Z',
+			outstandingReason: null,
+			outstandingMeaning: null
 		});
 		expect(data.filer).toEqual({
 			name: 'Coral Ridge Builders',
@@ -159,7 +166,16 @@ describe('the proof page', () => {
 			registeredWallet: contractor.agentWalletHostname,
 			walletsMatch: null
 		});
-		expect(data.deposit).toEqual({ amount: 100, refund: 'held', refundedAt: null });
+		expect(data.deposit).toEqual({
+			entryId: 'ent-m2-log-2',
+			amount: 100,
+			state: 'held',
+			label: 'Deposit held',
+			refund: 'held',
+			refundedAt: null,
+			outstandingReason: null,
+			outstandingMeaning: null
+		});
 		expect(data.milestone.confirmed).toBe(false);
 	});
 
@@ -226,12 +242,79 @@ describe('the proof page', () => {
 			settledAt: null
 		};
 		expect(await claimDepositsForRefund(test.db, refund, ['dep-m2-log-2'])).toBe(true);
-		expect((await proof('ent-m2-log-2')).deposit?.refund).toBe('being_returned');
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			refund: 'being_returned',
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'in_progress'
+		});
 
 		await markRefundUnknown(test.db, refund.id, 'The transfer timed out.');
-		expect((await proof('ent-m2-log-2')).deposit?.refund).toBe('outcome_unknown');
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			refund: 'outcome_unknown',
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'outcome_unknown',
+			refundedAt: null
+		});
 		// The other deposit on the same milestone is untouched.
-		expect((await proof('ent-m2-log-1')).deposit?.refund).toBe('held');
+		expect((await proof('ent-m2-log-1')).deposit).toMatchObject({ refund: 'held', state: 'held' });
+	});
+
+	it('calls a deposit on a confirmed milestone a refund outstanding, and says why', async () => {
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: '2026-11-14T09:00:00.000Z' })
+			.where(eq(milestones.id, 'm2-walls'));
+
+		// Flagged: not sent back until a person has looked. No refund is promised.
+		expect((await proof('ent-m2-log-1')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'entry_flagged',
+			outstandingMeaning: expect.stringContaining('until a person has looked'),
+			refund: 'held'
+		});
+		// Not matched to the ledger yet.
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			outstandingReason: 'entry_not_verified'
+		});
+	});
+
+	it('remembers that a refund was refused, and still does not call the deposit refunded', async () => {
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: '2026-11-14T09:00:00.000Z' })
+			.where(eq(milestones.id, 'm2-walls'));
+		await test.db
+			.update(entries)
+			.set({ status: 'verified', twistId: 'twist-m2-log-2' })
+			.where(eq(entries.id, 'ent-m2-log-2'));
+		expect((await proof('ent-m2-log-2')).deposit?.outstandingReason).toBe('not_attempted');
+
+		const refund = {
+			id: 'refund-refused',
+			campaignId: CAMPAIGN,
+			milestoneId: 'm2-walls',
+			partyId: contractor.id,
+			primaryWalletHostname: contractor.primaryWalletHostname!,
+			dq: 'a'.repeat(64),
+			amount: 100,
+			status: 'started' as const,
+			statusReason: null,
+			startedAt: '2026-11-14T12:00:00.000Z',
+			settledAt: null
+		};
+		await claimDepositsForRefund(test.db, refund, ['dep-m2-log-2']);
+		await markRefundFailed(test.db, refund.id, 'Qatom said 402', '2026-11-14T12:00:05.000Z');
+
+		expect((await proof('ent-m2-log-2')).deposit).toMatchObject({
+			state: 'refund_outstanding',
+			label: 'Refund outstanding',
+			outstandingReason: 'refused',
+			refundedAt: null
+		});
 	});
 
 	it('shows a file from our evidence store with its full SHA-256', async () => {

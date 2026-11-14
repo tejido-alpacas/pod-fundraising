@@ -2,21 +2,23 @@ import { error } from '@sveltejs/kit';
 import {
 	confirmationStrength,
 	isConfirmed,
-	isRefunded,
 	shownRelationship,
+	totalDeposits,
 	type Campaign,
+	type DepositStatus,
 	type Entry,
 	type Milestone,
 	type Party
 } from '@tejido/contracts';
 import {
 	getCampaign,
-	listDeposits,
+	listDepositStatuses,
 	listEntries,
 	listMilestones,
 	listParties,
 	listRefunds
 } from '@tejido/db';
+import { depositTotalsView, depositView } from '#lib/campaign-site/server/deposits.ts';
 import { sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
 
@@ -89,7 +91,8 @@ export const load = (async ({ params, locals }) => {
 		listMilestones(db, campaign.id),
 		// Newest first.
 		listEntries(db, campaign.id),
-		listDeposits(db, campaign.id)
+		// Every deposit with its state: held, refunded or refund outstanding.
+		listDepositStatuses(db, campaign.id)
 	]);
 	// Refund transfers are recorded per milestone.
 	const refundsByMilestone = await Promise.all(
@@ -97,7 +100,9 @@ export const load = (async ({ params, locals }) => {
 	);
 
 	const partyById = new Map(parties.map((party) => [party.id, party]));
-	const depositByEntry = new Map(deposits.map((deposit) => [deposit.entryId, deposit]));
+	const depositByEntry = new Map(
+		deposits.deposits.map((status) => [status.deposit.entryId, status])
+	);
 
 	const rows = milestones.map((milestone, index) =>
 		milestoneView(
@@ -116,13 +121,25 @@ export const load = (async ({ params, locals }) => {
 	const delivered = rows.length > 0 && rows.every((row) => row.confirmed);
 	const confirmedTimes = rows.flatMap((row) => (row.confirmedAt ? [row.confirmedAt] : []));
 
-	const totals = { workLogs: 0, entries: 0, flagged: 0, paid: 0, returned: 0 };
+	const totals = {
+		workLogs: 0,
+		entries: 0,
+		flagged: 0,
+		paid: 0,
+		returned: 0,
+		held: 0,
+		refunded: 0,
+		outstanding: 0
+	};
 	for (const row of rows) {
 		totals.workLogs += row.workLogs;
 		totals.entries += row.entryCount;
 		totals.flagged += row.flaggedCount;
 		totals.paid += row.deposits.paid;
 		totals.returned += row.deposits.returned;
+		totals.held += row.deposits.held;
+		totals.refunded += row.deposits.refunded;
+		totals.outstanding += row.deposits.outstanding;
 	}
 
 	return {
@@ -175,7 +192,7 @@ function milestoneView(
 	filed: Entry[],
 	refunds: Awaited<ReturnType<typeof listRefunds>>,
 	partyById: Map<string, Party>,
-	depositByEntry: Map<string, { amount: number; refundedAt: string | null }>,
+	depositByEntry: Map<string, DepositStatus>,
 	config: Config
 ) {
 	const confirmed = isConfirmed(milestone);
@@ -187,18 +204,12 @@ function milestoneView(
 	// The sign-off itself: the newest confirmation filed on this milestone, if it is confirmed.
 	const signOff = confirmed ? claims.find((entry) => entry.inputs.claim === 'confirm') : undefined;
 
-	let paid = 0;
-	let returned = 0;
+	// Oldest entry first, like the deposits themselves.
+	const paid = filed.flatMap((entry) => depositByEntry.get(entry.id) ?? []).reverse();
 	let lastRefundedAt: string | null = null;
-	for (const entry of filed) {
-		const deposit = depositByEntry.get(entry.id);
-		if (!deposit) continue;
-		paid += deposit.amount;
-		if (isRefunded(deposit)) {
-			returned += deposit.amount;
-			if (deposit.refundedAt && (lastRefundedAt === null || deposit.refundedAt > lastRefundedAt)) {
-				lastRefundedAt = deposit.refundedAt;
-			}
+	for (const { deposit } of paid) {
+		if (deposit.refundedAt && (lastRefundedAt === null || deposit.refundedAt > lastRefundedAt)) {
+			lastRefundedAt = deposit.refundedAt;
 		}
 	}
 
@@ -245,7 +256,11 @@ function milestoneView(
 		workLogs: filed.filter((entry) => entry.item === 'log_work').length,
 		entryCount: filed.length,
 		flaggedCount: filed.filter((entry) => entry.status === 'flagged').length,
-		deposits: { paid, returned, lastRefundedAt },
+		// `held`, `refunded` and `outstanding` add up to `paid`. Once a milestone is confirmed
+		// nothing on it is `held`: what has not gone back is `outstanding`.
+		deposits: { ...depositTotalsView(totalDeposits(paid)), lastRefundedAt },
+		/** Each deposit paid on this milestone with its state, oldest entry first. */
+		depositStates: paid.map(depositView),
 		// The transfers that sent deposits back. A refused transfer moved nothing and is left out.
 		refunds: refunds
 			.filter((refund) => refund.status !== 'failed')

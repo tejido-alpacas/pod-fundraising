@@ -10,6 +10,7 @@ import {
 	deposits,
 	entries,
 	listDeposits,
+	listDepositStatuses,
 	listRefunds,
 	milestones,
 	parties,
@@ -552,6 +553,75 @@ describe('when the transfer does not go through', () => {
 			})
 		]);
 		expect(transfers()).toHaveLength(1);
+	});
+});
+
+describe('the state each deposit is left in', () => {
+	const roofStates = async () => {
+		const { deposits: rows, totals } = await listDepositStatuses(test.db, CAMPAIGN, {
+			milestoneId: MILESTONE
+		});
+		return {
+			states: [...new Set(rows.map((row) => `${row.label}: ${row.outstandingReason}`))],
+			attempts: [...new Set(rows.map((row) => row.refundAttempts))],
+			totals
+		};
+	};
+	const ALL = CONTRACTOR_TOTAL + HEAD_TEACHER_TOTAL;
+
+	it('is refund outstanding before anything is asked, and deposit refunded once sent', async () => {
+		await confirmedRoof();
+		expect(await roofStates()).toEqual({
+			states: ['Refund outstanding: not_attempted'],
+			attempts: [0],
+			totals: { paid: ALL, held: 0, refunded: 0, outstanding: ALL }
+		});
+
+		await refund();
+		expect(await roofStates()).toEqual({
+			states: ['Deposit refunded: null'],
+			attempts: [1],
+			totals: { paid: ALL, held: 0, refunded: ALL, outstanding: 0 }
+		});
+	});
+
+	it('stays refund outstanding, and says refused, when Qatom refuses the transfer', async () => {
+		await confirmedRoof();
+		answerTransfer = () =>
+			Response.json({ error: 'Insufficient funds', status: 402 }, { status: 402 });
+
+		await refund();
+		expect(await roofStates()).toEqual({
+			states: ['Refund outstanding: refused'],
+			attempts: [1],
+			totals: { paid: ALL, held: 0, refunded: 0, outstanding: ALL }
+		});
+
+		// Asked again and accepted: two attempts on record, the second one sent.
+		answerTransfer = accepted;
+		await refund();
+		expect(await roofStates()).toMatchObject({ states: ['Deposit refunded: null'], attempts: [2] });
+	});
+
+	it('stays refund outstanding, outcome unknown, after a timeout, and is never called refunded', async () => {
+		await confirmedRoof();
+		answerTransfer = () => {
+			throw new DOMException('The operation timed out.', 'TimeoutError');
+		};
+
+		await refund();
+		const after = {
+			states: ['Refund outstanding: outcome_unknown'],
+			attempts: [1],
+			totals: { paid: ALL, held: 0, refunded: 0, outstanding: ALL }
+		};
+		expect(await roofStates()).toEqual(after);
+
+		// Asking again sends nothing and adds no attempt.
+		answerTransfer = accepted;
+		await refund();
+		expect(await roofStates()).toEqual(after);
+		expect(transfers()).toHaveLength(2);
 	});
 });
 
