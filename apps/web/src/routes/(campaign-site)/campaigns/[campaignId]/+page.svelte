@@ -5,8 +5,8 @@
 		CAMPAIGN_STATUS_LABEL,
 		CLAIM_LABEL,
 		ENTRY_STATUS,
-		MILESTONE_STATE_LABEL,
-		PARTY_ROLE_LABEL,
+		milestoneLabel,
+		partyLabel,
 		WORK_STATUS_LABEL,
 		formatDate,
 		formatDateTime
@@ -42,7 +42,7 @@
 			{#each data.milestones as milestone (milestone.id)}
 				<li>
 					<a class="tap" href="{milestonesPath}#{milestone.id}">{milestone.title}</a>
-					<span class="pill state-{milestone.state}">{MILESTONE_STATE_LABEL[milestone.state]}</span>
+					<span class="pill state-{milestone.state}">{milestoneLabel(milestone)}</span>
 					<span class="muted">due {formatDate(milestone.dueDate)}</span>
 				</li>
 			{/each}
@@ -123,7 +123,11 @@
 						Filed by <strong>{entry.filer.name}</strong>{entry.filer.title
 							? `, ${entry.filer.title}`
 							: ''}
-						<span class="muted">({PARTY_ROLE_LABEL[entry.filer.role]})</span>
+						<span class="muted"
+							>({partyLabel(entry.filer)}){entry.filer.relationshipReason
+								? ` ${entry.filer.relationshipReason}`
+								: ''}</span
+						>
 					{:else}
 						<span class="muted">The party that filed this entry is not on record.</span>
 					{/if}

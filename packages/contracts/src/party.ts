@@ -16,6 +16,18 @@ export const partyRoleSchema = z.enum(['third_party', 'confirmer']);
 export type PartyRole = z.infer<typeof partyRoleSchema>;
 
 /**
+ * How a party relates to the project. It describes a relationship and is never a score.
+ *
+ * - `participant`: does the work, is paid by the project, or runs it.
+ * - `stakeholder`: benefits from the project, or represents those who do.
+ * - `independent`: has no stake in the project.
+ *
+ * Someone who benefits is never `independent`.
+ */
+export const partyRelationshipSchema = z.enum(['participant', 'stakeholder', 'independent']);
+export type PartyRelationship = z.infer<typeof partyRelationshipSchema>;
+
+/**
  * A person or organisation invited to one campaign. Someone invited to two campaigns is two
  * parties, each with its own reporter code.
  */
@@ -30,6 +42,16 @@ export const partySchema = z.object({
 	email: emailSchema,
 	reporterCode: reporterCodeSchema,
 	/**
+	 * How this party relates to the project, as the organiser recorded it. Null when nobody has
+	 * recorded it. Never read null as `independent`: show it with `shownRelationship`.
+	 */
+	relationship: partyRelationshipSchema.nullable(),
+	/**
+	 * The organiser's reason for `relationship`, in a sentence or two: "Employed by the parish
+	 * council. Not paid by the project." Null when none was given.
+	 */
+	relationshipReason: z.string().min(1).max(300).nullable(),
+	/**
 	 * Both wallets come from the party's Qatom sign-in and are null until they have signed in.
 	 * Deposits are paid FROM the agent wallet. Refunds are sent TO the primary wallet. Never the reverse.
 	 */
@@ -38,3 +60,13 @@ export const partySchema = z.object({
 	createdAt: timestampSchema
 });
 export type Party = z.infer<typeof partySchema>;
+
+/**
+ * The relationship to SHOW for a party: the recorded one, and `stakeholder` when none is
+ * recorded (or the party is not on record). Never `independent` unless that was recorded.
+ */
+export function shownRelationship(
+	party: Pick<Party, 'relationship'> | null | undefined
+): PartyRelationship {
+	return party?.relationship ?? 'stakeholder';
+}

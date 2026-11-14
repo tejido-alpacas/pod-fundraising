@@ -5,6 +5,7 @@ import {
 	amountSchema,
 	campaignSchema,
 	checkinResponseSchema,
+	confirmationStrength,
 	DEPOSIT_AMOUNT,
 	depositSchema,
 	emailSchema,
@@ -22,11 +23,13 @@ import {
 	milestoneSchema,
 	milestoneStateSchema,
 	parseCheckinBody,
+	partyRelationshipSchema,
 	partyRoleSchema,
 	partySchema,
 	photoSchema,
 	primaryWalletHostnameSchema,
-	reporterCodeSchema
+	reporterCodeSchema,
+	shownRelationship
 } from './index.ts';
 
 const REPORTER_CODE = 'rc_k7m2q9x4w8n5b3t6v2zj';
@@ -265,6 +268,78 @@ describe('enumerations', () => {
 	it('party roles are third_party and confirmer', () => {
 		expect(partyRoleSchema.options).toEqual(['third_party', 'confirmer']);
 	});
+
+	it('party relationships are participant, stakeholder and independent', () => {
+		expect(partyRelationshipSchema.options).toEqual(['participant', 'stakeholder', 'independent']);
+	});
+});
+
+describe('how a party relates to the project', () => {
+	const [party] = fixtures.parties;
+
+	it('may be left unrecorded, as null, with no reason', () => {
+		const unrecorded = { ...party, relationship: null, relationshipReason: null };
+		expect(partySchema.parse(unrecorded)).toEqual(unrecorded);
+	});
+
+	it('must be recorded or null: a party without the field, or with another word, is refused', () => {
+		const { relationship: _removed, ...without } = party as Record<string, unknown>;
+		expect(partySchema.safeParse(without).success).toBe(false);
+		expect(partySchema.safeParse({ ...party, relationship: 'neutral' }).success).toBe(false);
+		expect(partySchema.safeParse({ ...party, relationship: '' }).success).toBe(false);
+	});
+
+	it('takes a reason of 1 to 300 characters, or null', () => {
+		const reason = 'Employed by the parish council. Not paid by the project.';
+		expect(partySchema.safeParse({ ...party, relationshipReason: reason }).success).toBe(true);
+		expect(partySchema.safeParse({ ...party, relationshipReason: 'x'.repeat(300) }).success).toBe(
+			true
+		);
+		expect(partySchema.safeParse({ ...party, relationshipReason: 'x'.repeat(301) }).success).toBe(
+			false
+		);
+		expect(partySchema.safeParse({ ...party, relationshipReason: '' }).success).toBe(false);
+	});
+
+	it('is shown as recorded, and as stakeholder when nothing is recorded', () => {
+		expect(shownRelationship({ relationship: 'participant' })).toBe('participant');
+		expect(shownRelationship({ relationship: 'stakeholder' })).toBe('stakeholder');
+		expect(shownRelationship({ relationship: 'independent' })).toBe('independent');
+		expect(shownRelationship({ relationship: null })).toBe('stakeholder');
+		expect(shownRelationship(null)).toBe('stakeholder');
+		expect(shownRelationship(undefined)).toBe('stakeholder');
+	});
+});
+
+describe('the strength shown for a confirmation', () => {
+	const independent = { relationship: 'independent' } as const;
+
+	it('is participant when the creator confirmed, whoever the named confirmer is', () => {
+		const state = 'confirmed_creator';
+		expect(confirmationStrength({ state }, independent)).toBe('participant');
+		expect(confirmationStrength({ state }, { relationship: 'stakeholder' })).toBe('participant');
+		expect(confirmationStrength({ state }, { relationship: null })).toBe('participant');
+		expect(confirmationStrength({ state }, undefined)).toBe('participant');
+	});
+
+	it("is the confirmer's recorded relationship when the named confirmer signed", () => {
+		const state = 'confirmed_independent';
+		expect(confirmationStrength({ state }, { relationship: 'participant' })).toBe('participant');
+		expect(confirmationStrength({ state }, { relationship: 'stakeholder' })).toBe('stakeholder');
+		expect(confirmationStrength({ state }, independent)).toBe('independent');
+	});
+
+	it('is stakeholder, never independent, when nothing is recorded for the confirmer', () => {
+		const state = 'confirmed_independent';
+		expect(confirmationStrength({ state }, { relationship: null })).toBe('stakeholder');
+		expect(confirmationStrength({ state }, null)).toBe('stakeholder');
+		expect(confirmationStrength({ state }, undefined)).toBe('stakeholder');
+	});
+
+	it('is nothing while the milestone is not confirmed', () => {
+		expect(confirmationStrength({ state: 'open' }, independent)).toBeNull();
+		expect(confirmationStrength({ state: 'claimed' }, independent)).toBeNull();
+	});
 });
 
 describe('records', () => {
@@ -403,6 +478,24 @@ describe('fixtures', () => {
 			['Book supplier', 'third_party'],
 			['Head teacher', 'confirmer']
 		]);
+	});
+
+	it('say how each party relates to the project: two do the work, the head teacher benefits', () => {
+		expect(parties.map((party) => [party.id, party.relationship])).toEqual([
+			['contractor', 'participant'],
+			['supplier', 'participant'],
+			['head-teacher', 'stakeholder']
+		]);
+		expect(parties.find((party) => party.id === 'head-teacher')?.relationshipReason).toBe(
+			'Head teacher of the school whose library is being rebuilt.'
+		);
+		// The head teacher's sign-offs are stakeholder confirmations, not independent ones.
+		for (const milestone of milestones) {
+			const confirmer = parties.find((party) => party.id === milestone.confirmerPartyId);
+			expect(confirmationStrength(milestone, confirmer)).toBe(
+				isConfirmed(milestone) ? 'stakeholder' : null
+			);
+		}
 	});
 
 	it('refer only to each other', () => {

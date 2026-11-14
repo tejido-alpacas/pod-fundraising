@@ -119,7 +119,9 @@ describe('the proof page', () => {
 		expect(data.filer).toEqual({
 			name: 'Coral Ridge Builders',
 			title: 'Contractor',
-			role: 'third_party'
+			role: 'third_party',
+			relationship: 'participant',
+			relationshipReason: null
 		});
 		expect(data.milestone).toMatchObject({ id: 'm1-foundation', confirmed: true });
 	});

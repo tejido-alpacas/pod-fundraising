@@ -22,6 +22,7 @@ import type {
 	MilestoneKind,
 	MilestoneState,
 	Party,
+	PartyRelationship,
 	PartyRole,
 	PrimaryWalletHostname
 } from '@tejido/contracts';
@@ -55,6 +56,9 @@ export const parties = sqliteTable(
 		title: text('title').notNull(),
 		email: text('email').notNull(),
 		reporterCode: text('reporter_code').notNull().unique(),
+		// Null means nobody has recorded it. It is never read as `independent`.
+		relationship: text('relationship').$type<PartyRelationship>(),
+		relationshipReason: text('relationship_reason'),
 		// Deposits are paid FROM the agent wallet. Refunds go TO the primary wallet.
 		agentWalletHostname: text('agent_wallet_hostname').$type<AgentWalletHostname>(),
 		primaryWalletHostname: text('primary_wallet_hostname').$type<PrimaryWalletHostname>(),

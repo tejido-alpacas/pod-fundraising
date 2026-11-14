@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { formatAmount } from '@tejido/contracts';
 	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
+	import { partyLabel } from '#lib/campaign-site/labels.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -32,8 +33,6 @@
 		incomplete: 'Incomplete',
 		flagged: 'Flagged'
 	} as const;
-
-	const ROLE_LABEL = { third_party: 'does the work', confirmer: 'independent confirmer' } as const;
 
 	const heading = $derived(
 		filed.item === 'log_work'
@@ -213,7 +212,11 @@
 				>
 			</dd>
 			<dt>Filed by</dt>
-			<dd>{filer.name}, {filer.title} ({ROLE_LABEL[filer.role]})</dd>
+			<dd>
+				{filer.name}, {filer.title} ({partyLabel(filer)}){filer.relationshipReason
+					? ` ${filer.relationshipReason}`
+					: ''}
+			</dd>
 			<dt>Filed</dt>
 			<dd><time datetime={entry.filedAt}>{when(entry.filedAt)}</time></dd>
 			{#if filed.item === 'milestone_hit'}

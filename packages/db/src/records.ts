@@ -6,6 +6,7 @@
  */
 import {
 	entrySchema,
+	partySchema,
 	type AgentWalletHostname,
 	type Amount,
 	type Campaign,
@@ -106,6 +107,21 @@ export async function linkPartyWallets(
 			primaryWalletHostname: wallets.primaryWalletHostname
 		})
 		.where(eq(parties.id, partyId));
+}
+
+/**
+ * Records how a party relates to the project, with the organiser's reason. Both values replace
+ * what was stored. Null clears one: a null relationship is "not recorded", never `independent`.
+ */
+export async function setPartyRelationship(
+	db: Executor,
+	partyId: string,
+	recorded: Pick<Party, 'relationship' | 'relationshipReason'>
+): Promise<void> {
+	const { relationship, relationshipReason } = partySchema
+		.pick({ relationship: true, relationshipReason: true })
+		.parse(recorded);
+	await db.update(parties).set({ relationship, relationshipReason }).where(eq(parties.id, partyId));
 }
 
 // --- Sign-in tokens (sealed) ---

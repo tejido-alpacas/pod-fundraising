@@ -1,5 +1,12 @@
 import { error } from '@sveltejs/kit';
-import type { Entry, EvidenceNotPublic, Milestone, Party } from '@tejido/contracts';
+import {
+	confirmationStrength,
+	shownRelationship,
+	type Entry,
+	type EvidenceNotPublic,
+	type Milestone,
+	type Party
+} from '@tejido/contracts';
 import { getCampaign, listEntries, listMilestones, listParties } from '@tejido/db';
 import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
 import type { PageServerLoad } from './$types';
@@ -59,7 +66,14 @@ export const load = (async ({ params, locals, url }) => {
 			creatorName: campaign.creatorName,
 			status: campaign.status
 		},
-		milestones: milestones.map(({ id, title, state, dueDate }) => ({ id, title, state, dueDate })),
+		milestones: milestones.map((milestone) => ({
+			id: milestone.id,
+			title: milestone.title,
+			state: milestone.state,
+			/** The confirmation strength to show. Null until the milestone is confirmed. */
+			strength: confirmationStrength(milestone, partyById.get(milestone.confirmerPartyId)),
+			dueDate: milestone.dueDate
+		})),
 		entries: entries.slice(0, shown).map(toView),
 		total: entries.length,
 		/** The `show` value that reveals the next page, or null when everything is shown. */
@@ -110,7 +124,16 @@ function entryView(
 		claim: isClaim && entry.inputs.claim !== 'confirm' ? entry.inputs.claim : null,
 		milestoneId: entry.milestoneId,
 		milestoneTitle: milestone?.title ?? null,
-		filer: party ? { name: party.name, title: party.title, role: party.role } : null,
+		filer: party
+			? {
+					name: party.name,
+					title: party.title,
+					role: party.role,
+					// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+					relationship: shownRelationship(party),
+					relationshipReason: party.relationshipReason
+				}
+			: null,
 		filedAt: entry.filedAt,
 		status: entry.status,
 		statusReason: entry.statusReason,

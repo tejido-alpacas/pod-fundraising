@@ -1,6 +1,14 @@
 <script lang="ts">
 	import { formatAmount } from '@tejido/contracts';
 	import CampaignNav from '#lib/campaign-site/CampaignNav.svelte';
+	import {
+		CONFIRMATION_STRENGTHS,
+		CONFIRMATION_STRENGTH_LABEL,
+		CONFIRMATION_STRENGTH_MEANS,
+		milestoneLabel,
+		milestoneMeaning,
+		partyLabel
+	} from '#lib/campaign-site/labels.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -41,16 +49,18 @@
 		delivered: 'Delivered'
 	} as const;
 
-	/** How strong each confirmation is: the label, and what it means in one sentence. */
+	/**
+	 * Where a milestone stands, from its state alone. How strong a confirmation is comes from
+	 * `milestone.strength`, through `milestoneLabel` and `milestoneMeaning`.
+	 */
 	const STATE = {
 		confirmed_independent: {
-			label: 'Confirmed independently',
-			means: 'The named confirmer, who did not do the work, signed it off from their own wallet.'
+			label: 'Confirmed by the named confirmer',
+			means: 'The named confirmer signed it off from their own wallet.'
 		},
 		confirmed_creator: {
 			label: 'Confirmed by the creator',
-			means:
-				'No independent confirmer answered in the waiting period, so the campaign’s creator signed it off.'
+			means: 'No confirmer answered in the waiting period, so the campaign’s creator signed it off.'
 		},
 		claimed: {
 			label: 'Reported only',
@@ -61,9 +71,7 @@
 			means: 'Nobody has reported this milestone as done yet.'
 		}
 	} as const;
-	const STRENGTHS = ['confirmed_independent', 'confirmed_creator', 'claimed'] as const;
-
-	const ROLE = { third_party: 'does the work', confirmer: 'independent confirmer' } as const;
+	const ROLE = { third_party: 'does the work', confirmer: 'confirmer' } as const;
 
 	const ENTRY_STATUS = {
 		verified: 'Verified',
@@ -80,7 +88,7 @@
 				: `Milestone claim: ${words(entry.claim ?? '')}`;
 </script>
 
-{#snippet stateBadge(state: keyof typeof STATE)}
+{#snippet stateBadge(state: keyof typeof STATE, label: string = STATE[state].label)}
 	<span class="badge state-{state}">
 		<svg viewBox="0 0 16 16" width="15" height="15" aria-hidden="true">
 			{#if state === 'confirmed_independent'}
@@ -103,7 +111,7 @@
 				/>
 			{/if}
 		</svg>
-		{STATE[state].label}
+		{label}
 	</span>
 {/snippet}
 
@@ -152,11 +160,17 @@
 <section class="legend" aria-label="What the confirmation labels mean">
 	<h2>How strong is a confirmation?</h2>
 	<dl>
-		{#each STRENGTHS as state (state)}
-			<dt>{@render stateBadge(state)}</dt>
-			<dd>{STATE[state].means}</dd>
+		{#each CONFIRMATION_STRENGTHS as strength (strength)}
+			<dt><span class="badge">{CONFIRMATION_STRENGTH_LABEL[strength]}</span></dt>
+			<dd>{CONFIRMATION_STRENGTH_MEANS[strength]}</dd>
 		{/each}
+		<dt>{@render stateBadge('claimed')}</dt>
+		<dd>{STATE.claimed.means}</dd>
 	</dl>
+	<p>
+		These say how the person who confirmed relates to the project. They describe a relationship and
+		are not a score.
+	</p>
 </section>
 
 <ol class="milestones">
@@ -165,13 +179,13 @@
 			<header>
 				<h2><span class="number">{index + 1}.</span> {milestone.title}</h2>
 				<p class="standing">
-					{@render stateBadge(milestone.state)}
+					{@render stateBadge(milestone.state, milestoneLabel(milestone))}
 					{#if milestone.daysLate > 0}
 						<span class="badge overdue">{days(milestone.daysLate)} overdue</span>
 					{/if}
 				</p>
 				<p class="means">
-					{STATE[milestone.state].means}
+					{milestoneMeaning(milestone)}
 					{#if milestone.confirmedAt}
 						Confirmed <time datetime={milestone.confirmedAt}>{dateTime(milestone.confirmedAt)}</time
 						>.
@@ -204,7 +218,11 @@
 				<dd>
 					{#if milestone.confirmer}
 						{milestone.confirmer.name}, {milestone.confirmer.title}
-						<span class="muted">({ROLE[milestone.confirmer.role]})</span>
+						<span class="muted"
+							>({partyLabel(milestone.confirmer)}){milestone.confirmer.relationshipReason
+								? ` ${milestone.confirmer.relationshipReason}`
+								: ''}</span
+						>
 					{:else}
 						Not on record
 					{/if}

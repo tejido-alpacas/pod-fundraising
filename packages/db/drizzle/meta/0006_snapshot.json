@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "8c167e92-a4ea-4d42-b38d-a20fe8c555b3",
+  "id": "cff98442-a47a-49dc-83bd-3a31b621f6af",
   "prevId": "9b359e8e-cfe2-453c-8f83-aafec5140358",
   "tables": {
     "campaigns": {
@@ -304,79 +304,6 @@
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
-    "evidence_files": {
-      "name": "evidence_files",
-      "columns": {
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "uploaded_by_party_id": {
-          "name": "uploaded_by_party_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "visibility": {
-          "name": "visibility",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "not_public_kind": {
-          "name": "not_public_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "not_public_reason": {
-          "name": "not_public_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "evidence_files_uploaded_by_party_id_parties_id_fk": {
-          "name": "evidence_files_uploaded_by_party_id_parties_id_fk",
-          "tableFrom": "evidence_files",
-          "tableTo": "parties",
-          "columnsFrom": [
-            "uploaded_by_party_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
     "item_provisioning": {
       "name": "item_provisioning",
       "columns": {
@@ -657,6 +584,20 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true,
+          "autoincrement": false
+        },
+        "relationship": {
+          "name": "relationship",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "relationship_reason": {
+          "name": "relationship_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
           "autoincrement": false
         },
         "agent_wallet_hostname": {

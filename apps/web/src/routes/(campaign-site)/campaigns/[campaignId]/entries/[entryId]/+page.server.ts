@@ -1,5 +1,5 @@
 import { error } from '@sveltejs/kit';
-import { evidenceFileStates, isConfirmed, type Entry } from '@tejido/contracts';
+import { evidenceFileStates, isConfirmed, shownRelationship, type Entry } from '@tejido/contracts';
 import {
 	evidenceStoreOrigin,
 	getCampaign,
@@ -128,7 +128,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			kind: milestone.kind,
 			confirmed: isConfirmed(milestone)
 		},
-		filer: { name: filer.name, title: filer.title, role: filer.role },
+		filer: {
+			name: filer.name,
+			title: filer.title,
+			role: filer.role,
+			// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+			relationship: shownRelationship(filer),
+			relationshipReason: filer.relationshipReason
+		},
 		receipt: {
 			twistId: entry.twistId,
 			stampedAt: entry.stampedAt,

@@ -1,7 +1,9 @@
 import { error } from '@sveltejs/kit';
 import {
+	confirmationStrength,
 	isConfirmed,
 	isRefunded,
+	shownRelationship,
 	type Campaign,
 	type Entry,
 	type EvidenceNotPublic,
@@ -31,7 +33,16 @@ type Config = Parameters<typeof sortEvidence>[2];
 
 /** Donors see who a party is, never how to reach them. */
 function publicParty(party: Party | undefined) {
-	return party ? { name: party.name, title: party.title, role: party.role } : null;
+	return party
+		? {
+				name: party.name,
+				title: party.title,
+				role: party.role,
+				// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+				relationship: shownRelationship(party),
+				relationshipReason: party.relationshipReason
+			}
+		: null;
 }
 
 type Claim = Extract<Entry, { item: 'milestone_hit' }>;
@@ -46,11 +57,24 @@ type Claim = Extract<Entry, { item: 'milestone_hit' }>;
 function confirmedBy(milestone: Milestone, campaign: Campaign, confirmer: Party | undefined) {
 	if (milestone.state === 'confirmed_independent') {
 		return confirmer
-			? { who: 'confirmer' as const, name: confirmer.name, title: confirmer.title }
+			? {
+					who: 'confirmer' as const,
+					name: confirmer.name,
+					title: confirmer.title,
+					relationship: shownRelationship(confirmer),
+					relationshipReason: confirmer.relationshipReason
+				}
 			: null;
 	}
 	if (milestone.state === 'confirmed_creator') {
-		return { who: 'creator' as const, name: campaign.creatorName, title: null };
+		// The creator runs the project: always a participant.
+		return {
+			who: 'creator' as const,
+			name: campaign.creatorName,
+			title: null,
+			relationship: 'participant' as const,
+			relationshipReason: null
+		};
 	}
 	return null;
 }
@@ -136,7 +160,12 @@ export const load = (async ({ params, locals }) => {
 		totals: {
 			milestones: rows.length,
 			confirmed: rows.filter((row) => row.confirmed).length,
-			independent: rows.filter((row) => row.state === 'confirmed_independent').length,
+			/** Confirmed milestones by the strength shown for each. */
+			byStrength: {
+				participant: rows.filter((row) => row.strength === 'participant').length,
+				stakeholder: rows.filter((row) => row.strength === 'stakeholder').length,
+				independent: rows.filter((row) => row.strength === 'independent').length
+			},
 			byCreator: rows.filter((row) => row.state === 'confirmed_creator').length,
 			...totals
 		}
@@ -186,6 +215,8 @@ function milestoneView(
 		kind: milestone.kind,
 		dueDate: milestone.dueDate,
 		state: milestone.state,
+		/** The confirmation strength to show. Null until the milestone is confirmed. */
+		strength: confirmationStrength(milestone, confirmer),
 		confirmed,
 		confirmedAt: milestone.confirmedAt,
 		owner: publicParty(partyById.get(milestone.ownerPartyId)),

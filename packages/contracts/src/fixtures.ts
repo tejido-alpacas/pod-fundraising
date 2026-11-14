@@ -59,6 +59,8 @@ const contractor: Party = {
 	// A real address, on purpose: the project owner signs in as this party to test the App.
 	email: 'matthew.mihok@todaq.net',
 	reporterCode: 'rc_k7m2q9x4w8n5b3t6v2zj',
+	relationship: 'participant',
+	relationshipReason: null,
 	agentWalletHostname: agentWalletHostnameSchema.parse('coral-ridge-agent.wallets.tejido.example'),
 	primaryWalletHostname: primaryWalletHostnameSchema.parse('coral-ridge.wallets.tejido.example'),
 	createdAt: '2026-10-05T14:10:00.000Z'
@@ -72,6 +74,8 @@ const supplier: Party = {
 	title: 'Book supplier',
 	email: 'orders@islandschoolbooks.example',
 	reporterCode: 'rc_h4d8s2f6g9j3k7m5n2p8',
+	relationship: 'participant',
+	relationshipReason: null,
 	agentWalletHostname: agentWalletHostnameSchema.parse(
 		'island-schoolbooks-agent.wallets.tejido.example'
 	),
@@ -89,6 +93,8 @@ const headTeacher: Party = {
 	title: 'Head teacher, Mangrove Bay Primary School',
 	email: 'y.campbell@mangrovebayprimary.example',
 	reporterCode: 'rc_t3y7u2e9r5w8q4a6c3x9',
+	relationship: 'stakeholder',
+	relationshipReason: 'Head teacher of the school whose library is being rebuilt.',
 	agentWalletHostname: agentWalletHostnameSchema.parse(
 		'yvonne-campbell-agent.wallets.tejido.example'
 	),
