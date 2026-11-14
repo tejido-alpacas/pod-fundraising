@@ -114,6 +114,8 @@ message, changes them.
 - **Never deploy or touch anything live.** Do not run `infra/deploy.sh`, `terraform apply` or
   `destroy`, `wrangler deploy`, `wrangler secret`, or any Wrangler command with `--remote`. A
   person deploys. Local commands (`npm run dev`, `npm run db:prepare`) are fine.
+  `.claude/settings.json` denies these commands in Claude Code. A denied command is not an
+  obstacle to work around: do not rephrase it, wrap it in a script, or edit that file.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
   one-off command or a "quick check". Tests stub `fetch`.
 - **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
