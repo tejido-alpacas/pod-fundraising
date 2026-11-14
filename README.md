@@ -101,6 +101,7 @@ packages/contracts    what the three tracks agree on: zod schemas, types, fixtur
 packages/config       the one configuration schema
 packages/db           our database: Drizzle schema, client, migrations, seed (SQLite)
 packages/qatom        the one place that talks to Qatom
+infra                 Terraform: one server behind CloudFront. See infra/README.md
 ```
 
 Packages are plain TypeScript, imported as source. There is no build step for them, and a change

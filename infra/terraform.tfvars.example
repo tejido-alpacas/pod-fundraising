@@ -1,0 +1,12 @@
+# Copy to terraform.tfvars and edit. Everything here has a default; an empty file works.
+
+# region            = "us-east-1"
+# availability_zone = "us-east-1a"
+# instance_type     = "t3.small"
+
+# Custom hostnames. Leave unset to use the two cloudfront.net names Terraform prints.
+# The certificate must be in us-east-1 and cover every alias. DNS is yours to point:
+# CNAME each alias at the matching distribution domain from `terraform output`.
+# app_aliases         = ["app.tejido.net"]
+# web_aliases         = ["pod.tejido.net"]
+# acm_certificate_arn = "arn:aws:acm:us-east-1:123456789012:certificate/..."

@@ -1,0 +1,11 @@
+# Terraform working files. State can hold resource details; it never goes in git.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+
+# Real variable values stay on your machine. The lock file IS committed.
+*.tfvars
+*.tfvars.json
+!terraform.tfvars.example

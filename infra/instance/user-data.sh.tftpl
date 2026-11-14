@@ -1,0 +1,91 @@
+#!/bin/bash
+# Runs once, as root, the first time the server boots. Terraform fills in the values in
+# braces. It prepares the machine; it does not deploy the apps. infra/deploy.sh does that.
+set -euo pipefail
+exec > >(tee -a /var/log/tejido-boot.log) 2>&1
+
+# --- Node 24, from nodejs.org, checksum verified ---------------------------------------------
+dnf install -y tar xz gzip git
+cd /tmp
+curl -fsSLO https://nodejs.org/dist/latest-v24.x/SHASUMS256.txt
+tarball=$(grep -o 'node-v24[0-9.]*-linux-x64\.tar\.xz' SHASUMS256.txt | head -n 1)
+curl -fsSLO "https://nodejs.org/dist/latest-v24.x/$tarball"
+grep " $tarball\$" SHASUMS256.txt | sha256sum -c -
+tar -xJf "$tarball" -C /usr/local --strip-components=1 --no-same-owner
+rm -f "$tarball" SHASUMS256.txt
+node --version
+
+# --- The data volume: the SQLite database and the evidence folder ------------------------------
+# Terraform attaches it just after the server starts, so wait for it to appear.
+device=/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${data_volume_serial}
+for _ in $(seq 1 120); do
+	[ -e "$device" ] && break
+	sleep 5
+done
+[ -e "$device" ] || { echo "Data volume never appeared: $device"; exit 1; }
+# Format only a blank volume. One that already holds data is mounted as it is.
+blkid "$device" >/dev/null || mkfs.xfs "$device"
+mkdir -p /var/lib/tejido
+echo "UUID=$(blkid -s UUID -o value "$device") /var/lib/tejido xfs defaults,nofail 0 2" >> /etc/fstab
+mount /var/lib/tejido
+
+# --- The user the apps run as, and their folders ---------------------------------------------
+useradd --system --create-home --home-dir /home/tejido --shell /sbin/nologin tejido
+mkdir -p /opt/tejido/releases /etc/tejido
+chown -R tejido:tejido /opt/tejido /var/lib/tejido
+chmod 750 /etc/tejido /var/lib/tejido
+chown root:tejido /etc/tejido
+
+cat > /etc/tejido/deploy.conf <<'CONF'
+REGION=${region}
+RELEASES_BUCKET=${releases_bucket}
+ENV_PARAMETER_NAME=${env_parameter_name}
+CONF
+
+# --- One service per app ---------------------------------------------------------------------
+# The ten configuration values come from /opt/tejido/current/.env, which packages/config reads.
+# What is set here belongs to SvelteKit's Node adapter, not to our configuration.
+write_unit() {
+	local name=$1 folder=$2 port=$3 extra=$4
+	cat > "/etc/systemd/system/tejido-$name.service" <<UNIT
+[Unit]
+Description=Tejido $name
+After=network-online.target var-lib-tejido.mount
+Wants=network-online.target
+RequiresMountsFor=/var/lib/tejido
+ConditionPathExists=/opt/tejido/current/apps/$folder/build/index.js
+
+[Service]
+User=tejido
+Group=tejido
+WorkingDirectory=/opt/tejido/current/apps/$folder
+Environment=NODE_ENV=production
+Environment=HOST=0.0.0.0
+Environment=PORT=$port
+Environment=PROTOCOL_HEADER=cloudfront-forwarded-proto
+Environment=HOST_HEADER=host
+$extra
+ExecStart=/usr/local/bin/node build
+Restart=always
+RestartSec=2
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+}
+write_unit web web ${web_port} ""
+# The App takes evidence uploads; the adapter's default body limit is 512 KB.
+write_unit app app ${app_port} "Environment=BODY_SIZE_LIMIT=10M"
+systemctl daemon-reload
+systemctl enable tejido-web tejido-app
+
+# --- The deploy command infra/deploy.sh calls --------------------------------------------------
+cat > /usr/local/bin/tejido-deploy <<'TEJIDO_DEPLOY'
+${deploy_script}
+TEJIDO_DEPLOY
+chmod 755 /usr/local/bin/tejido-deploy
+
+echo "Boot finished. Waiting for the first deploy."
