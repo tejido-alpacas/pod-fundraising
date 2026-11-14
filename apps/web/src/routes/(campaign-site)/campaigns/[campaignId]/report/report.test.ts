@@ -395,13 +395,37 @@ describe('the final report', () => {
 
 			expect(row('m1-foundation').deposits).toEqual({
 				paid: 2000,
+				held: 0,
+				refunded: 2000,
+				outstanding: 0,
 				returned: 2000,
 				lastRefundedAt: '2026-10-30T09:45:00.000Z'
 			});
-			// Confirmed, but no refund is recorded on these deposits: none is claimed.
-			expect(row('m2-walls').deposits).toEqual({ paid: 2200, returned: 0, lastRefundedAt: null });
+			// Confirmed, but no refund is recorded on these deposits: none is called refunded, and
+			// none is called held either. The refunds are outstanding.
+			expect(row('m2-walls').deposits).toEqual({
+				paid: 2200,
+				held: 0,
+				refunded: 0,
+				outstanding: 2200,
+				returned: 0,
+				lastRefundedAt: null
+			});
+			expect(row('m2-walls').depositStates.map(({ label }) => label)).toEqual(
+				Array.from({ length: 4 }, () => 'Refund outstanding')
+			);
+			expect(row('m1-foundation').depositStates.map(({ label }) => label)).toEqual([
+				'Deposit refunded',
+				'Deposit refunded'
+			]);
 			expect(row('m2-walls').refunds).toEqual([]);
-			expect(data.totals).toMatchObject({ paid: 5200, returned: 2000 });
+			expect(data.totals).toMatchObject({
+				paid: 5200,
+				returned: 2000,
+				held: 0,
+				refunded: 2000,
+				outstanding: 3200
+			});
 		});
 
 		it('shows a recorded refund transfer: to whom, which wallet, how much and when', async () => {

@@ -5,12 +5,16 @@
  * contract type belongs here, next to the others, so pages and jobs share it.
  */
 import {
+	describeDeposit,
 	entrySchema,
 	partySchema,
+	totalDeposits,
 	type AgentWalletHostname,
 	type Amount,
 	type Campaign,
 	type Deposit,
+	type DepositStatus,
+	type DepositTotals,
 	type Entry,
 	type EntryItem,
 	type EntryStatus,
@@ -36,6 +40,7 @@ import {
 	milestones,
 	parties,
 	partySignInTokens,
+	refundAttempts,
 	refundDeposits,
 	refunds,
 	type RefundStatus
@@ -478,6 +483,7 @@ export async function addEvidenceToIncompleteEntry(
 //
 // The bookkeeping that makes a refund happen once only. The order is always:
 //   1. claimDepositsForRefund  writes the refund as `started` and claims its deposits
+//                              (and notes, for good, which deposits it covered)
 //   2. the caller sends the transfer (never from this package)
 //   3. markRefundSent | markRefundFailed | markRefundUnknown  records what happened
 // A deposit claimed by a refund cannot be claimed by another, so nothing is sent twice.
@@ -576,8 +582,14 @@ export async function claimDepositsForRefund(
 	const claims = chunks(depositIds, CLAIM_ROWS_PER_INSERT).map((ids) =>
 		db.insert(refundDeposits).values(ids.map((depositId) => ({ depositId, refundId: refund.id })))
 	);
+	// The lasting record that this refund covered these deposits. Unlike the claims it is
+	// never removed, so a refused refund can still be told apart from one never tried. It is
+	// written in the same batch: with the claim or not at all.
+	const attempts = chunks(depositIds, CLAIM_ROWS_PER_INSERT).map((ids) =>
+		db.insert(refundAttempts).values(ids.map((depositId) => ({ depositId, refundId: refund.id })))
+	);
 	try {
-		await db.batch([db.insert(refunds).values(refund), ...claims]);
+		await db.batch([db.insert(refunds).values(refund), ...claims, ...attempts]);
 		return true;
 	} catch (error) {
 		// The batch wrote nothing. If another refund holds one of these deposits, that is why.
@@ -687,6 +699,108 @@ export async function listRefunds(
 		.from(refunds)
 		.where(and(eq(refunds.campaignId, campaignId), eq(refunds.milestoneId, milestoneId)))
 		.orderBy(asc(refunds.startedAt), asc(refunds.id));
+}
+
+// --- Deposit states ---
+
+/** Deposits with their states, and their amounts added up by state. */
+export interface DepositSummary {
+	/** Oldest entry first. */
+	deposits: DepositStatus[];
+	/** In the unit of `Deposit.amount`. See money.ts in @tejido/contracts. */
+	totals: DepositTotals;
+}
+
+/**
+ * Every deposit paid on a campaign's entries, each with its state (`held`, `refunded` or
+ * `refund_outstanding`), why a refund is outstanding, and the totals by state. Pass `only` to
+ * narrow it to one milestone or one entry of that campaign.
+ *
+ * The state is worked out by `deriveDepositState` in @tejido/contracts from what is recorded
+ * here: the deposit, its entry, its milestone, whether the filer has a primary wallet, and
+ * every refund that has covered the deposit. Pages read this instead of working it out again.
+ * Nothing is asked of Qatom, and nothing is written.
+ */
+export async function listDepositStatuses(
+	db: Executor,
+	campaignId: string,
+	only: { milestoneId?: string; entryId?: string } = {}
+): Promise<DepositSummary> {
+	const scope = and(
+		eq(entries.campaignId, campaignId),
+		only.milestoneId === undefined ? undefined : eq(entries.milestoneId, only.milestoneId),
+		only.entryId === undefined ? undefined : eq(entries.id, only.entryId)
+	);
+	const covering = {
+		depositId: deposits.id,
+		refundId: refunds.id,
+		status: refunds.status,
+		startedAt: refunds.startedAt
+	};
+
+	const [rows, held, tried] = await Promise.all([
+		db
+			.select({
+				id: deposits.id,
+				entryId: deposits.entryId,
+				amount: deposits.amount,
+				refundedAt: deposits.refundedAt,
+				milestoneId: entries.milestoneId,
+				partyId: entries.partyId,
+				entryStatus: entries.status,
+				twistId: entries.twistId,
+				milestoneState: milestones.state,
+				primaryWalletHostname: parties.primaryWalletHostname
+			})
+			.from(deposits)
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.innerJoin(
+				milestones,
+				and(eq(milestones.campaignId, entries.campaignId), eq(milestones.id, entries.milestoneId))
+			)
+			.innerJoin(parties, eq(parties.id, entries.partyId))
+			.where(scope)
+			.orderBy(asc(entries.filedAt), asc(deposits.id)),
+		// The refund holding each deposit now, if one does. This is what decides what may be
+		// sent, so it is read even where the history below should already have it.
+		db
+			.select(covering)
+			.from(refundDeposits)
+			.innerJoin(refunds, eq(refunds.id, refundDeposits.refundId))
+			.innerJoin(deposits, eq(deposits.id, refundDeposits.depositId))
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.where(scope),
+		// Every refund that ever covered each deposit, refused ones included.
+		db
+			.select(covering)
+			.from(refundAttempts)
+			.innerJoin(refunds, eq(refunds.id, refundAttempts.refundId))
+			.innerJoin(deposits, eq(deposits.id, refundAttempts.depositId))
+			.innerJoin(entries, eq(entries.id, deposits.entryId))
+			.where(scope)
+	]);
+
+	// One refund counts once per deposit, whichever of the two tables it was found in.
+	const refundsByDeposit = new Map<string, Map<string, Pick<Refund, 'status' | 'startedAt'>>>();
+	for (const { depositId, refundId, status, startedAt } of [...held, ...tried]) {
+		const found = refundsByDeposit.get(depositId) ?? new Map();
+		found.set(refundId, { status, startedAt });
+		refundsByDeposit.set(depositId, found);
+	}
+
+	const statuses = rows.map((row) =>
+		describeDeposit(
+			{ id: row.id, entryId: row.entryId, amount: row.amount, refundedAt: row.refundedAt },
+			{ campaignId, milestoneId: row.milestoneId, partyId: row.partyId },
+			{
+				milestone: { state: row.milestoneState },
+				entry: { status: row.entryStatus, twistId: row.twistId },
+				filerHasPrimaryWallet: row.primaryWalletHostname !== null,
+				refunds: [...(refundsByDeposit.get(row.id)?.values() ?? [])]
+			}
+		)
+	);
+	return { deposits: statuses, totals: totalDeposits(statuses) };
 }
 
 // --- Item provisioning ---

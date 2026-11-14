@@ -40,6 +40,13 @@ export const ENTRY_STATUS: Record<EntryStatus, { label: string; meaning: string 
 };
 
 /**
+ * The three states of a deposit ("Deposit held", "Deposit refunded", "Refund outstanding") and
+ * the sentence for each reason a refund is outstanding. The words are agreed in the contracts
+ * so the App says the same; the server loads already send `label` with every deposit.
+ */
+export { DEPOSIT_STATE_LABEL, REFUND_OUTSTANDING_MEANING } from '@tejido/contracts';
+
+/**
  * Where a milestone stands, from its state alone. A confirmed state says WHO signed, not how
  * strong the confirmation is: for that, use `milestoneLabel` or CONFIRMATION_STRENGTH_LABEL
  * with the `strength` the server load worked out.

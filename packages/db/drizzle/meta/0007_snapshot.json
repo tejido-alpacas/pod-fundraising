@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "1655c3ce-7a04-4b97-93e1-ec1ddc494dd2",
+  "id": "1e436347-8135-40e8-8890-df7df306e0e8",
   "prevId": "cff98442-a47a-49dc-83bd-3a31b621f6af",
   "tables": {
     "campaigns": {
@@ -294,79 +294,6 @@
           ],
           "columnsTo": [
             "campaign_id",
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "evidence_files": {
-      "name": "evidence_files",
-      "columns": {
-        "sha256": {
-          "name": "sha256",
-          "type": "text",
-          "primaryKey": true,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "uploaded_by_party_id": {
-          "name": "uploaded_by_party_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "visibility": {
-          "name": "visibility",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "not_public_kind": {
-          "name": "not_public_kind",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "not_public_reason": {
-          "name": "not_public_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "evidence_files_uploaded_by_party_id_parties_id_fk": {
-          "name": "evidence_files_uploaded_by_party_id_parties_id_fk",
-          "tableFrom": "evidence_files",
-          "tableTo": "parties",
-          "columnsFrom": [
-            "uploaded_by_party_id"
-          ],
-          "columnsTo": [
             "id"
           ],
           "onDelete": "no action",
@@ -772,6 +699,73 @@
         }
       },
       "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "refund_attempts": {
+      "name": "refund_attempts",
+      "columns": {
+        "refund_id": {
+          "name": "refund_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deposit_id": {
+          "name": "deposit_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "refund_attempts_deposit_idx": {
+          "name": "refund_attempts_deposit_idx",
+          "columns": [
+            "deposit_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "refund_attempts_refund_id_refunds_id_fk": {
+          "name": "refund_attempts_refund_id_refunds_id_fk",
+          "tableFrom": "refund_attempts",
+          "tableTo": "refunds",
+          "columnsFrom": [
+            "refund_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "refund_attempts_deposit_id_deposits_id_fk": {
+          "name": "refund_attempts_deposit_id_deposits_id_fk",
+          "tableFrom": "refund_attempts",
+          "tableTo": "deposits",
+          "columnsFrom": [
+            "deposit_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "refund_attempts_refund_id_deposit_id_pk": {
+          "columns": [
+            "refund_id",
+            "deposit_id"
+          ],
+          "name": "refund_attempts_refund_id_deposit_id_pk"
+        }
+      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },
