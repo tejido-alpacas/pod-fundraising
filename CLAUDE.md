@@ -3,6 +3,10 @@
 Tejido's hackathon monorepo. Three people work here in parallel, one track each. Read
 `README.md` for what the system does. These are the rules.
 
+**The people you work for here are not programmers.** They cannot review your code, so they
+rely on you to stay inside these rules and to tell them plainly what you did. When a rule
+blocks the task, stop and say so. Do not look for a way around it.
+
 ## Read first
 
 - `docs/architecture.md`: what we are building and why, the flow through Qatom, and the rules
@@ -10,6 +14,135 @@ Tejido's hackathon monorepo. Three people work here in parallel, one track each.
   differ, the code is right.
 - `docs/build-plan.md`: every surface by track, its priority, the checkpoints, the order to cut
   in, and what the foundation already built.
+- `docs/working-with-agents.md`: what your person has been told to expect from you.
+
+## Before you start
+
+- Know which track you are working on: A, B or C. If the request does not say and you cannot
+  tell from the files it names, ask. Ask once, then wait.
+- One task at a time. If the request holds several, do them in order and finish each (all four
+  checks passing) before starting the next.
+- Every task gets its own branch and its own pull request. See the next section.
+
+## Branches, worktrees and pull requests
+
+`main` is what gets deployed and what everyone else builds on. Nothing reaches it except
+through a pull request whose checks are green. GitHub does not enforce this for us (the plan
+has no branch protection), so you enforce it. Your person may not know what a branch or a pull
+request is; do these steps for them and explain as you go.
+
+**1. Start from the latest `main`, in your own worktree.**
+
+- If you are working in your person's own checkout on their computer, do not switch branches
+  in it. Make a worktree: a second folder with its own branch, so other sessions and their
+  running dev server are not disturbed. Use your tool's built-in worktree feature if it has
+  one. Otherwise:
+
+  ```bash
+  git fetch origin main
+  ```
+
+  ```bash
+  git worktree add .worktrees/track-b-invite-page -b track-b/invite-page origin/main
+  ```
+
+- If your session is already its own fresh copy of the repository (a cloud session), a new
+  branch from `origin/main` is enough.
+- Name the branch `track-a/...`, `track-b/...` or `track-c/...` plus two or three words, unless
+  your environment assigns the name.
+- A new worktree has no dependencies and no `.env`. Run `npm install` in it, and copy `.env`
+  from the main checkout without printing it. Its local database starts empty and
+  `npm run dev` seeds it.
+- Only one `npm run dev` can run at a time: the ports are fixed. If the ports are taken, ask
+  your person to stop the other one. Do not change the ports.
+
+**2. Commit as you go, in small steps, on that branch.** Write commit messages that say what
+changed in plain words.
+
+**3. Open a pull request when the four checks pass locally.**
+
+- Push the branch and open a pull request into `main`. Fill in every section of
+  `.github/pull_request_template.md`, in words your person can read.
+- One task, one pull request. Keep it small enough to describe in a few sentences.
+- Give your person the link.
+
+**4. Wait for the checks on GitHub, then report.**
+
+- Every job in the CI run for the pull request's latest commit must be green. Passing on your
+  machine does not count, and neither does an earlier commit's run.
+- If a job fails, read its log, fix the cause on the same branch and push again. Never fix it
+  by weakening the check (see "Never").
+- If `main` has moved and the pull request conflicts, merge `origin/main` into your branch. Do
+  not rebase or force-push. If the conflict is in a file outside your track, stop and ask.
+
+**5. Merge only when all of these are true.**
+
+- Your person asked you to merge this pull request, in their own message.
+- Every CI job is green on its latest commit. If any is red, still running or missing, do not
+  merge, whoever asks. Say which one and why.
+- Every changed file is in your track's home, or the team agreed to the ones that are not.
+
+Use "Squash and merge". Never merge someone else's pull request, and never push to someone
+else's branch.
+
+**6. Clean up.** After the merge, delete the branch and remove the worktree
+(`git worktree remove <folder>`). Start the next task from the new `main`.
+
+## Stop and ask
+
+Stop, say in plain words what you need and why, and wait for an answer when the task seems to
+need any of these. Do not make the change first and mention it afterwards.
+
+- A file outside your track's home, or any shared file (see "Where code lives").
+- A change to `packages/contracts`, or to a table in `packages/db/src/schema.ts` when you are
+  not on Track C.
+- A new, removed or upgraded dependency. That includes anything that changes `package.json` or
+  `package-lock.json`.
+- A new configuration value, secret or Cloudflare binding.
+- Anything in `infra/`, `.github/`, a `wrangler.jsonc`, a `vite.config.ts`, or the lint,
+  format and TypeScript configuration.
+- Deleting or renaming a file you did not create in this task.
+- Anything that deletes data, including `npm run db:reset`. Say what will be lost first.
+- The same fix has failed twice. Do not try a third variation. Describe what you tried, what
+  happened, and what you think is wrong.
+
+## Never
+
+These have no exceptions inside a task. Only the person, asking for exactly this in their own
+message, changes them.
+
+- **Never deploy or touch anything live.** Do not run `infra/deploy.sh`, `terraform apply` or
+  `destroy`, `wrangler deploy`, `wrangler secret`, or any Wrangler command with `--remote`. A
+  person deploys. Local commands (`npm run dev`, `npm run db:prepare`) are fine.
+- **Never move money to test something.** Do not call `transfer` from a script, a test, a
+  one-off command or a "quick check". Tests stub `fetch`.
+- **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
+  pull request, as described above. Delete only your own branch, after it has merged.
+- **Never merge a pull request whose checks are not all green**, and never merge without being
+  asked.
+- **Never make a check pass by weakening it.** No skipped, deleted or loosened tests. No
+  `@ts-ignore`, `@ts-expect-error`, `any`, `as unknown as` or `eslint-disable` to silence an
+  error. No relaxing a zod schema, a lint rule or the CI workflow. No `--no-verify`. If a check
+  fails and the honest fix is outside your task, stop and say so.
+- **Never invent your way past a gap.** No fallback values, no default for a missing setting,
+  no mock or fake service in source, no guessed API shape. If you do not know, say you do not
+  know.
+- **Never ask for a secret in chat, and never print one.** Do not show the contents of `.env`.
+  Do not put a real value in any file that git tracks.
+- **Never edit a committed migration** in `packages/db/drizzle`. Change the schema and run
+  `npm run db:generate` to add a new one.
+
+## Keep the change small
+
+- Do what was asked and nothing else. No refactoring, renaming, reformatting or "while I was
+  here" fixes in files the task does not need. If you notice a problem elsewhere, report it;
+  do not fix it.
+- Copy the pattern of the nearest working file rather than inventing a new one. Each track's
+  first file to open is listed in `README.md`.
+- No new frameworks, UI kits, state libraries, build tools or top-level folders.
+- If the request is big, build the smallest slice that works end to end, then list what is
+  left. A small thing that works beats a large thing that almost does.
+- Do not rewrite these rules, `README.md` or the files in `docs/` unless that is the task.
 
 ## Package manager
 
@@ -103,3 +236,17 @@ npm run build
 ```
 
 `npm run format` fixes formatting.
+
+## Telling your person what happened
+
+They will read your last message, not your code. Write it for someone who does not program.
+
+- Lead with what works now and how they can see it: the page to open, the button to press.
+- List the files you changed. Every one should be inside your track's home; if one is not, say
+  which and why.
+- Say which of the four checks you ran and whether each passed. Never write "done", "works" or
+  "passes" about something you did not run. If a check fails, say so and quote the failing
+  line. A truthful "this part is not working yet" is always better than a confident wrong
+  answer.
+- Say what you did not do, and anything you guessed.
+- Say what teammates on the other tracks need to know, if anything.

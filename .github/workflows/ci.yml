@@ -32,7 +32,7 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  # Checks the Terraform in infra/ is well formed. It needs no Cloudflare credentials:
+  # Checks the Terraform in infra/ is formatted and well formed. It needs no Cloudflare credentials:
   # validate downloads the provider and reads the configuration, and never contacts an account.
   terraform:
     runs-on: ubuntu-latest
@@ -45,5 +45,7 @@ jobs:
 
       - uses: hashicorp/setup-terraform@v3
 
+      # -diff prints what `terraform fmt` would change, so a failure shows the fix.
+      - run: terraform fmt -check -diff -recursive
       - run: terraform init -backend=false -input=false
       - run: terraform validate -no-color
