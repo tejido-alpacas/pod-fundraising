@@ -1,7 +1,13 @@
 import { depositView, type DepositView } from '#lib/campaign-site/server/deposits.ts';
 import { checkEvidence, evidenceStoreOrigin } from '#lib/server/backend/evidence.ts';
 import { error } from '@sveltejs/kit';
-import { isConfirmed, type Entry, type MilestoneKind, type Photo } from '@tejido/contracts';
+import {
+	isConfirmed,
+	shownRelationship,
+	type Entry,
+	type MilestoneKind,
+	type Photo
+} from '@tejido/contracts';
 import { getCampaign, getEntry, getMilestone, getParty, listDepositStatuses } from '@tejido/db';
 import { sameTwin } from '@tejido/qatom';
 import type { PageServerLoad } from './$types';
@@ -148,7 +154,14 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 			kind: milestone.kind,
 			confirmed: isConfirmed(milestone)
 		},
-		filer: { name: filer.name, title: filer.title, role: filer.role },
+		filer: {
+			name: filer.name,
+			title: filer.title,
+			role: filer.role,
+			// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+			relationship: shownRelationship(filer),
+			relationshipReason: filer.relationshipReason
+		},
 		receipt: {
 			twistId: entry.twistId,
 			stampedAt: entry.stampedAt,

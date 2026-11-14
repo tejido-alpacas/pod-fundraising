@@ -25,6 +25,7 @@
 		"@tejido/contracts": "*",
 		"@tejido/db": "*",
 		"@tejido/qatom": "*",
+		"@tejido/ui": "*",
 		"svelte": "^5.57.3",
 		"svelte-check": "^4.7.8",
 		"vite": "^8.3.8",

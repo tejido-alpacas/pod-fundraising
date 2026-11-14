@@ -34,6 +34,8 @@ export default defineConfig(
 		'**/dist/',
 		'**/coverage/',
 		'packages/db/drizzle/',
+		// The design system as exported by the design tool. Reference only, not our code.
+		'docs/design-system/source/',
 		'data/'
 	]),
 

@@ -1,7 +1,7 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "6d959819-d233-4c18-bcb7-63f2a41cddf3",
+  "id": "cff98442-a47a-49dc-83bd-3a31b621f6af",
   "prevId": "9b359e8e-cfe2-453c-8f83-aafec5140358",
   "tables": {
     "campaigns": {
@@ -586,6 +586,20 @@
           "notNull": true,
           "autoincrement": false
         },
+        "relationship": {
+          "name": "relationship",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "relationship_reason": {
+          "name": "relationship_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "agent_wallet_hostname": {
           "name": "agent_wallet_hostname",
           "type": "text",
@@ -685,73 +699,6 @@
         }
       },
       "compositePrimaryKeys": {},
-      "uniqueConstraints": {},
-      "checkConstraints": {}
-    },
-    "refund_attempts": {
-      "name": "refund_attempts",
-      "columns": {
-        "refund_id": {
-          "name": "refund_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        },
-        "deposit_id": {
-          "name": "deposit_id",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true,
-          "autoincrement": false
-        }
-      },
-      "indexes": {
-        "refund_attempts_deposit_idx": {
-          "name": "refund_attempts_deposit_idx",
-          "columns": [
-            "deposit_id"
-          ],
-          "isUnique": false
-        }
-      },
-      "foreignKeys": {
-        "refund_attempts_refund_id_refunds_id_fk": {
-          "name": "refund_attempts_refund_id_refunds_id_fk",
-          "tableFrom": "refund_attempts",
-          "tableTo": "refunds",
-          "columnsFrom": [
-            "refund_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        },
-        "refund_attempts_deposit_id_deposits_id_fk": {
-          "name": "refund_attempts_deposit_id_deposits_id_fk",
-          "tableFrom": "refund_attempts",
-          "tableTo": "deposits",
-          "columnsFrom": [
-            "deposit_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "no action",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {
-        "refund_attempts_refund_id_deposit_id_pk": {
-          "columns": [
-            "refund_id",
-            "deposit_id"
-          ],
-          "name": "refund_attempts_refund_id_deposit_id_pk"
-        }
-      },
       "uniqueConstraints": {},
       "checkConstraints": {}
     },

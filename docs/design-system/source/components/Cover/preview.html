@@ -1,0 +1,57 @@
+<!-- @dsCard height=288 -->
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tejido</title>
+<style>
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg-page); color: var(--text-primary); font-family: var(--font-sans); overflow: hidden; }
+  .cover { position: relative; width: 960px; height: 288px; overflow: hidden; }
+  .art { position: absolute; top: 0; left: 480px; width: 480px; height: 288px; overflow: hidden; }
+  .art svg { display: block; width: 480px; height: 288px; }
+  .teal { fill: var(--accent); }
+  .ink { fill: var(--text-primary); }
+  .indigo { fill: var(--secondary); }
+  .signal { fill: var(--status-attention-icon); }
+  .blk { rx: var(--radius-sm); }
+  .gap { stroke: var(--bg-page); stroke-width: 4px; paint-order: stroke; }
+  .ground { fill: var(--bg-page); }
+  .words { position: absolute; left: var(--space-6); bottom: var(--space-6); max-width: 440px; }
+  .name { margin: 0; font-family: var(--font-serif); font-size: 112px; line-height: .92; font-weight: 500; letter-spacing: -0.01em; color: var(--text-primary); }
+  .tag { margin: var(--space-3) 0 0 4px; font-size: 14px; line-height: 20px; color: var(--text-muted); }
+</style>
+</head>
+<body data-theme="light">
+<div class="cover">
+<div class="art" aria-hidden="true">
+<svg viewBox="0 0 480 288" width="480" height="288">
+<!--
+  blocks      accent 112×264 bleeding off the top (the brand) · text-primary 64×216 (ink) · secondary 64×168 (the record) · status-attention-icon 32×32 once (signal) — ≈30% of 960×288
+  arrangement three warp slabs of falling height on one baseline space-8 above the edge, space-6 gutters, the signal square loose to the right
+  pattern     a literal motif — the weave: three weft threads (space-4 tall, space-10 pitch) pass over and under the three warps in turn (plain weave), separated by a 2px ground line; from "many threads… form a trustworthy picture"
+  scales      sides in space-2 multiples; gutters space-6; weft height space-4, pitch space-10; corners radius-sm
+-->
+<!-- wefts underneath -->
+<rect class="ink" x="0" y="128" width="480" height="16"/>
+<rect class="teal" x="0" y="168" width="480" height="16"/>
+<rect class="indigo" x="0" y="208" width="400" height="16"/>
+<!-- warps, each cut free from the wefts by a 4px ground gap -->
+<rect class="teal blk gap" x="24" y="-8" width="112" height="264" rx="4"/>
+<rect class="ink blk gap" x="160" y="40" width="64" height="216" rx="4"/>
+<rect class="indigo blk gap" x="248" y="88" width="64" height="168" rx="4"/>
+<!-- where a weft passes over a warp: a ground line above and below, then the thread -->
+<rect class="ground" x="24" y="126" width="112" height="20"/><rect class="ink" x="22" y="128" width="116" height="16"/>
+<rect class="ground" x="248" y="126" width="64" height="20"/><rect class="ink" x="246" y="128" width="68" height="16"/>
+<rect class="ground" x="160" y="166" width="64" height="20"/><rect class="teal" x="158" y="168" width="68" height="16"/>
+<rect class="ground" x="24" y="206" width="112" height="20"/><rect class="indigo" x="22" y="208" width="116" height="16"/>
+<rect class="signal blk" x="352" y="224" width="32" height="32" rx="4"/>
+</svg>
+</div>
+<div class="words">
+<h1 class="name">Tejido</h1>
+<p class="tag">Fund the work. Follow the proof. See the outcome.</p>
+</div>
+</div>
+</body>
+</html>
