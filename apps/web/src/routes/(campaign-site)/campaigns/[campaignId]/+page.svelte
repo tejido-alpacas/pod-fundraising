@@ -9,6 +9,7 @@
 		utcDay,
 		utcTime
 	} from '#lib/campaign-site/dates.ts';
+	import FundingProgress from '#lib/campaign-site/FundingProgress.svelte';
 	import DeliveryProgress from '#lib/campaign-site/DeliveryProgress.svelte';
 	import HowProofWorks from '#lib/campaign-site/HowProofWorks.svelte';
 	import { CAMPAIGN_STATUS_LABEL } from '#lib/campaign-site/labels.ts';
@@ -143,6 +144,11 @@
 
 		<aside class="tj-campaign__aside" aria-label="Where this campaign stands">
 			<div class="tj-panel">
+				<!-- Funding is shown only when it is known. "Not known" is not zero, so nothing is drawn. -->
+				{#if data.funding.state === 'known'}
+					<FundingProgress funding={data.funding} />
+					<div class="tj-panel__sep"></div>
+				{/if}
 				<DeliveryProgress
 					segments={data.milestones}
 					confirmed={data.delivery.confirmed}

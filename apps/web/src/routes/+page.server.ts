@@ -1,4 +1,4 @@
-import { listCampaigns, listEntries, listMilestones } from '@tejido/db';
+import { getFundingSummary, listCampaigns, listEntries, listMilestones } from '@tejido/db';
 import {
 	confirmedCount,
 	milestoneStandings,
@@ -19,9 +19,10 @@ export const load = (async ({ locals }) => {
 
 	const campaigns = await Promise.all(
 		listed.map(async (campaign) => {
-			const [milestones, entries] = await Promise.all([
+			const [milestones, entries, funding] = await Promise.all([
 				listMilestones(db, campaign.id),
-				listEntries(db, campaign.id)
+				listEntries(db, campaign.id),
+				getFundingSummary(db, campaign)
 			]);
 			return {
 				id: campaign.id,
@@ -36,6 +37,12 @@ export const load = (async ({ locals }) => {
 				},
 				/** One segment of the delivery track per milestone, in order. */
 				delivery: milestoneStandings(milestones, entries, today),
+				/**
+				 * Money given, against the goal: totals from our own database, as last read from
+				 * Qatom's ledger. `state: 'not_known'` is not zero. No donor is identified. A different
+				 * fact from delivery (`milestones` above), and never drawn in a status colour.
+				 */
+				funding,
 				path: `/campaigns/${campaign.id}`
 			};
 		})

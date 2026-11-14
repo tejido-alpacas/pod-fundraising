@@ -11,6 +11,7 @@
 export { openDatabase, type Database, type Executor } from './client.ts';
 export * as schema from './schema.ts';
 export {
+	campaignFunding,
 	campaigns,
 	deposits,
 	entries,

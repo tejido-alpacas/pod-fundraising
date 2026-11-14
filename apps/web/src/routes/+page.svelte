@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { EmptyState, Icon, StatusBadge } from '@tejido/ui';
+	import FundingProgress from '#lib/campaign-site/FundingProgress.svelte';
 	import DeliveryProgress from '#lib/campaign-site/DeliveryProgress.svelte';
 	import HowProofWorks from '#lib/campaign-site/HowProofWorks.svelte';
 	import { CAMPAIGN_STATUS_LABEL } from '#lib/campaign-site/labels.ts';
@@ -67,6 +68,9 @@
 							</div>
 							{#if campaign.summary}<p class="summary">{campaign.summary}</p>{/if}
 							<div class="standing">
+								{#if campaign.funding.state === 'known'}
+									<FundingProgress funding={campaign.funding} compact />
+								{/if}
 								<DeliveryProgress
 									segments={campaign.delivery}
 									confirmed={campaign.milestones.confirmed}

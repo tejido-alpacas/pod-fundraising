@@ -13,6 +13,7 @@ import {
 import {
 	getCampaign,
 	listDepositStatuses,
+	getFundingSummary,
 	listEntries,
 	listMilestones,
 	listParties
@@ -46,12 +47,13 @@ export const load = (async ({ params, locals, url }) => {
 	const campaign = await getCampaign(db, params.campaignId);
 	if (!campaign) error(404, 'There is no campaign at this address.');
 
-	const [parties, milestones, entries, deposits] = await Promise.all([
+	const [parties, milestones, entries, deposits, funding] = await Promise.all([
 		listParties(db, campaign.id),
 		listMilestones(db, campaign.id),
 		listEntries(db, campaign.id),
 		// Every deposit with its state: held, refunded or refund outstanding.
-		listDepositStatuses(db, campaign.id)
+		listDepositStatuses(db, campaign.id),
+		getFundingSummary(db, campaign)
 	]);
 	const today = todayUtc();
 
@@ -91,6 +93,12 @@ export const load = (async ({ params, locals, url }) => {
 			/** When the campaign was set up on Tejido. Not when the work started. */
 			createdAt: campaign.createdAt
 		},
+		/**
+		 * Money given, against the goal: totals from our own database, as last read from Qatom's
+		 * ledger. `state: 'not_known'` is not zero. No donor is identified. A different fact from
+		 * delivery (`milestones` below), and never drawn in a status colour.
+		 */
+		funding,
 		/** The calendar date the page was built on, in UTC. "Overdue" is counted from it. */
 		today,
 		/** Delivery is counted in milestones. Tejido never works out a percentage. */

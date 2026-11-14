@@ -3,7 +3,15 @@
 import { isHttpError } from '@sveltejs/kit';
 import type { Entry, LogWorkEntry, MilestoneHitEntry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, deposits, entries, evidenceFiles, milestones, parties } from '@tejido/db';
+import {
+	campaignFunding,
+	campaigns,
+	deposits,
+	entries,
+	evidenceFiles,
+	milestones,
+	parties
+} from '@tejido/db';
 import { eq, inArray } from 'drizzle-orm';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -169,16 +177,16 @@ describe('the donor timeline', () => {
 		]);
 	});
 
-	it('counts delivery in milestones, and sends no percentage and nothing about funding', async () => {
+	it('counts delivery in milestones and sends no percentage for it', async () => {
 		const data = await timeline();
 		expect(data.delivery).toEqual({ confirmed: 1, total: 3 });
-		// Funding is not modelled: no raised amount, goal or contribution count is sent.
 		expect(Object.keys(data).sort()).toEqual(
 			[
 				'campaign',
 				'delivery',
 				'entries',
 				'flagged',
+				'funding',
 				'milestones',
 				'nextShow',
 				'parties',
@@ -186,6 +194,36 @@ describe('the donor timeline', () => {
 				'total'
 			].sort()
 		);
+	});
+
+	it('says funding is not known, never zero, until donations have been read', async () => {
+		// The seeded campaign has a goal and no donation item. The page draws nothing for this.
+		expect((await timeline()).funding).toEqual({
+			state: 'not_known',
+			reason: 'no_donation_item',
+			goal: fixtures.campaign.fundingGoal
+		});
+	});
+
+	it('gives the amount raised, the goal and the number of donations once they are read', async () => {
+		await test.db.update(campaigns).set({ donationCommodityId: 3154 });
+		await test.db.insert(campaignFunding).values({
+			campaignId: CAMPAIGN,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z'
+		});
+		const { funding } = await timeline();
+		expect(funding).toEqual({
+			state: 'known',
+			goal: fixtures.campaign.fundingGoal,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z',
+			goalMet: false
+		});
+		// Totals only: nothing says who gave.
+		expect(JSON.stringify(funding)).not.toMatch(/donor|wallet|@/i);
 	});
 
 	it('marks a milestone overdue from its due date, beside its status and never once confirmed', async () => {

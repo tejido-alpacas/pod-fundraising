@@ -12,6 +12,7 @@ export * from './primitives.ts';
 export * from './money.ts';
 export * from './items.ts';
 export * from './campaign.ts';
+export * from './funding.ts';
 export * from './party.ts';
 export * from './entry.ts';
 export * from './deposit.ts';

@@ -1,7 +1,7 @@
 // Calls the home page's own load against a real, migrated database. Nothing here reaches
 // the network.
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, milestones } from '@tejido/db';
+import { campaignFunding, campaigns, milestones } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -90,6 +90,12 @@ describe('the home page', () => {
 						overdueDays: 0
 					}
 				],
+				// The seeded campaign has a goal and no donation item: its funding is not known.
+				funding: {
+					state: 'not_known',
+					reason: 'no_donation_item',
+					goal: fixtures.campaign.fundingGoal
+				},
 				path: `/campaigns/${fixtures.campaign.id}`
 			}
 		]);
@@ -115,6 +121,27 @@ describe('the home page', () => {
 
 		const [listed] = (await home()).campaigns;
 		expect(listed?.delivery.map((milestone) => milestone.overdueDays)).toEqual([0, 1, 8]);
+	});
+
+	it('gives a card its funding once donations have been read, and "not known" before', async () => {
+		test = await createTestDatabase({ seed: true });
+		expect((await home()).campaigns[0]?.funding.state).toBe('not_known');
+
+		await test.db.update(campaigns).set({ donationCommodityId: 3154 });
+		await test.db.insert(campaignFunding).values({
+			campaignId: fixtures.campaign.id,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z'
+		});
+		expect((await home()).campaigns[0]?.funding).toEqual({
+			state: 'known',
+			goal: fixtures.campaign.fundingGoal,
+			raised: 8_450_000,
+			donations: 37,
+			readAt: '2026-11-14T06:00:00.000Z',
+			goalMet: false
+		});
 	});
 
 	it('leaves drafts out and lists every other status, newest first', async () => {
@@ -171,6 +198,7 @@ describe('the home page', () => {
 					'beneficiary',
 					'creatorName',
 					'delivery',
+					'funding',
 					'id',
 					'milestones',
 					'path',
