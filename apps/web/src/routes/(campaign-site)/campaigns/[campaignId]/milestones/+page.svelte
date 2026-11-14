@@ -115,6 +115,10 @@
 </p>
 <h1>Milestones</h1>
 <p class="muted">Where each milestone of this campaign stands, and how strongly it is confirmed.</p>
+<p class="muted">
+	<a href="/campaigns/{data.campaign.id}/report">Final report</a>: every milestone, who confirmed
+	it, and what is still outstanding.
+</p>
 
 {#if campaignOverdue || late.length > 0}
 	<section class="banner" role="alert">
