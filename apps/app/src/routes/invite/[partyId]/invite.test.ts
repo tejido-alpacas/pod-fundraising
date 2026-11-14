@@ -58,6 +58,7 @@ describe('the invitation page', () => {
 	it('shows a contractor the project, their role and the milestones they report on', async () => {
 		const data = await sent(contractor.id);
 		expect(data).toEqual({
+			header: { title: 'Invitation', subtitle: 'Tejido field app' },
 			party: {
 				id: contractor.id,
 				name: contractor.name,

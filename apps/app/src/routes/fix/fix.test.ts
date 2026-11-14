@@ -192,8 +192,14 @@ async function unchanged(run: () => Promise<unknown>) {
 
 describe('the page', () => {
 	it('shows nothing to someone who is not signed in, or not on a campaign', async () => {
-		expect(await view(null)).toEqual({ viewer: 'signed_out', email: null, entries: [] });
-		expect(await view(noParty)).toEqual({ viewer: 'no_party', email: noParty.email, entries: [] });
+		const header = { title: 'Fix an entry', backHref: '/' };
+		expect(await view(null)).toEqual({ header, viewer: 'signed_out', email: null, entries: [] });
+		expect(await view(noParty)).toEqual({
+			header,
+			viewer: 'no_party',
+			email: noParty.email,
+			entries: []
+		});
 	});
 
 	it('shows a party their own incomplete reports and what is missing', async () => {
@@ -216,6 +222,18 @@ describe('the page', () => {
 		]);
 		// The reporter code is what proves who files. It never goes to the browser.
 		expect(JSON.stringify(page)).not.toContain(contractor.reporterCode);
+	});
+
+	it('names the milestone in the header when there is one report to fix, and none otherwise', async () => {
+		expect((await view(sessionFor(supplier))).header).toEqual({
+			title: 'Fix an entry',
+			subtitle: 'Books delivered · Milestone 3',
+			backHref: '/'
+		});
+		expect((await view(sessionFor(headTeacher))).header).toEqual({
+			title: 'Fix an entry',
+			backHref: '/'
+		});
 	});
 
 	it('shows each party only their own', async () => {

@@ -106,7 +106,7 @@
 {/snippet}
 
 {#if data.viewer !== 'party'}
-	<FieldPage title="Fix your report" subtitle="Tejido field app" back="/">
+	<FieldPage>
 		<p class="text-eyebrow">Incomplete reports</p>
 		<h1>Fix an incomplete report</h1>
 		{@render result()}
@@ -125,14 +125,7 @@
 		{/if}
 	</FieldPage>
 {:else if !selected}
-	<FieldPage
-		title="Fix your reports"
-		subtitle={data.entries.length === 0
-			? 'Nothing is incomplete'
-			: `${data.entries.length} incomplete`}
-		back="/"
-		actions={data.entries.length === 0 ? back : undefined}
-	>
+	<FieldPage actions={data.entries.length === 0 ? back : undefined}>
 		<p class="text-eyebrow">Incomplete reports</p>
 		{#if data.entries.length === 0}
 			<h1>Nothing to fix</h1>
@@ -170,14 +163,12 @@
 {:else}
 	{@const entry = selected}
 	{@const report = REPORTS[entry.report]}
-	<FieldPage
-		title="Fix your report"
-		subtitle={entry.milestonePosition === null
-			? entry.milestoneTitle
-			: `${entry.milestoneTitle} · Milestone ${entry.milestonePosition}`}
-		back={data.entries.length > 1 ? '/fix' : '/'}
-		actions={entry.room > 0 ? save : back}
-	>
+	<FieldPage actions={entry.room > 0 ? save : back}>
+		{#if data.entries.length > 1}
+			<a class="tj-link tj-link--standalone" href="/fix">
+				<Icon name="arrow-left" size={18} /> All {data.entries.length} incomplete reports
+			</a>
+		{/if}
 		<div class="tj-badges">
 			<StatusBadge state="incomplete" />
 			<span class="tj-badge tj-tone--neutral">

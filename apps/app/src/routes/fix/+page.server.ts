@@ -102,14 +102,24 @@ function shown(
 	};
 }
 
+/** What the layout draws above the page: the design's field header, with a way back. */
+const HEADER: { title: string; subtitle?: string; backHref: string } = {
+	title: 'Fix an entry',
+	backHref: '/'
+};
+
 export const load: PageServerLoad = async ({ locals }) => {
 	const { session } = locals;
 	const none: ReturnType<typeof shown>[] = [];
-	if (!session) return { viewer: 'signed_out' as const, email: null, entries: none };
+	if (!session) {
+		return { header: HEADER, viewer: 'signed_out' as const, email: null, entries: none };
+	}
 
 	const { db } = locals.ctx;
 	const party = session.partyId ? await getParty(db, session.partyId) : undefined;
-	if (!party) return { viewer: 'no_party' as const, email: session.email, entries: none };
+	if (!party) {
+		return { header: HEADER, viewer: 'no_party' as const, email: session.email, entries: none };
+	}
 
 	const [entries, milestones] = await Promise.all([
 		listIncompleteEntries(db, party.id),
@@ -119,7 +129,16 @@ export const load: PageServerLoad = async ({ locals }) => {
 		db,
 		entries.flatMap((entry) => (entry.inputs.photos ?? []).map((photo) => photo.sha256))
 	);
+	// With one incomplete report the header names its milestone. With several, the person
+	// chooses on the page, so the header names none.
+	const only = entries.length === 1 ? entries[0] : undefined;
+	const onlyMilestone = only
+		? milestones.find((milestone) => milestone.id === only.milestoneId)
+		: undefined;
 	return {
+		header: onlyMilestone
+			? { ...HEADER, subtitle: `${onlyMilestone.title} · Milestone ${onlyMilestone.position}` }
+			: HEADER,
 		viewer: 'party' as const,
 		email: session.email,
 		entries: entries.map((entry) =>

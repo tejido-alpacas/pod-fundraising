@@ -16,7 +16,7 @@
 
 <svelte:head><title>Your invitation to {data.campaign.title} · Tejido</title></svelte:head>
 
-<FieldPage title="Invitation" subtitle="Tejido field app">
+<FieldPage>
 	<p class="text-eyebrow">You’re invited</p>
 	<h1>
 		{data.party.name}, you’re invited to

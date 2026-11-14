@@ -25,6 +25,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const milestones = await listMilestones(db, campaign.id);
 
 	return {
+		// What the layout draws above the page: the design's field header.
+		header: { title: 'Invitation', subtitle: 'Tejido field app' },
 		// Anyone holding the link can open this page, so it gets no reporter code, no wallet
 		// and no full email address.
 		party: {

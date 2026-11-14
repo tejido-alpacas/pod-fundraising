@@ -16,11 +16,15 @@ import {
 import { readVisibilityChoice, storeEvidence } from '#lib/server/evidence.ts';
 import type { Actions, PageServerLoad } from './$types';
 
+/** What the layout draws above the page: the design's field header, with a way back. */
+const header = { title: 'Add evidence', subtitle: 'Photos and documents', backHref: '/' };
+
 export const load: PageServerLoad = ({ locals }) => {
 	const { session } = locals;
-	if (!session) return { viewer: 'signed_out' as const, email: null };
+	if (!session) return { header, viewer: 'signed_out' as const, email: null };
 	// Only a party on a campaign may upload, exactly as `POST /api/evidence` decides.
 	return {
+		header,
 		viewer: session.partyId ? ('party' as const) : ('no_party' as const),
 		email: session.email
 	};

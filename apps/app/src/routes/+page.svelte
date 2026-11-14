@@ -2,7 +2,7 @@
 	import { Banner, Button, Icon, StatusBadge, type IconName } from '@tejido/ui';
 	import { shortDay } from '#lib/dates.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
-	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
+	import { CADENCE, ROLES } from '#lib/roles.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -55,7 +55,7 @@
 <svelte:head><title>Tejido</title></svelte:head>
 
 {#if data.viewer === 'signed_out'}
-	<FieldPage title="Tejido" subtitle="Field app">
+	<FieldPage>
 		<p class="text-eyebrow">Tejido field app</p>
 		<h1>Report your work on a funded project</h1>
 		<p class="tj-fieldpage__lede">
@@ -85,7 +85,7 @@
 		{/snippet}
 	</FieldPage>
 {:else if data.viewer === 'no_party'}
-	<FieldPage title="Tejido" subtitle={data.email}>
+	<FieldPage>
 		<p class="text-eyebrow">Signed in</p>
 		<h1>You’re not on a project yet</h1>
 		<p class="tj-fieldpage__lede app-wrap">
@@ -100,11 +100,7 @@
 	</FieldPage>
 {:else}
 	{@const { party, campaign } = data}
-	<FieldPage
-		title={campaign.title}
-		subtitle="{party.name} · {roleName(party)}"
-		tabs={{ current: '/', incompleteReports: incomplete }}
-	>
+	<FieldPage>
 		<p class="text-eyebrow">Your project</p>
 		<h1>{campaign.title}</h1>
 		<p class="tj-fieldpage__lede">

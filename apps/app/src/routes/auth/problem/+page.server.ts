@@ -9,6 +9,8 @@ export const load: PageServerLoad = ({ url }) => {
 	const problem = SIGN_IN_PROBLEMS[isSignInProblem(reason) ? reason : 'not_trusted'];
 
 	return {
+		// What the layout draws above the page: the design's field header.
+		header: { title: 'Sign-in', subtitle: 'Tejido field app' },
 		title: problem.title,
 		message: problem.message,
 		retry: problem.retry,

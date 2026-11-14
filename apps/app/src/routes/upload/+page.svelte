@@ -26,7 +26,6 @@
 		type EvidenceProblem
 	} from '#lib/evidence.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
-	import { page } from '$app/state';
 	import { onMount } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
@@ -266,12 +265,7 @@
 
 <svelte:head><title>Add evidence · Tejido</title></svelte:head>
 
-<FieldPage
-	title="Add evidence"
-	subtitle={page.data.nav?.party?.name ?? 'Photos and documents'}
-	back="/"
-	actions={enhanced && uploaded.length > 0 ? actions : undefined}
->
+<FieldPage actions={enhanced && uploaded.length > 0 ? actions : undefined}>
 	<h1 class="tj-vh">Add photos and documents</h1>
 
 	{#if data.viewer === 'signed_out'}

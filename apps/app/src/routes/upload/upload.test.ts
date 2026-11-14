@@ -98,17 +98,24 @@ async function refusal(session: Session | null, ...files: File[]) {
 	return { status: answer.status, refused: answer.data.refused };
 }
 
+/** The page names itself for the header the layout draws, with a way back to the home page. */
+const HEADER = { title: 'Add evidence', subtitle: 'Photos and documents', backHref: '/' };
+
 describe('the upload page', () => {
 	it('tells someone who is not signed in that they cannot upload', async () => {
-		expect(await view(null)).toEqual({ viewer: 'signed_out', email: null });
+		expect(await view(null)).toEqual({ header: HEADER, viewer: 'signed_out', email: null });
 	});
 
 	it('tells someone signed in without a party that they are not on a campaign', async () => {
-		expect(await view(noParty)).toEqual({ viewer: 'no_party', email: noParty.email });
+		expect(await view(noParty)).toEqual({
+			header: HEADER,
+			viewer: 'no_party',
+			email: noParty.email
+		});
 	});
 
 	it('shows the form to a signed-in party', async () => {
-		expect(await view(party)).toEqual({ viewer: 'party', email: party.email });
+		expect(await view(party)).toEqual({ header: HEADER, viewer: 'party', email: party.email });
 	});
 });
 

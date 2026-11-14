@@ -14,7 +14,7 @@
 	<title>{notFound ? 'Not found' : 'Something went wrong'} · Tejido</title>
 </svelte:head>
 
-<FieldPage title="Tejido" subtitle="Field app">
+<FieldPage>
 	<div class="app-problem">
 		<ErrorPage
 			code={notFound ? 'Not found · 404' : 'Something went wrong'}

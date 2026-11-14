@@ -8,7 +8,7 @@
 
 <svelte:head><title>{data.title} · Tejido</title></svelte:head>
 
-<FieldPage title="Sign-in" subtitle="Tejido field app">
+<FieldPage>
 	<div class="app-problem">
 		<ErrorPage code="Sign-in" title={data.title}>
 			{data.message}
