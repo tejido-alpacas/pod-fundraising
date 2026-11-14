@@ -13,7 +13,7 @@ import {
 	PROBLEM_SENTENCES,
 	type UploadResult
 } from '#lib/evidence.ts';
-import { storeEvidence } from '#lib/server/evidence.ts';
+import { readVisibilityChoice, storeEvidence } from '#lib/server/evidence.ts';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
@@ -30,7 +30,8 @@ export const actions = {
 	upload: async ({ request, locals, url }) => {
 		// Before anything is read or stored.
 		if (!locals.session) return fail(401, { refused: PROBLEM_SENTENCES.not_signed_in });
-		if (!locals.session.partyId) return fail(403, { refused: PROBLEM_SENTENCES.not_a_party });
+		const partyId = locals.session.partyId;
+		if (!partyId) return fail(403, { refused: PROBLEM_SENTENCES.not_a_party });
 
 		const form = await request.formData();
 		// A file input left untouched still sends one nameless, empty file. That is not a choice.
@@ -42,6 +43,10 @@ export const actions = {
 			return fail(400, { refused: 'No file was chosen. Choose a photo or a document first.' });
 		}
 
+		// One choice of who may see them covers every file sent together.
+		const chosen = readVisibilityChoice(form);
+		if (!chosen.ok) return fail(422, { refused: PROBLEM_SENTENCES.not_public_words });
+
 		// Each file stands on its own: one that fails does not stop the ones after it.
 		const results: UploadResult[] = [];
 		for (const file of files) {
@@ -51,8 +56,32 @@ export const actions = {
 				continue;
 			}
 			try {
-				const stored = await storeEvidence(locals.ctx.evidence, file, check.type, url.origin);
-				results.push({ name: file.name, ok: true, ...stored, picture: isPicture(check.type) });
+				const outcome = await storeEvidence({
+					evidence: locals.ctx.evidence,
+					db: locals.ctx.db,
+					file,
+					type: check.type,
+					origin: url.origin,
+					partyId,
+					choice: chosen.choice
+				});
+				if (!outcome.stored) {
+					results.push({
+						name: file.name,
+						ok: false,
+						problem: PROBLEM_SENTENCES.not_yours_to_change
+					});
+					continue;
+				}
+				const { url: address, sha256, visibility } = outcome;
+				results.push({
+					name: file.name,
+					ok: true,
+					url: address,
+					sha256,
+					visibility,
+					picture: isPicture(check.type)
+				});
 			} catch {
 				results.push({ name: file.name, ok: false, problem: PROBLEM_SENTENCES.unexpected });
 			}

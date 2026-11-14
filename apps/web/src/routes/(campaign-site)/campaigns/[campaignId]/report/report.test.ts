@@ -7,6 +7,7 @@ import {
 	campaigns,
 	deposits,
 	entries,
+	evidenceFiles,
 	milestones,
 	refunds,
 	setPartyRelationship
@@ -323,7 +324,7 @@ describe('the final report', () => {
 			const { row } = await report();
 
 			// Uploaded to the App: shown.
-			expect(row('m2-walls').evidence[1]!.files).toEqual({
+			expect(row('m2-walls').evidence[1]!.files).toMatchObject({
 				photos: [
 					{
 						url: `${APP}/evidence/${'a'.repeat(64)}.jpg`,
@@ -338,15 +339,45 @@ describe('the final report', () => {
 						caption: 'Inspection report'
 					}
 				],
+				notPublic: [],
 				leftOut: 0
 			});
 			// The fixtures' files are at another address: left out, and counted.
-			expect(row('m1-foundation').evidence[1]!.files).toEqual({
+			expect(row('m1-foundation').evidence[1]!.files).toMatchObject({
 				photos: [],
 				documents: [],
+				notPublic: [],
 				leftOut: 2
 			});
 			expect(JSON.stringify((await report()).data)).not.toContain('evidence.tejido.example');
+		});
+
+		it('names a not-public file by what its uploader says, and never sends its address', async () => {
+			await test.db.insert(evidenceFiles).values({
+				sha256: 'b'.repeat(64),
+				uploadedByPartyId: contractor.id,
+				visibility: 'not_public',
+				notPublicKind: 'Inspection report',
+				notPublicReason: 'It names the people who live next door.',
+				createdAt: '2026-11-14T08:00:00.000Z',
+				updatedAt: '2026-11-14T08:00:00.000Z'
+			});
+
+			const { data, row } = await report();
+
+			expect(row('m2-walls').evidence[1]!.files).toMatchObject({
+				photos: [{ sha256: 'a'.repeat(64) }],
+				documents: [],
+				notPublic: [
+					{
+						kind: 'Inspection report',
+						reason: 'It names the people who live next door.',
+						sha256: 'b'.repeat(64)
+					}
+				],
+				leftOut: 0
+			});
+			expect(JSON.stringify(data)).not.toContain(`${'b'.repeat(64)}.pdf`);
 		});
 
 		it('shows no picture on a milestone that takes documents only', async () => {
@@ -364,13 +395,37 @@ describe('the final report', () => {
 
 			expect(row('m1-foundation').deposits).toEqual({
 				paid: 2000,
+				held: 0,
+				refunded: 2000,
+				outstanding: 0,
 				returned: 2000,
 				lastRefundedAt: '2026-10-30T09:45:00.000Z'
 			});
-			// Confirmed, but no refund is recorded on these deposits: none is claimed.
-			expect(row('m2-walls').deposits).toEqual({ paid: 2200, returned: 0, lastRefundedAt: null });
+			// Confirmed, but no refund is recorded on these deposits: none is called refunded, and
+			// none is called held either. The refunds are outstanding.
+			expect(row('m2-walls').deposits).toEqual({
+				paid: 2200,
+				held: 0,
+				refunded: 0,
+				outstanding: 2200,
+				returned: 0,
+				lastRefundedAt: null
+			});
+			expect(row('m2-walls').depositStates.map(({ label }) => label)).toEqual(
+				Array.from({ length: 4 }, () => 'Refund outstanding')
+			);
+			expect(row('m1-foundation').depositStates.map(({ label }) => label)).toEqual([
+				'Deposit refunded',
+				'Deposit refunded'
+			]);
 			expect(row('m2-walls').refunds).toEqual([]);
-			expect(data.totals).toMatchObject({ paid: 5200, returned: 2000 });
+			expect(data.totals).toMatchObject({
+				paid: 5200,
+				returned: 2000,
+				held: 0,
+				refunded: 2000,
+				outstanding: 3200
+			});
 		});
 
 		it('shows a recorded refund transfer: to whom, which wallet, how much and when', async () => {

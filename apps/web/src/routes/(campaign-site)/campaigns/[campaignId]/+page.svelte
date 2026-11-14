@@ -226,6 +226,10 @@
 					</ul>
 				{/if}
 
+				{#each entry.evidence.notPublic as file (file.sha256)}
+					<p class="left-out">Not public: {file.kind}. {file.reason}</p>
+				{/each}
+
 				{#if entry.evidence.leftOut > 0}
 					<p class="left-out">
 						{entry.evidence.leftOut === 1

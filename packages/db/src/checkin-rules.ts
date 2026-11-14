@@ -16,6 +16,10 @@
  * anyone but the milestone's named confirmer. Every other gap is saved as `incomplete`, with
  * the reason, so the reporter can fix it without paying again.
  *
+ * A file marked not public never satisfies the evidence a claim needs. A claim on a photo
+ * milestone needs a photo donors can see, and a claim on a documents-only milestone needs a
+ * document donors can see. Not-public files may be attached as well; they cannot stand in.
+ *
  * The rules come from docs/architecture.md: "Who confirms a milestone", "How two items cover
  * every party and milestone" and "Who enforces what".
  */
@@ -120,6 +124,12 @@ export interface CheckinFacts {
 	milestone: Milestone;
 	/** The origin our evidence URLs are on. See `evidenceStoreOrigin`. */
 	evidenceOrigin: string;
+	/**
+	 * The SHA-256 of every attached file its uploader marked not public. See
+	 * `listNotPublicEvidence`. Donors cannot see these files, so they do not count as the
+	 * evidence a claim needs.
+	 */
+	notPublicEvidence: Pick<ReadonlySet<string>, 'has'>;
 	now: Timestamp;
 }
 
@@ -136,9 +146,14 @@ export function decideCheckin(facts: CheckinFacts): CheckinDecision {
 
 	// 2. What is missing? None of this refuses the entry: its deposit has been paid.
 	const owed: string[] = [];
-	const evidence = (checkin.inputs.photos ?? []).map((photo) =>
-		checkEvidence(photo, facts.evidenceOrigin)
-	);
+	const photos = checkin.inputs.photos ?? [];
+	const evidence = photos.map((photo) => checkEvidence(photo, facts.evidenceOrigin));
+	// What donors can see: a file marked not public is kept, and its confirmer can open it, but
+	// it is not the evidence a claim owes to donors.
+	const visible = evidence.filter((_, index) => {
+		const photo = photos[index];
+		return photo !== undefined && !facts.notPublicEvidence.has(photo.sha256);
+	});
 	let advance: MilestoneAdvance | null = null;
 
 	if (checkin.item === 'log_work') {
@@ -165,15 +180,21 @@ export function decideCheckin(facts: CheckinFacts): CheckinDecision {
 			owed.push('A funds handover needs the amount spent.');
 		}
 		if (kind.documentsOnly) {
-			if (!evidence.includes('document')) {
+			if (!visible.includes('document')) {
 				owed.push(
-					milestone.kind === 'funds_handover'
-						? 'A funds handover needs a receipt, uploaded as a document (PDF).'
-						: `A ${kind.label} claim needs at least one document (PDF).`
+					evidence.includes('document')
+						? `A ${kind.label} claim needs at least one document (PDF) that donors can see. Every document attached is marked not public.`
+						: milestone.kind === 'funds_handover'
+							? 'A funds handover needs a receipt, uploaded as a document (PDF).'
+							: `A ${kind.label} claim needs at least one document (PDF).`
 				);
 			}
-		} else if (!evidence.includes('photo')) {
-			owed.push(`A ${kind.label} claim needs at least one photo.`);
+		} else if (!visible.includes('photo')) {
+			owed.push(
+				evidence.includes('photo')
+					? `A ${kind.label} claim needs at least one photo that donors can see. Every photo attached is marked not public.`
+					: `A ${kind.label} claim needs at least one photo.`
+			);
 		}
 		// 3b. A claim by the owner moves an open milestone to claimed, complete or not.
 		if (milestone.state === 'open') {

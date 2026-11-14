@@ -1,7 +1,13 @@
 <script lang="ts">
 	import {
 		EVIDENCE_FILE_FIELD,
+		EVIDENCE_NOT_PUBLIC_KIND_FIELD,
+		EVIDENCE_NOT_PUBLIC_KIND_MAX,
+		EVIDENCE_NOT_PUBLIC_REASON_FIELD,
+		EVIDENCE_NOT_PUBLIC_REASON_MAX,
+		EVIDENCE_VISIBILITY_FIELD,
 		evidenceUploadResponseSchema,
+		type EvidenceVisibility,
 		MAX_PHOTOS_PER_ENTRY
 	} from '@tejido/contracts';
 	import { Banner, Button, Icon, shortId } from '@tejido/ui';
@@ -34,7 +40,13 @@
 	type Progress =
 		| { status: 'waiting' }
 		| { status: 'uploading'; sent: number; total: number | null }
-		| { status: 'done'; url: string; sha256: string; picture: boolean }
+		| {
+				status: 'done';
+				url: string;
+				sha256: string;
+				visibility: EvidenceVisibility;
+				picture: boolean;
+		  }
 		| { status: 'failed'; problem: string; retry: boolean };
 	type Row = { key: string; name: string; picture: boolean; preview: string | null } & Progress;
 
@@ -49,6 +61,15 @@
 	let sending = false;
 	/** The chosen files themselves, kept so a failed one can be sent again. */
 	const files = new SvelteMap<string, File>();
+
+	// Who may see the files chosen next. Decided before choosing, because with the script
+	// running a file is sent as soon as it is chosen. Each file keeps the choice it was chosen
+	// under, however long it waits its turn.
+	let keepFromDonors = $state(false);
+	let notPublicKind = $state('');
+	let notPublicReason = $state('');
+	type NotPublic = { kind: string; reason: string };
+	const notPublic = new SvelteMap<string, NotPublic>();
 
 	let picker = $state<HTMLFormElement>();
 
@@ -70,7 +91,8 @@
 						picture: result.picture,
 						status: 'done',
 						url: result.url,
-						sha256: result.sha256
+						sha256: result.sha256,
+						visibility: result.visibility
 					}
 				: { ...base, picture: false, status: 'failed', problem: result.problem, retry: false };
 		})
@@ -110,10 +132,20 @@
 	}
 
 	/** Sends one file and reports the bytes the browser says have left the phone. */
-	function post(file: File, picture: boolean, onSent: (sent: number, total: number) => void) {
+	function post(
+		file: File,
+		picture: boolean,
+		words: NotPublic | undefined,
+		onSent: (sent: number, total: number) => void
+	) {
 		return new Promise<Progress>((resolve) => {
 			const body = new FormData();
 			body.set(EVIDENCE_FILE_FIELD, file);
+			if (words) {
+				body.set(EVIDENCE_VISIBILITY_FIELD, 'not_public');
+				body.set(EVIDENCE_NOT_PUBLIC_KIND_FIELD, words.kind);
+				body.set(EVIDENCE_NOT_PUBLIC_REASON_FIELD, words.reason);
+			}
 
 			const request = new XMLHttpRequest();
 			request.open('POST', '/api/evidence');
@@ -152,11 +184,14 @@
 			if (!next || !file) break;
 			const { key, picture } = next;
 			set(key, { status: 'uploading', sent: 0, total: null });
-			const ended = await post(file, picture, (bytes, total) =>
+			const ended = await post(file, picture, notPublic.get(key), (bytes, total) =>
 				set(key, { status: 'uploading', sent: bytes, total })
 			);
 			set(key, ended);
-			if (ended.status === 'done') files.delete(key);
+			if (ended.status === 'done') {
+				files.delete(key);
+				notPublic.delete(key);
+			}
 		}
 		sending = false;
 	}
@@ -168,8 +203,13 @@
 			const check = checkEvidenceFile(file);
 			const picture = isPicture(file.type);
 			const base = { key, name: file.name, picture };
-			if (check.ok) {
+			const wordsMissing = notPublicKind.trim() === '' || notPublicReason.trim() === '';
+			if (check.ok && keepFromDonors && wordsMissing) {
+				// Never sent as public by mistake: without both lines it is not sent at all.
+				sent.push({ ...base, preview: null, ...failed('not_public_words') });
+			} else if (check.ok) {
 				files.set(key, file);
+				if (keepFromDonors) notPublic.set(key, { kind: notPublicKind, reason: notPublicReason });
 				sent.push({
 					...base,
 					preview: picture ? URL.createObjectURL(file) : null,
@@ -200,6 +240,7 @@
 		if (!row) return;
 		if (row.preview) URL.revokeObjectURL(row.preview);
 		files.delete(key);
+		notPublic.delete(key);
 		sent.splice(at, 1);
 	}
 
@@ -255,6 +296,66 @@
 				if (enhanced) event.preventDefault();
 			}}
 		>
+			<fieldset class="app-who">
+				<legend class="tj-label">Who may see the files you choose next</legend>
+				<label class="tj-check">
+					<input
+						type="checkbox"
+						name={EVIDENCE_VISIBILITY_FIELD}
+						value="not_public"
+						aria-describedby="who-help"
+						bind:checked={keepFromDonors}
+					/>
+					<span class="tj-check__text">
+						<span>Keep these files from donors</span>
+						<small>Decide before you choose a file. It is sent as soon as you choose it.</small>
+					</span>
+				</label>
+				<p class="tj-help" id="who-help">
+					Leave this off and donors see the files. Turn it on for something donors should not see,
+					such as a list with pupils’ names. Then only you and this project’s confirmers can open
+					the file. Donors are told it exists, with the two lines below, and are not shown it. A
+					file kept from donors does not count as the photo or document a milestone report needs.
+				</p>
+				<!-- Without the page's script the two lines cannot appear on a tick, so they are always there. -->
+				{#if keepFromDonors || !enhanced}
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-kind">What it is</label>
+						<input
+							class="tj-input"
+							id="np-kind"
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_KIND_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_KIND_MAX}
+							aria-describedby="np-kind-help"
+							bind:value={notPublicKind}
+						/>
+						<p class="tj-help" id="np-kind-help">
+							For example: Class list. Fill this in before choosing the file.
+						</p>
+					</div>
+					<div class="tj-field tj-field--field">
+						<label class="tj-label" for="np-reason">Why donors are not shown it</label>
+						<input
+							class="tj-input"
+							id="np-reason"
+							type="text"
+							name={EVIDENCE_NOT_PUBLIC_REASON_FIELD}
+							maxlength={EVIDENCE_NOT_PUBLIC_REASON_MAX}
+							aria-describedby="np-reason-help"
+							bind:value={notPublicReason}
+						/>
+						<p class="tj-help" id="np-reason-help">For example: It has pupils’ names on it.</p>
+					</div>
+					<p class="tj-toolresult tj-tone--attention">
+						<Icon name="alert-circle" size={18} />
+						<span>
+							Donors read both lines. Do not put anyone’s name, or anything else private, in them.
+						</span>
+					</p>
+				{/if}
+			</fieldset>
+
 			<label class="tj-picker__opt tj-picker__opt--primary">
 				<Icon name="camera" size={28} />
 				<span>Take a photo</span>
@@ -358,6 +459,10 @@
 							<span class="tj-upload__thumb"><Icon name="excluded" /></span>
 						{:else if row.status === 'failed'}
 							<span class="tj-upload__thumb"><Icon name="alert-triangle" /></span>
+						{:else if row.status === 'done' && row.visibility === 'not_public'}
+							<a class="tj-upload__thumb app-thumblink" href={row.url} aria-label="Open {row.name}">
+								<Icon name="eye-off" />
+							</a>
 						{:else if row.status === 'done' && row.picture}
 							<a class="app-thumblink" href={row.url} aria-label="Open {row.name}">
 								<img class="tj-upload__thumb" src={row.url} alt="" />
@@ -389,9 +494,10 @@
 									{:else if row.status === 'done'}
 										<Icon name="check" size={16} />
 										<span>
-											Uploaded · fingerprint <code class="tj-id tj-id--chip"
-												>{shortId(row.sha256)}</code
-											>
+											{row.visibility === 'not_public'
+												? 'Uploaded. Not public: only you and this project’s confirmers can open it.'
+												: 'Uploaded. Donors can see it.'}
+											Fingerprint <code class="tj-id tj-id--chip">{shortId(row.sha256)}</code>
 										</span>
 									{:else if row.status === 'uploading'}
 										<Icon name="upload" size={16} />
@@ -545,6 +651,22 @@
 <style>
 	.app-center {
 		text-align: center;
+	}
+	.app-who {
+		grid-column: 1 / -1;
+		display: grid;
+		gap: var(--space-3);
+		min-width: 0;
+		margin: 0;
+		padding: var(--space-4);
+		background: var(--surface);
+		border: var(--border-hair) solid var(--border);
+		border-radius: var(--radius-lg);
+	}
+	.app-who legend {
+		float: left;
+		width: 100%;
+		padding: 0;
 	}
 	.app-rows {
 		display: grid;
