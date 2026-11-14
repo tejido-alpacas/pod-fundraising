@@ -8,6 +8,10 @@
  * move money or reach a real person: they use the reserved `.example` domain. Qatom only
  * transfers to twins under `biz.todaq.net`, so a refund aimed at a fixture party is refused.
  *
+ * One exception: the contractor's email is the project owner's own address, so that a real
+ * Qatom sign-in from the contractor's invite link matches the invite and can be tested. Once
+ * someone signs in as the contractor, that party's wallets in the local database are real.
+ *
  * The campaign's two commodity ids are real. They are the catalog items the project owner
  * created for this campaign, and they exist in one Qatom environment only: the one those items
  * were created in. Against any other environment the ids are unknown, so the reconciler
@@ -52,7 +56,8 @@ const contractor: Party = {
 	role: 'third_party',
 	name: 'Coral Ridge Builders',
 	title: 'Contractor',
-	email: 'site@coralridgebuilders.example',
+	// A real address, on purpose: the project owner signs in as this party to test the App.
+	email: 'matthew.mihok@todaq.net',
 	reporterCode: 'rc_k7m2q9x4w8n5b3t6v2zj',
 	agentWalletHostname: agentWalletHostnameSchema.parse('coral-ridge-agent.wallets.tejido.example'),
 	primaryWalletHostname: primaryWalletHostnameSchema.parse('coral-ridge.wallets.tejido.example'),

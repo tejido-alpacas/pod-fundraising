@@ -477,7 +477,9 @@ describe('fixtures', () => {
 	it('cannot move money or reach a real person', () => {
 		expect(campaign.creatorEmail).toMatch(/\.example$/);
 		for (const party of parties) {
-			expect(party.email).toMatch(/\.example$/);
+			// The contractor carries the project owner's own address, so a real sign-in can be
+			// tested against the invite. Every other party's address is unreal.
+			if (party.id !== 'contractor') expect(party.email).toMatch(/\.example$/);
 			expect(party.agentWalletHostname).toMatch(/\.example$/);
 			expect(party.primaryWalletHostname).toMatch(/\.example$/);
 			expect(party.agentWalletHostname).not.toBe(party.primaryWalletHostname);
