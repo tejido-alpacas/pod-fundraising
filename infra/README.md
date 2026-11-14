@@ -49,6 +49,11 @@ infra/deploy.sh --secrets path/to/production.env
 
 ## Deploying
 
+Run deploys from your own terminal. Agents are told never to deploy, and
+`.claude/settings.json` makes Claude Code refuse `infra/deploy.sh`, `terraform apply` and
+`destroy`, and the Wrangler commands that touch the live account. The match is on the text of
+the command, so Claude Code also refuses any shell command that merely mentions one of them.
+
 ```bash
 infra/deploy.sh
 ```
