@@ -39,8 +39,8 @@ describe('sign-in problems', () => {
 	});
 
 	it('links back to the invite only when the party id is plain', () => {
-		expect(problemPath('refused', 'pty-contractor')).toBe(
-			'/auth/problem?reason=refused&party=pty-contractor'
+		expect(problemPath('refused', 'contractor')).toBe(
+			'/auth/problem?reason=refused&party=contractor'
 		);
 		expect(problemPath('refused', null)).toBe('/auth/problem?reason=refused');
 		expect(problemPath('refused', '../../evil?x=1')).toBe('/auth/problem?reason=refused');

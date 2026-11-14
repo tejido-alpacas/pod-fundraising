@@ -95,7 +95,7 @@ export const SURFACES: Surface[] = [
 		id: 'B1',
 		track: 'B',
 		name: 'Invite and Qatom sign-in',
-		path: '/invite/pty-contractor',
+		path: '/invite/contractor',
 		inApp: true,
 		what: 'The invite link, then sign-in with Qatom. The sign-in route and its callback already store both wallet hostnames on the party.',
 		files: [

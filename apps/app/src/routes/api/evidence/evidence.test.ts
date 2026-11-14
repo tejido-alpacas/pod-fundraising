@@ -52,7 +52,7 @@ describe('POST /api/evidence', () => {
 		const result = await upload({
 			sub: 'qatom-user-123',
 			email: 'site@coralridgebuilders.example',
-			partyId: 'pty-contractor'
+			partyId: 'contractor'
 		});
 
 		if (result.kind !== 'response') throw new Error(`expected a response, got ${result.kind}`);

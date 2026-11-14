@@ -19,7 +19,7 @@ export const SURFACES: Surface[] = [
 	{
 		id: 'B1',
 		name: 'Invite and Qatom sign-in',
-		path: '/invite/pty-contractor',
+		path: '/invite/contractor',
 		what: 'The invite link, then sign-in with Qatom. The callback stores both wallet hostnames on the party and signs the person in.',
 		files: [
 			`${R}/invite/[partyId]/`,
