@@ -330,6 +330,49 @@ describe('the proof page', () => {
 		expect(data.filed).toMatchObject({ claim: 'funds_spent', amountSpent: 250 });
 	});
 
+	it('shows where the entry’s milestone stands and who confirms it', async () => {
+		const data = await proof('ent-m2-log-1');
+
+		expect(data.milestone).toMatchObject({
+			id: 'm2-walls',
+			position: 2,
+			state: 'open',
+			dueDate: '2026-11-27',
+			confirmed: false,
+			confirmedAt: null,
+			strength: null,
+			// The reporter's own figure, from the newest work log on the milestone.
+			percentReported: 35
+		});
+		expect(data.confirmer).toEqual({
+			name: 'Yvonne Campbell',
+			title: 'Head teacher, Mangrove Bay Primary School',
+			relationship: 'stakeholder',
+			relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
+		});
+		expect(data.campaign.creatorName).toBe('Mangrove Bay Parent-Teacher Association');
+		expect(data.entry.updatedAt).toBe('2026-11-06T16:30:00.000Z');
+	});
+
+	it('gives a confirmed milestone its strength, and never calls it overdue', async () => {
+		const { milestone } = await proof('ent-m1-claim');
+
+		expect(milestone).toMatchObject({
+			confirmed: true,
+			confirmedAt: '2026-10-30T09:41:07.000Z',
+			strength: 'stakeholder',
+			daysLate: 0,
+			percentReported: null
+		});
+	});
+
+	it('marks the milestone overdue once its due date has passed without a confirmation', async () => {
+		await test.db.update(milestones).set({ dueDate: '2020-01-01' });
+
+		expect((await proof('ent-m2-log-1')).milestone.daysLate).toBeGreaterThan(0);
+		expect((await proof('ent-m1-claim')).milestone.daysLate).toBe(0);
+	});
+
 	it('sends no reporter code, email address or primary wallet to the page', async () => {
 		for (const entry of fixtures.entries) {
 			const sent = JSON.stringify(await proof(entry.id));

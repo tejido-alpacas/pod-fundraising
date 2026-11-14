@@ -1,6 +1,7 @@
 import { checkEvidence, evidenceStoreOrigin } from '#lib/server/backend/evidence.ts';
 import { error } from '@sveltejs/kit';
 import {
+	confirmationStrength,
 	isConfirmed,
 	shownRelationship,
 	type Entry,
@@ -13,12 +14,13 @@ import {
 	getMilestone,
 	getParty,
 	listDeposits,
+	listEntries,
 	listUnrefundedDeposits
 } from '@tejido/db';
 import { sameTwin } from '@tejido/qatom';
 import type { PageServerLoad } from './$types';
 
-// The proof page (A3): the receipt behind one entry, for a donor who wants to check a report
+// The proof page (A2): the receipt behind one entry, for a donor who wants to check a report
 // for themselves. Everything returned here is shown to the public, so it is built field by
 // field: no reporter code, no email address and no primary wallet ever leaves this file.
 
@@ -151,21 +153,61 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	const storeOrigin = evidenceStoreOrigin(config);
 	const documentsOnly = DOCUMENTS_ONLY[milestone.kind];
 
+	// The milestone card: where the milestone stands, its latest reported progress, and who
+	// confirms it. Due dates are calendar dates with no time zone; late from the day after.
+	const [confirmer, entries] = await Promise.all([
+		getParty(db, milestone.confirmerPartyId),
+		// Newest first.
+		listEntries(db, campaign.id)
+	]);
+	const today = new Date().toISOString().slice(0, 10);
+	const confirmed = isConfirmed(milestone);
+	const latestLog = entries.find(
+		(other): other is Extract<Entry, { item: 'log_work' }> =>
+			other.milestoneId === milestone.id && other.item === 'log_work'
+	);
+
 	return {
-		campaign: { id: campaign.id, title: campaign.title },
+		/** The server's date, so the page writes dates the same on the server and in the browser. */
+		today,
+		campaign: { id: campaign.id, title: campaign.title, creatorName: campaign.creatorName },
 		entry: {
 			id: entry.id,
 			status: entry.status,
 			statusReason: entry.statusReason,
-			filedAt: entry.filedAt
+			filedAt: entry.filedAt,
+			updatedAt: entry.updatedAt
 		},
 		filed: filedInputs(entry),
 		milestone: {
 			id: milestone.id,
+			position: milestone.position,
 			title: milestone.title,
 			kind: milestone.kind,
-			confirmed: isConfirmed(milestone)
+			state: milestone.state,
+			dueDate: milestone.dueDate,
+			confirmed,
+			confirmedAt: milestone.confirmedAt,
+			/** The confirmation strength to show. Null until the milestone is confirmed. */
+			strength: confirmationStrength(milestone, confirmer),
+			// Overdue: the due date has passed and nobody has confirmed it. Nothing else is assumed.
+			daysLate:
+				!confirmed && milestone.dueDate < today
+					? Math.round((Date.parse(today) - Date.parse(milestone.dueDate)) / 86_400_000)
+					: 0,
+			/** The reporter's own figure from the latest work log. Tejido never computes one. */
+			percentReported: latestLog?.inputs.percent_complete ?? null
 		},
+		/** The person named to confirm the milestone: who they are, never how to reach them. */
+		confirmer: confirmer
+			? {
+					name: confirmer.name,
+					title: confirmer.title,
+					// Never `independent` unless recorded: unrecorded is shown as `stakeholder`.
+					relationship: shownRelationship(confirmer),
+					relationshipReason: confirmer.relationshipReason
+				}
+			: null,
 		filer: {
 			name: filer.name,
 			title: filer.title,
