@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { shownRelationship, type Party, type PartyRelationship } from './party.ts';
 import { dateSchema, emailSchema, idSchema, timestampSchema } from './primitives.ts';
 
 /**
@@ -55,8 +56,11 @@ export type Campaign = z.infer<typeof campaignSchema>;
 /**
  * - `open`: nobody has claimed it yet.
  * - `claimed`: the party doing the work says it is done; no confirmation yet.
- * - `confirmed_independent`: the named confirmer signed it off from their own wallet.
- * - `confirmed_creator`: no confirmer answered in the waiting period, so the creator signed it off.
+ * - `confirmed_independent`: the named confirmer signed it off from their own wallet. The name
+ *   says who signed, not how strong the confirmation is: that comes from the confirmer's
+ *   recorded relationship. See `confirmationStrength`.
+ * - `confirmed_creator`: no confirmer answered in the waiting period, so the creator signed it
+ *   off. Always a participant confirmation.
  */
 export const milestoneStateSchema = z.enum([
 	'open',
@@ -107,4 +111,20 @@ export type Milestone = z.infer<typeof milestoneSchema>;
 
 export function isConfirmed(milestone: Pick<Milestone, 'state'>): boolean {
 	return milestone.state === 'confirmed_independent' || milestone.state === 'confirmed_creator';
+}
+
+/**
+ * The strength to SHOW for a milestone's confirmation, or null when it is not confirmed.
+ *
+ * - `confirmed_creator`: always `participant`. The creator runs the project.
+ * - `confirmed_independent`: the relationship recorded for the confirming party, and
+ *   `stakeholder` when none is recorded. Never `independent` unless that was recorded.
+ */
+export function confirmationStrength(
+	milestone: Pick<Milestone, 'state'>,
+	confirmer: Pick<Party, 'relationship'> | null | undefined
+): PartyRelationship | null {
+	if (milestone.state === 'confirmed_creator') return 'participant';
+	if (milestone.state === 'confirmed_independent') return shownRelationship(confirmer);
+	return null;
 }
