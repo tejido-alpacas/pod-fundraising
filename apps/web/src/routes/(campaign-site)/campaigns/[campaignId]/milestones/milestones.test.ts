@@ -2,7 +2,7 @@
 // Nothing here reaches the network.
 import { isHttpError } from '@sveltejs/kit';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, deposits, entries, milestones } from '@tejido/db';
+import { campaigns, deposits, entries, milestones, setPartyRelationship } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { and, eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -15,6 +15,7 @@ const contractor = fixtures.parties[0]!;
 interface Row {
 	id: string;
 	state: string;
+	strength: string | null;
 	confirmedAt: string | null;
 	dueDate: string;
 	daysLate: number;
@@ -82,6 +83,41 @@ describe('the milestone status page', () => {
 		]);
 	});
 
+	it('shows the strength of a confirmation from how the confirmer relates to the project', async () => {
+		// The head teacher benefits from the library, so her sign-off is a stakeholder confirmation.
+		expect((await status()).rows.map((row) => [row.id, row.strength])).toEqual([
+			['m1-foundation', 'stakeholder'],
+			['m2-walls', null],
+			['m3-books-delivered', null]
+		]);
+
+		// Not recorded is shown as stakeholder, never as independent.
+		const headTeacher = fixtures.parties[2]!.id;
+		await setPartyRelationship(test.db, headTeacher, {
+			relationship: null,
+			relationshipReason: null
+		});
+		expect((await status()).row('m1-foundation').strength).toBe('stakeholder');
+		expect((await status()).row('m1-foundation').confirmer).toMatchObject({
+			relationship: 'stakeholder',
+			relationshipReason: null
+		});
+
+		// Independent only when that is what was recorded.
+		await setPartyRelationship(test.db, headTeacher, {
+			relationship: 'independent',
+			relationshipReason: 'Employed by the parish council. Not paid by the project.'
+		});
+		expect((await status()).row('m1-foundation').strength).toBe('independent');
+
+		// The creator's sign-off is a participant confirmation, whoever was named to confirm.
+		await setState('m3-books-delivered', {
+			state: 'confirmed_creator',
+			confirmedAt: '2026-11-13T10:00:00.000Z'
+		});
+		expect((await status()).row('m3-books-delivered').strength).toBe('participant');
+	});
+
 	it('names who owes and who confirms a milestone, by name and role only', async () => {
 		const { row } = await status();
 
@@ -94,7 +130,9 @@ describe('the milestone status page', () => {
 			confirmer: {
 				name: 'Yvonne Campbell',
 				title: 'Head teacher, Mangrove Bay Primary School',
-				role: 'confirmer'
+				role: 'confirmer',
+				relationship: 'stakeholder',
+				relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
 			}
 		});
 	});

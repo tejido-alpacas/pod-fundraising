@@ -1,0 +1,83 @@
+/* What the apps need that the design system's stylesheet leaves to the host page. Tokens only. */
+
+/* Light only. There is no dark theme and the device setting is not followed. */
+:root {
+	color-scheme: light;
+}
+
+/* The root of each app. A size container, so components respond to it as in the previews.
+   (The previews define this in their scaffolding, with a clipped frame we do not want.) */
+.tj-screen {
+	container-type: inline-size;
+	display: flex;
+	flex-direction: column;
+	min-height: 100dvh;
+	background: var(--bg-page);
+	color: var(--text-primary);
+}
+.tj-screen > main {
+	flex: 1 0 auto;
+	min-width: 0;
+}
+
+/* A link drawn as a button keeps the button's look (the base link rule underlines). */
+a.tj-btn {
+	text-decoration: none;
+}
+
+/* The public header's short line beside the wordmark is hidden where there is no room. */
+.tj-siteheader .tj-brand__sub {
+	display: none;
+}
+@container (min-width: 600px) {
+	.tj-siteheader .tj-brand__sub {
+		display: inline;
+	}
+}
+
+/* Field app header: the wordmark link, the person's name, and the page links under it. */
+.tj-fieldheader__home {
+	display: inline-flex;
+	align-items: center;
+	min-width: var(--size-touch-field);
+	min-height: var(--size-touch-field);
+	justify-content: center;
+	color: var(--accent);
+	border-radius: var(--radius-md);
+}
+.tj-fieldheader__end {
+	display: flex;
+	gap: var(--space-2);
+	align-items: center;
+}
+.tj-fieldheader__end form {
+	margin: 0;
+}
+.tj-fieldnav {
+	display: flex;
+	gap: var(--space-1);
+	overflow-x: auto;
+	padding: 0 var(--space-2);
+	background: var(--surface);
+	border-bottom: var(--border-hair) solid var(--border);
+	scrollbar-width: none;
+}
+.tj-fieldnav a {
+	flex: none;
+	display: inline-flex;
+	align-items: center;
+	min-height: var(--size-touch-field);
+	padding: 0 var(--space-3);
+	color: var(--text-secondary);
+	text-decoration: none;
+	font-weight: 600;
+	font-size: 15px;
+}
+.tj-fieldnav a[aria-current='page'] {
+	color: var(--text-primary);
+	box-shadow: inset 0 -2px 0 var(--accent);
+}
+.tj-sitefooter__promise {
+	margin-top: var(--space-2);
+	max-width: 30rem;
+}

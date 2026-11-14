@@ -1,0 +1,201 @@
+/* Tejido tokens, from docs/design-system/source/svelte/tokens.css (generated from tokens.json).
+   Light only: the owner decided there is no dark theme, so the dark block is not shipped. */
+
+:root,
+[data-theme='light'] {
+	color-scheme: light;
+	--bg-page: #f3f5f7;
+	--bg-sunken: #e9edf1;
+	--surface: #ffffff;
+	--surface-2: #f8f9fb;
+	--surface-raised: #ffffff;
+	--overlay: rgba(15, 22, 28, 0.48);
+	--text-primary: #16212b;
+	--text-secondary: #3b4956;
+	--text-muted: #566573;
+	--text-on-accent: #ffffff;
+	--text-on-secondary: #ffffff;
+	--text-on-critical: #ffffff;
+	--border: #d5dce3;
+	--border-strong: #7c8a97;
+	--accent: #0b6e69;
+	--accent-hover: #095c58;
+	--accent-pressed: #074945;
+	--accent-subtle: #e2f1ef;
+	--link: #0b6e69;
+	--secondary: #3d4fa3;
+	--secondary-subtle: #eceffa;
+	--funding: #16212b;
+	--focus-ring: #3d4fa3;
+	--state-hover: rgba(22, 33, 43, 0.05);
+	--state-pressed: rgba(22, 33, 43, 0.1);
+	--disabled-bg: #e9edf1;
+	--disabled-text: #7c8792;
+	--disabled-border: #cbd3db;
+	--status-neutral-text: #46535f;
+	--status-neutral-icon: #5c6a77;
+	--status-neutral-bg: #eef1f4;
+	--status-neutral-border: #c5ced7;
+	--status-record-text: #34449a;
+	--status-record-icon: #3d4fa3;
+	--status-record-bg: #eceffa;
+	--status-record-border: #b9c1ea;
+	--status-progress-text: #1f5f8b;
+	--status-progress-icon: #2a6f9e;
+	--status-progress-bg: #e6f0f7;
+	--status-progress-border: #a9c8de;
+	--status-confirmed-text: #0a5f5a;
+	--status-confirmed-icon: #0b6e69;
+	--status-confirmed-bg: #e2f1ef;
+	--status-confirmed-border: #9fcfca;
+	--status-confirmed-solid: #0b6e69;
+	--status-attention-text: #7a4f00;
+	--status-attention-icon: #8a5a00;
+	--status-attention-bg: #fcf2dd;
+	--status-attention-border: #dfbd74;
+	--status-critical-text: #9c2e19;
+	--status-critical-icon: #a8321c;
+	--status-critical-bg: #fbebe7;
+	--status-critical-border: #e3a090;
+	--critical: #a8321c;
+	--critical-hover: #8f2a17;
+	--shadow-1: 0 1px 2px rgba(22, 33, 43, 0.06), 0 2px 8px rgba(22, 33, 43, 0.06);
+	--shadow-2: 0 4px 12px rgba(22, 33, 43, 0.1), 0 16px 32px rgba(22, 33, 43, 0.1);
+}
+
+:root {
+	--space-0-5: 2px;
+	--space-1: 4px;
+	--space-2: 8px;
+	--space-3: 12px;
+	--space-4: 16px;
+	--space-5: 20px;
+	--space-6: 24px;
+	--space-8: 32px;
+	--space-10: 40px;
+	--space-12: 48px;
+	--space-16: 64px;
+	--radius-xs: 2px;
+	--radius-sm: 4px;
+	--radius-md: 6px;
+	--radius-lg: 8px;
+	--radius-xl: 12px;
+	--radius-full: 999px;
+	--border-hair: 1px;
+	--border-control: 1px;
+	--border-thread: 2px;
+	--border-focus: 2px;
+	--size-icon-sm: 16px;
+	--size-icon-md: 20px;
+	--size-icon-lg: 24px;
+	--size-touch: 44px;
+	--size-touch-field: 48px;
+	--size-control: 40px;
+	--size-badge: 24px;
+	--size-avatar: 32px;
+	--layout-reading: 40rem;
+	--layout-chat: 44rem;
+	--layout-page: 72rem;
+	--layout-gutter: 16px;
+	--breakpoint-sm: 360px;
+	--breakpoint-md: 600px;
+	--breakpoint-lg: 900px;
+	--breakpoint-xl: 1280px;
+	--font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+	--font-serif: 'Iowan Old Style', 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+	--font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace;
+}
+
+.text-display {
+	font-family: var(--font-serif);
+	font-size: 40px;
+	line-height: 46px;
+	font-weight: 500;
+	letter-spacing: -0.01em;
+}
+
+.text-title-1 {
+	font-family: var(--font-serif);
+	font-size: 30px;
+	line-height: 36px;
+	font-weight: 500;
+	letter-spacing: -0.005em;
+}
+
+.text-figure {
+	font-family: var(--font-sans);
+	font-size: 28px;
+	line-height: 32px;
+	font-weight: 500;
+}
+
+.text-title-2 {
+	font-family: var(--font-sans);
+	font-size: 20px;
+	line-height: 28px;
+	font-weight: 600;
+}
+
+.text-title-3 {
+	font-family: var(--font-sans);
+	font-size: 17px;
+	line-height: 24px;
+	font-weight: 600;
+}
+
+.text-lede {
+	font-family: var(--font-sans);
+	font-size: 18px;
+	line-height: 28px;
+	font-weight: 400;
+}
+
+.text-body {
+	font-family: var(--font-sans);
+	font-size: 16px;
+	line-height: 24px;
+	font-weight: 400;
+}
+
+.text-body-sm {
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 400;
+}
+
+.text-label {
+	font-family: var(--font-sans);
+	font-size: 14px;
+	line-height: 20px;
+	font-weight: 600;
+}
+
+.text-status {
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 16px;
+	font-weight: 600;
+}
+
+.text-caption {
+	font-family: var(--font-sans);
+	font-size: 13px;
+	line-height: 18px;
+	font-weight: 400;
+}
+
+.text-eyebrow {
+	font-family: var(--font-mono);
+	font-size: 12px;
+	line-height: 16px;
+	font-weight: 500;
+	letter-spacing: 0.06em;
+}
+
+.text-mono {
+	font-family: var(--font-mono);
+	font-size: 13px;
+	line-height: 20px;
+	font-weight: 400;
+}

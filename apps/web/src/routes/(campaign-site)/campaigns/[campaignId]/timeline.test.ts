@@ -115,13 +115,22 @@ describe('the donor timeline', () => {
 				id: 'm1-foundation',
 				title: 'Foundation and floor slab',
 				state: 'confirmed_independent',
+				// The head teacher benefits from the library: a stakeholder confirmation.
+				strength: 'stakeholder',
 				dueDate: '2026-10-30'
 			},
-			{ id: 'm2-walls', title: 'Walls up to roof height', state: 'open', dueDate: '2026-11-27' },
+			{
+				id: 'm2-walls',
+				title: 'Walls up to roof height',
+				state: 'open',
+				strength: null,
+				dueDate: '2026-11-27'
+			},
 			{
 				id: 'm3-books-delivered',
 				title: 'Books delivered',
 				state: 'claimed',
+				strength: null,
 				dueDate: '2026-11-20'
 			}
 		]);
@@ -147,7 +156,9 @@ describe('the donor timeline', () => {
 		expect(confirmation.filer).toEqual({
 			name: headTeacher.name,
 			title: headTeacher.title,
-			role: 'confirmer'
+			role: 'confirmer',
+			relationship: 'stakeholder',
+			relationshipReason: 'Head teacher of the school whose library is being rebuilt.'
 		});
 		expect(confirmation.filedAt).toBe('2026-10-30T09:41:07.000Z');
 		expect(confirmation.proofPath).toBe(`/campaigns/${CAMPAIGN}/entries/ent-m1-confirm`);
