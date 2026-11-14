@@ -1,149 +1,94 @@
+<!--
+	The home page, in the first Tejido site's design: the hero, what you can do here, how it
+	works, and the newest campaigns from our database.
+-->
 <script lang="ts">
-	import { CAMPAIGN_STATUS_LABEL } from '#lib/campaign-site/labels.ts';
+	import CampaignCard from '#lib/campaign-site/CampaignCard.svelte';
+	import HowSteps from '#lib/campaign-site/HowSteps.svelte';
+	import Icon from '#lib/campaign-site/Icon.svelte';
+	import { t } from '#lib/campaign-site/i18n/index.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
+
+	const lang = $derived(data.lang);
+	/** The home page shows the three newest; Explore shows them all. */
+	const newest = $derived(data.campaigns.slice(0, 3));
 </script>
 
 <svelte:head>
-	<title>Tejido · fundraising with proof of delivery</title>
-	<meta
-		name="description"
-		content="Follow a funded project from the first report to the last confirmed milestone."
-	/>
+	<title>tejido · {t(lang, 'tagline')}</title>
+	<meta name="description" content={t(lang, 'x_home_lead')} />
 </svelte:head>
 
-<section class="intro">
-	<h1>See what your donation built</h1>
-	<p>
-		On Tejido, donors fund a project and then follow it. The people doing the work file regular
-		reports with photos, and each report is stamped with the time it was filed and who filed it.
-	</p>
-	<p>
-		An independent confirmer, someone who did not do the work, signs off each milestone. You can
-		open the proof behind every report.
-	</p>
+<div class="hero x-hero">
+	<div class="wrap">
+		<p class="x-tagline">
+			La red que nos une.{#if lang !== 'es'}
+				<span>{t(lang, 'tagline')}</span>{/if}
+		</p>
+		<h1>{t(lang, 'x_home_h1')}</h1>
+		<p class="x-hero-lead">{t(lang, 'x_home_lead')}</p>
+		<div class="x-hero-actions">
+			<a class="btn btn-orange x-btn-lg" href="/needs"
+				><Icon name="heart" /><span>{t(lang, 'x_give_now')}</span></a
+			>
+			<a class="btn btn-ghost-w x-btn-lg" href="/explore"
+				><Icon name="search" /><span>{t(lang, 'x_nav_explore')}</span></a
+			>
+		</div>
+	</div>
+</div>
+
+<section class="x-sec">
+	<div class="wrap">
+		<h2 class="x-h2">{t(lang, 'x_do_title')}</h2>
+		<div class="x-launch">
+			<a class="card x-tile t-blue" href="/explore">
+				<span class="x-tile-ic"><Icon name="search" size={24} /></span>
+				<span class="x-tile-t">{t(lang, 'x_do_find')}</span>
+				<span class="x-tile-d">{t(lang, 'x_do_find_d')}</span>
+			</a>
+			<a class="card x-tile t-orange" href="/needs">
+				<span class="x-tile-ic"><Icon name="heart" size={24} /></span>
+				<span class="x-tile-t">{t(lang, 'nav_needs')}</span>
+				<span class="x-tile-d">{t(lang, 'tile_needs_d')}</span>
+			</a>
+			<a class="card x-tile t-navy" href="/about">
+				<span class="x-tile-ic"><Icon name="proof" size={24} /></span>
+				<span class="x-tile-t">{t(lang, 'x_about_nav')}</span>
+				<span class="x-tile-d">{t(lang, 'tile_about_d')}</span>
+			</a>
+		</div>
+	</div>
 </section>
 
-<h2 id="campaigns">Campaigns</h2>
+<section class="x-sec">
+	<div class="wrap">
+		<h2 class="x-h2">{t(lang, 'x_how_title')}</h2>
+		<HowSteps {lang} />
+	</div>
+</section>
 
-{#if data.campaigns.length === 0}
-	<p class="empty">
-		There are no campaigns to follow yet. When a campaign opens, it will be listed here with its
-		reports and milestones.
-	</p>
-{:else}
-	<ul class="campaigns">
-		{#each data.campaigns as campaign (campaign.id)}
-			<li>
-				<a class="card" href={campaign.path}>
-					<span class="pill campaign-{campaign.status}">
-						{CAMPAIGN_STATUS_LABEL[campaign.status]}
-					</span>
-					<h3>{campaign.title}</h3>
-					{#if campaign.summary}<p class="summary">{campaign.summary}</p>{/if}
-					<p class="facts">
-						{#if campaign.beneficiary}Who it is for: {campaign.beneficiary}.{/if}
-						Organised by {campaign.creatorName}.
-					</p>
-					<p class="facts">
-						{#if campaign.milestones.total === 0}
-							No milestones have been set yet.
-						{:else}
-							{campaign.milestones.confirmed} of {campaign.milestones.total}
-							{campaign.milestones.total === 1 ? 'milestone' : 'milestones'} confirmed.
-						{/if}
-					</p>
-					<span class="go">Follow this campaign</span>
-				</a>
-			</li>
-		{/each}
-	</ul>
-{/if}
-
-<style>
-	.intro {
-		max-width: 44rem;
-	}
-	.intro p {
-		font-size: 1.05rem;
-	}
-	.empty {
-		max-width: 44rem;
-		background: var(--surface);
-		border: 1px dashed var(--line);
-		border-radius: 8px;
-		padding: 1.25rem 1rem;
-		color: var(--muted);
-	}
-	.campaigns {
-		list-style: none;
-		padding: 0;
-		margin: 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr));
-		gap: 1rem;
-	}
-	.campaigns li {
-		min-width: 0;
-	}
-	.card {
-		display: block;
-		height: 100%;
-		box-sizing: border-box;
-		background: var(--surface);
-		border: 1px solid var(--line);
-		border-radius: 8px;
-		padding: 1rem;
-		color: var(--ink);
-		text-decoration: none;
-		overflow-wrap: anywhere;
-	}
-	.card:hover {
-		border-color: var(--a);
-	}
-	h3 {
-		font-size: 1.2rem;
-		margin: 0.6rem 0 0.4rem;
-	}
-	.card p {
-		margin: 0.35rem 0;
-	}
-	.summary {
-		display: -webkit-box;
-		-webkit-box-orient: vertical;
-		-webkit-line-clamp: 4;
-		line-clamp: 4;
-		overflow: hidden;
-	}
-	.facts {
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	.go {
-		display: inline-block;
-		margin-top: 0.6rem;
-		color: var(--a);
-		font-weight: 600;
-		text-decoration: underline;
-	}
-	.pill {
-		display: inline-block;
-		font-size: 0.75rem;
-		font-weight: 600;
-		border-radius: 999px;
-		padding: 1px 9px;
-		border: 1.5px solid var(--muted);
-		color: var(--muted);
-		white-space: nowrap;
-	}
-	.campaign-delivered {
-		border-color: var(--a);
-		background: var(--a);
-		color: #fff;
-	}
-	.campaign-overdue {
-		border-color: var(--warn);
-		color: var(--warn);
-	}
-</style>
+<section class="x-sec x-sec-last" id="campaigns">
+	<div class="wrap">
+		<div class="x-row">
+			<h2 class="x-h2">{t(lang, 'x_explore_title')}</h2>
+			{#if data.campaigns.length > newest.length}
+				<a class="x-more" href="/explore">{t(lang, 'x_explore_all')} &rarr;</a>
+			{/if}
+		</div>
+		{#if newest.length === 0}
+			<div class="card x-empty x-empty-in">
+				<span class="x-empty-ic"><Icon name="info" size={28} /></span>
+				<h2>{t(lang, 'campaigns_none')}</h2>
+			</div>
+		{:else}
+			<div class="x-grid">
+				{#each newest as campaign (campaign.id)}
+					<CampaignCard {campaign} {lang} />
+				{/each}
+			</div>
+		{/if}
+	</div>
+</section>

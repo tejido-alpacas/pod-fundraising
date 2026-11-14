@@ -1,57 +1,232 @@
+<!--
+	The Campaign Site's frame, in the first Tejido site's design: the glass header with its
+	navigation and language menu, the dark footer, and the tab bar on phones. Every string is
+	shown in the visitor's language (see #lib/campaign-site/i18n).
+-->
 <script lang="ts">
-	import type { Snippet } from 'svelte';
+	import '#lib/campaign-site/tejido.css';
+	import { afterNavigate } from '$app/navigation';
+	import { page } from '$app/state';
+	import Icon from '#lib/campaign-site/Icon.svelte';
+	import { LANG_NAMES, LANGS, t, type StringKey } from '#lib/campaign-site/i18n/index.ts';
+	import type { LayoutProps } from './$types';
 
-	let { children }: { children: Snippet } = $props();
+	let { children, data }: LayoutProps = $props();
+
+	const lang = $derived(data.lang);
+	/** Where the language buttons return the visitor to. */
+	const here = $derived(page.url.pathname + page.url.search);
+
+	/**
+	 * Pages ported from the first site lay out their own full-width sections. Every other page
+	 * (a campaign's timeline, its proof pages, an error) sits in a narrower column, as before.
+	 */
+	const FIRST_SITE_PAGES = new Set([
+		'/',
+		'/(campaign-site)/about',
+		'/(campaign-site)/explore',
+		'/(campaign-site)/needs'
+	]);
+	const fullWidth = $derived(FIRST_SITE_PAGES.has(page.route.id ?? ''));
+
+	const NAV: { href: string; key: StringKey }[] = [
+		{ href: '/explore', key: 'x_nav_explore' },
+		{ href: '/needs', key: 'nav_needs' },
+		{ href: '/about', key: 'x_about_nav' }
+	];
+	const TABS: { href: string; key: StringKey; icon: 'home' | 'search' | 'heart' | 'info' }[] = [
+		{ href: '/', key: 'x_tab_home', icon: 'home' },
+		{ href: '/explore', key: 'x_nav_explore', icon: 'search' },
+		{ href: '/needs', key: 'x_tab_give', icon: 'heart' },
+		{ href: '/about', key: 'x_tab_about', icon: 'info' }
+	];
+	const ORG_URL = 'https://tejido.org';
+
+	function isOn(href: string): boolean {
+		const path = page.url.pathname;
+		if (href === '/') return path === '/' || path.startsWith('/campaigns/');
+		return path === href || path.startsWith(`${href}/`);
+	}
+
+	let menuOpen = $state(false);
+	let langOpen = $state(false);
+	let langMenu: HTMLElement | undefined = $state();
+
+	afterNavigate(() => {
+		menuOpen = false;
+		langOpen = false;
+	});
+
+	function closeOnOutsideClick(event: MouseEvent) {
+		if (langOpen && langMenu && !langMenu.contains(event.target as Node)) langOpen = false;
+	}
+	function closeOnEscape(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			langOpen = false;
+			menuOpen = false;
+		}
+	}
 </script>
 
-<header>
-	<a class="brand" href="/">Tejido</a>
-	<span>Fundraising with proof of delivery</span>
+<svelte:window onclick={closeOnOutsideClick} onkeydown={closeOnEscape} />
+
+<svelte:head>
+	<link rel="icon" href="/assets/tejido-favicon.svg" type="image/svg+xml" />
+	<link rel="icon" href="/favicon.ico" sizes="any" />
+	<link rel="manifest" href="/site.webmanifest" />
+	<link rel="apple-touch-icon" href="/assets/tejido-app-icon-180.png" />
+	<meta name="theme-color" content="#0B1322" />
+	<link rel="preconnect" href="https://fonts.googleapis.com" />
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous" />
+	<link
+		href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700&family=Rubik:wght@400;500;600&display=swap"
+		rel="stylesheet"
+	/>
+</svelte:head>
+
+<a class="skip" href="#main">{t(lang, 'x_skip')}</a>
+
+<header class="top">
+	<div class="wrap top-row">
+		<a class="brand" href="/" aria-label="tejido">
+			<img src="/assets/tejido-logo-on-light.svg" alt="tejido" width="150" height="36" />
+		</a>
+		<nav class="mainnav" aria-label={t(lang, 'x_tabs_label')}>
+			{#each NAV as item (item.href)}
+				<a
+					href={item.href}
+					class:on={isOn(item.href)}
+					aria-current={isOn(item.href) ? 'page' : undefined}>{t(lang, item.key)}</a
+				>
+			{/each}
+		</nav>
+		<div class="top-right">
+			<div class="dd lang-dd dd-right" class:open={langOpen} bind:this={langMenu}>
+				<button
+					class="dd-btn"
+					type="button"
+					aria-expanded={langOpen}
+					aria-haspopup="true"
+					aria-label="{t(lang, 'lang_label')}: {LANG_NAMES[lang]}"
+					onclick={() => (langOpen = !langOpen)}
+				>
+					<Icon name="globe" size={16} />
+					{lang.toUpperCase()}
+				</button>
+				<form class="dd-menu" action="/lang" method="get">
+					<input type="hidden" name="back" value={here} />
+					{#each LANGS as option (option)}
+						<button
+							type="submit"
+							name="to"
+							value={option}
+							aria-pressed={option === lang}
+							lang={option}>{LANG_NAMES[option]} <span>{option.toUpperCase()}</span></button
+						>
+					{/each}
+				</form>
+			</div>
+			<div class="acct">
+				<!-- Donors will sign in here with Qatom. That is its own task: see the pull request. -->
+				<a class="btn btn-orange btn-sm" href="/needs">{t(lang, 'x_give_now')}</a>
+			</div>
+			<button
+				class="menu-btn"
+				type="button"
+				aria-expanded={menuOpen}
+				aria-controls="mnav"
+				aria-label={t(lang, 'menu')}
+				onclick={() => (menuOpen = !menuOpen)}><span></span><span></span></button
+			>
+		</div>
+	</div>
+	<nav class="mnav" class:open={menuOpen} id="mnav" hidden={!menuOpen} aria-label={t(lang, 'menu')}>
+		<div class="mnav-groups">
+			{#each NAV as item (item.href)}
+				<a
+					href={item.href}
+					class:on={isOn(item.href)}
+					aria-current={isOn(item.href) ? 'page' : undefined}>{t(lang, item.key)}</a
+				>
+			{/each}
+		</div>
+		<form
+			class="mnav-langs"
+			action="/lang"
+			method="get"
+			role="group"
+			aria-label={t(lang, 'lang_label')}
+		>
+			<input type="hidden" name="back" value={here} />
+			{#each LANGS as option (option)}
+				<button type="submit" name="to" value={option} aria-pressed={option === lang} lang={option}
+					>{LANG_NAMES[option]}</button
+				>
+			{/each}
+		</form>
+	</nav>
 </header>
 
-<main>
-	{@render children()}
+<main id="main" tabindex="-1">
+	{#if fullWidth}
+		{@render children()}
+	{:else}
+		<div class="wrap column">{@render children()}</div>
+	{/if}
 </main>
 
-<footer>
-	<p>Tejido shows donors what was reported on a project, who reported it and who confirmed it.</p>
-	<p><a href="/">All campaigns</a></p>
+<footer class="foot">
+	<div class="wrap fa">
+		<div class="fa-top">
+			<img src="/assets/tejido-logo-on-dark.svg" alt="tejido" width="120" height="29" />
+			<p>{t(lang, 'x_foot_line')}</p>
+		</div>
+		<nav class="fa-links" aria-label={t(lang, 'x_foot_more')}>
+			{#each NAV as item (item.href)}<a href={item.href}>{t(lang, item.key)}</a>{/each}
+			<a href={ORG_URL}>tejido.org</a>
+		</nav>
+		<div class="fa-base">
+			<p>{t(lang, 'foot_nonpartisan')}</p>
+			<form
+				class="langs langs-dark"
+				action="/lang"
+				method="get"
+				role="group"
+				aria-label={t(lang, 'lang_label')}
+			>
+				<input type="hidden" name="back" value={here} />
+				{#each LANGS as option (option)}
+					<button type="submit" name="to" value={option} aria-pressed={option === lang}
+						>{option.toUpperCase()}</button
+					>
+				{/each}
+			</form>
+		</div>
+	</div>
 </footer>
 
+<nav class="tabbar" aria-label={t(lang, 'x_tabs_label')}>
+	{#each TABS as tab (tab.href)}
+		<a href={tab.href} class:on={isOn(tab.href)} aria-current={isOn(tab.href) ? 'page' : undefined}>
+			<span class="tb-ic"><Icon name={tab.icon} size={24} /></span>
+			<span class="tb-l">{t(lang, tab.key)}</span>
+		</a>
+	{/each}
+</nav>
+
 <style>
+	/*
+		The campaign pages built before the port style themselves with these names. They now take
+		the first site's colours: white surfaces, navy ink and its darker blue for links.
+	*/
 	:global(:root) {
-		--bg: #f3f5f7;
 		--surface: #ffffff;
-		--ink: #16212b;
-		--muted: #566573;
-		--line: #d5dce3;
-		--a: #0b6e69;
+		--ink: #0b1322;
+		--a: #0559b8;
 		--b: #3d4fa3;
 		--c: #8a5a00;
 		--warn: #a8321c;
 		color-scheme: light;
-	}
-	:global(body) {
-		margin: 0;
-		background: var(--bg);
-		color: var(--ink);
-		font:
-			16px/1.55 system-ui,
-			-apple-system,
-			'Segoe UI',
-			sans-serif;
-	}
-	:global(h1, h2, h3) {
-		line-height: 1.2;
-		text-wrap: balance;
-	}
-	:global(h1) {
-		font-size: 2rem;
-		margin: 0.25rem 0 0.5rem;
-	}
-	:global(h2) {
-		font-size: 1.25rem;
-		margin-top: 2rem;
 	}
 	:global(code) {
 		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
@@ -61,9 +236,6 @@
 		border-radius: 4px;
 		overflow-wrap: anywhere;
 	}
-	:global(a) {
-		color: var(--a);
-	}
 	/* A link that stands alone on its line gets a tap area at least 44px tall. */
 	:global(a.tap) {
 		display: inline-flex;
@@ -71,7 +243,24 @@
 		min-height: 2.75rem;
 		min-width: 2.75rem;
 	}
-	:global(.eyebrow) {
+	main {
+		min-height: calc(100vh - 14rem);
+	}
+	/* The narrower column for pages that were not on the first site, with their own type sizes. */
+	.column {
+		max-width: 64rem;
+		padding-top: 2rem;
+		padding-bottom: 3rem;
+	}
+	.column :global(h1) {
+		font-size: 2rem;
+		margin: 0.25rem 0 0.5rem;
+	}
+	.column :global(h2) {
+		font-size: 1.25rem;
+		margin-top: 2rem;
+	}
+	.column :global(.eyebrow) {
 		font-family: ui-monospace, 'SF Mono', Menlo, monospace;
 		font-size: 0.8rem;
 		letter-spacing: 0.05em;
@@ -79,46 +268,7 @@
 		color: var(--muted);
 		margin: 0;
 	}
-	header {
-		display: flex;
-		flex-wrap: wrap;
-		gap: 0 1rem;
-		align-items: center;
-		padding: 0.25rem 1rem;
-		border-bottom: 1px solid var(--line);
-		background: var(--surface);
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	.brand {
-		display: inline-flex;
-		align-items: center;
-		min-width: 2.75rem;
-		min-height: 2.75rem;
-		font-weight: 700;
-		font-size: 1.1rem;
-		color: var(--ink);
-		text-decoration: none;
-	}
-	main {
-		max-width: 64rem;
-		margin: 0 auto;
-		padding: 2rem 1rem 3rem;
-		min-height: calc(100vh - 14rem);
-	}
-	footer {
-		border-top: 1px solid var(--line);
-		padding: 1rem 1rem 2rem;
-		color: var(--muted);
-		font-size: 0.9rem;
-	}
-	footer p {
-		max-width: 64rem;
-		margin: 0 auto;
-	}
-	footer a {
-		display: inline-flex;
-		align-items: center;
-		min-height: 2.75rem;
+	.tabbar {
+		grid-template-columns: repeat(4, 1fr);
 	}
 </style>

@@ -22,12 +22,16 @@
 
 <article class="card x-opp">
 	<div class="x-opp-top">
-		<span class="tchip t-funds"><Icon name="funds" size={14} />{t(lang, statusKey(campaign.status))}</span>
+		<span class="tchip t-funds"
+			><Icon name="funds" size={14} />{t(lang, statusKey(campaign.status))}</span
+		>
 	</div>
 	<h3><a class="x-stretch" href={campaign.path}>{campaign.title}</a></h3>
 	{#if campaign.beneficiary}
 		<p class="x-place">
-			<Icon name="people" size={14} /><span>{t(lang, 'card_for', { who: campaign.beneficiary })}</span>
+			<Icon name="people" size={14} /><span
+				>{t(lang, 'card_for', { who: campaign.beneficiary })}</span
+			>
 		</p>
 	{/if}
 	{#if campaign.summary}<p class="x-line">{campaign.summary}</p>{/if}

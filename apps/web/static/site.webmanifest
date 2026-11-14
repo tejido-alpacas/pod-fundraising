@@ -1,0 +1,19 @@
+{
+  "id": "/",
+  "name": "Tejido",
+  "short_name": "Tejido",
+  "description": "Give money, in kind help or your skills between Canada, the US and Latin America. Gifts settle instantly on Qatom, with proof.",
+  "lang": "es",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F3F7FC",
+  "theme_color": "#0B1322",
+  "categories": ["social", "lifestyle"],
+  "icons": [
+    { "src": "assets/tejido-app-icon-180.png", "sizes": "180x180", "type": "image/png", "purpose": "any" },
+    { "src": "assets/tejido-app-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/tejido-app-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/tejido-app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

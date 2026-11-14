@@ -82,7 +82,12 @@ const NEW_STRINGS = {
 		'Ainda não há campanhas para acompanhar.'
 	],
 	card_for: ['Para: {who}', 'For: {who}', 'Pour : {who}', 'Para: {who}'],
-	card_by: ['Organiza {name}', 'Organised by {name}', 'Organisé par {name}', 'Organizado por {name}'],
+	card_by: [
+		'Organiza {name}',
+		'Organised by {name}',
+		'Organisé par {name}',
+		'Organizado por {name}'
+	],
 	card_milestones: [
 		'{c} de {n} etapas confirmadas',
 		'{c} of {n} milestones confirmed',
@@ -111,7 +116,12 @@ const NEW_STRINGS = {
 		'Travaux en cours',
 		'Trabalho em andamento'
 	],
-	status_overdue: ['Informe atrasado', 'A report is overdue', 'Rapport en retard', 'Relatório atrasado'],
+	status_overdue: [
+		'Informe atrasado',
+		'A report is overdue',
+		'Rapport en retard',
+		'Relatório atrasado'
+	],
 	status_delivered: ['Entregada', 'Delivered', 'Livrée', 'Entregue']
 } as const satisfies Record<string, Row>;
 
