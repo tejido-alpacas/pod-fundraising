@@ -38,6 +38,12 @@ export interface LedgerTransaction {
 	payingAddress: string;
 	/** `destinationAddress`: the receiving twin. */
 	receivingAddress: string;
+	/**
+	 * `commodityHash`: the commodity the row itself names, or null when the row names none.
+	 * Qatom's document lists the field without describing it. A row that names a commodity
+	 * other than the one whose ledger was asked for is not a sale of that commodity.
+	 */
+	commodityHash: string | null;
 }
 
 export interface CommodityLedger {
@@ -47,6 +53,12 @@ export interface CommodityLedger {
 	 * commodity is a transfer of this same quantity.
 	 */
 	dq: string | null;
+	/**
+	 * `commodity.hostname`: the twin that owns the commodity and is paid for it, or null when
+	 * Qatom left it out. Compare it with a row's `receivingAddress` using `sameTwin` to tell a
+	 * payment in from anything else.
+	 */
+	twinHostname: string | null;
 	transactions: LedgerTransaction[];
 	/**
 	 * Rows Qatom returned without one of the five fields above. They are left out of
@@ -220,7 +232,7 @@ const catalogItemSchema = z.object({ commodity_id: z.number(), commodity_hash: z
 const HASH = /^[0-9a-zA-Z]+$/;
 
 const ledgerResponseSchema = z.object({
-	commodity: z.object({ dq: z.string().optional() }).optional(),
+	commodity: z.object({ dq: z.string().optional(), hostname: z.string().optional() }).optional(),
 	calculation: z.object({ transactions: z.array(z.unknown()) })
 });
 
@@ -229,7 +241,8 @@ const ledgerTransactionSchema = z.object({
 	timestamp: z.string().min(1),
 	amount: z.number(),
 	fromAddress: z.string().min(1),
-	destinationAddress: z.string().min(1)
+	destinationAddress: z.string().min(1),
+	commodityHash: z.string().min(1).optional()
 });
 
 // The 201 of POST /v4/twin also carries the twin's `key`, a secret. It is not read.
@@ -406,12 +419,14 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 					timestamp: row.data.timestamp,
 					amount: row.data.amount,
 					payingAddress: row.data.fromAddress,
-					receivingAddress: row.data.destinationAddress
+					receivingAddress: row.data.destinationAddress,
+					commodityHash: row.data.commodityHash ?? null
 				});
 			}
 			return {
 				commodityHash,
 				dq: parsed.data.commodity?.dq ?? null,
+				twinHostname: parsed.data.commodity?.hostname || null,
 				transactions,
 				incompleteTransactions
 			};

@@ -20,7 +20,7 @@
 import type { Campaign, Milestone } from './campaign.ts';
 import type { Deposit } from './deposit.ts';
 import type { Entry } from './entry.ts';
-import { DEPOSIT_AMOUNT } from './money.ts';
+import { AMOUNT_UNITS_PER_USD_TDN, DEPOSIT_AMOUNT } from './money.ts';
 import type { Party } from './party.ts';
 import { agentWalletHostnameSchema, primaryWalletHostnameSchema } from './primitives.ts';
 
@@ -43,6 +43,10 @@ export const fixtureCampaign: Campaign = {
 	cadence: 'weekly',
 	logWorkCommodityId: 3152,
 	milestoneHitCommodityId: 3153,
+	// An example goal: 12,000.00. The donation item has not been created in Qatom yet, so there
+	// is no ledger to read and the campaign's funding reads "not known".
+	fundingGoal: 12_000 * AMOUNT_UNITS_PER_USD_TDN,
+	donationCommodityId: null,
 	createdAt: '2026-10-05T14:00:00.000Z'
 };
 
