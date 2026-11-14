@@ -59,11 +59,6 @@ describe('the chat page', () => {
 
 		expect(data).toMatchObject({
 			today: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
-			header: {
-				title: campaign.title,
-				subtitle: `${contractor.name} · ${contractor.title}`,
-				backHref: '/'
-			},
 			deposit: { log_work: '0.10', milestone_hit: '1.00' },
 			who: {
 				party: {

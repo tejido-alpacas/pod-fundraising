@@ -72,17 +72,31 @@ function kindOfReport(entry: Entry): 'work_log' | 'claim' | 'confirmation' {
 }
 
 /** What the page shows of one entry. Never the reporter code, and never the whole inputs. */
-function shown(entry: Entry, milestone: Milestone | undefined) {
-	const attached = entry.inputs.photos?.length ?? 0;
+function shown(
+	entry: Entry,
+	milestone: Milestone | undefined,
+	notPublic: ReadonlyMap<string, { kind: string; reason: string }>
+) {
+	const photos = entry.inputs.photos ?? [];
+	const attached = photos.length;
 	return {
 		id: entry.id,
 		milestoneTitle: milestone?.title ?? entry.milestoneId,
+		milestonePosition: milestone?.position ?? null,
 		report: kindOfReport(entry),
 		summary: entry.inputs.summary,
 		filedAt: entry.filedAt,
 		/** Why it is incomplete, in the words donors are shown. */
 		missing: entry.statusReason,
 		attached,
+		/**
+		 * The attached files kept from donors, in the two lines donors are shown for each. They
+		 * are saved, but do not count as the photo or document a report owes to donors.
+		 */
+		notPublic: photos.flatMap((photo) => {
+			const words = notPublic.get(photo.sha256);
+			return words ? [{ kind: words.kind, reason: words.reason }] : [];
+		}),
 		room: MAX_PHOTOS_PER_ENTRY - attached,
 		documentsOnly: milestone ? takesDocumentsOnly(milestone.kind) : false
 	};
@@ -101,13 +115,18 @@ export const load: PageServerLoad = async ({ locals }) => {
 		listIncompleteEntries(db, party.id),
 		listMilestones(db, party.campaignId)
 	]);
+	const notPublic = await listNotPublicEvidence(
+		db,
+		entries.flatMap((entry) => (entry.inputs.photos ?? []).map((photo) => photo.sha256))
+	);
 	return {
 		viewer: 'party' as const,
 		email: session.email,
 		entries: entries.map((entry) =>
 			shown(
 				entry,
-				milestones.find((milestone) => milestone.id === entry.milestoneId)
+				milestones.find((milestone) => milestone.id === entry.milestoneId),
+				notPublic
 			)
 		)
 	};

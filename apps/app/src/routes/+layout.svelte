@@ -6,33 +6,21 @@
 	import '@tejido/ui/legacy.css';
 	import { page } from '$app/state';
 	import { FieldHeader } from '@tejido/ui';
-	import HeaderMenu from '#lib/HeaderMenu.svelte';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
 
-	// One header for the whole App. A page's load may return its own `header`; otherwise it is
-	// the layout's: the project and the person for a signed-in party, "Tejido" for anyone else.
-	const header = $derived(page.data.header);
-
 	// Only pages this person can use. Someone who is not on a campaign has nothing to file.
 	const links = $derived.by(() => {
 		const party = data.nav?.party;
-		if (!party) return [{ href: '/', label: 'Home' }];
+		if (!party) return [];
 		const list = [
 			{ href: '/', label: 'Home' },
 			{ href: '/chat', label: 'File a report' },
-			{ href: '/chat?form', label: 'Fill in a report form' },
-			{ href: '/upload', label: 'Upload evidence' }
+			{ href: '/upload', label: 'Upload' }
 		];
 		if (party.incompleteReports > 0) {
-			list.push({
-				href: '/fix',
-				label:
-					party.incompleteReports === 1
-						? 'Fix an incomplete report'
-						: `Fix incomplete reports (${party.incompleteReports})`
-			});
+			list.push({ href: '/fix', label: `Fix reports (${party.incompleteReports})` });
 		}
 		return list;
 	});
@@ -41,14 +29,17 @@
 <!-- The root is a size container so components can respond to it as they do in the previews. -->
 <div class="tj-screen">
 	<FieldHeader
-		title={header?.title ?? 'Tejido'}
-		subtitle={header?.subtitle ?? data.nav?.email}
+		title="Tejido"
+		subtitle={data.nav ? (data.nav.party?.name ?? data.nav.email) : undefined}
 		subtitleTitle={data.nav?.email}
-		back={header?.backHref}
+		{links}
+		current={page.url.pathname}
 	>
 		{#snippet end()}
 			{#if data.nav}
-				<HeaderMenu {links} current={page.url.pathname} />
+				<form method="POST" action="/auth/sign-out">
+					<button type="submit" class="tj-btn tj-btn--quiet tj-btn--field">Sign out</button>
+				</form>
 			{:else}
 				<a class="tj-btn tj-btn--secondary tj-btn--field" href="/auth/sign-in">Sign in</a>
 			{/if}

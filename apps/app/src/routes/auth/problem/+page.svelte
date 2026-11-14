@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { Button, ErrorPage } from '@tejido/ui';
+	import FieldPage from '#lib/FieldPage.svelte';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -6,35 +8,29 @@
 
 <svelte:head><title>{data.title} · Tejido</title></svelte:head>
 
-<article>
-	<p class="eyebrow">Sign-in</p>
-	<h1>{data.title}</h1>
-	<p>{data.message}</p>
-
-	{#if data.retry && data.partyId}
-		<p><a class="button" href="/invite/{data.partyId}">Back to your invite</a></p>
-	{:else if data.retry}
-		<p><a class="button" href="/auth/sign-in">Try again</a></p>
-	{/if}
-	<p><a class="plain" href="/">Go to the home page</a></p>
-</article>
+<FieldPage title="Sign-in" subtitle="Tejido field app">
+	<div class="app-problem">
+		<ErrorPage code="Sign-in" title={data.title}>
+			{data.message}
+			{#snippet actions()}
+				{#if data.retry && data.partyId}
+					<Button variant="primary" size="field" href="/invite/{data.partyId}">
+						Back to your invitation
+					</Button>
+				{:else if data.retry}
+					<Button variant="primary" size="field" icon="retry" href="/auth/sign-in">Try again</Button
+					>
+				{/if}
+				<Button variant={data.retry ? 'quiet' : 'primary'} size="field" href="/">
+					Go to the home page
+				</Button>
+			{/snippet}
+		</ErrorPage>
+	</div>
+</FieldPage>
 
 <style>
-	article {
-		max-width: 40rem;
-	}
-	.plain {
-		display: inline-flex;
-		align-items: center;
-		min-height: 2.75rem;
-	}
-	.button {
-		display: inline-block;
-		background: var(--a);
-		color: var(--surface);
-		font-weight: 600;
-		text-decoration: none;
-		padding: 0.6rem 1.1rem;
-		border-radius: 6px;
+	.app-problem :global(.tj-errorpage) {
+		padding: var(--space-6) 0;
 	}
 </style>

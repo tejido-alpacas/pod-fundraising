@@ -7,7 +7,16 @@
 	shows a report as recorded or confirmed: the stream does not say either.
 -->
 <script lang="ts">
-	import { Banner, Button, EmptyState, Icon, StatusBadge, daysOverdue, shortId } from '@tejido/ui';
+	import {
+		Banner,
+		Button,
+		EmptyState,
+		FieldHeader,
+		Icon,
+		StatusBadge,
+		daysOverdue,
+		shortId
+	} from '@tejido/ui';
 	import {
 		chatReview,
 		filingTool,
@@ -22,10 +31,9 @@
 		type ReportFormProblems,
 		type ReportFormValues
 	} from '#lib/report-form.ts';
-	import { afterNavigate } from '$app/navigation';
-	import { page } from '$app/state';
 	import { uploadFromChat, uploadedFileMessage } from '#lib/chat-upload.ts';
-	import { onMount, tick } from 'svelte';
+	import { roleName } from '#lib/roles.ts';
+	import { tick } from 'svelte';
 	import { SvelteMap } from 'svelte/reactivity';
 	import type { PageProps } from './$types';
 	import ReportForm from './ReportForm.svelte';
@@ -107,11 +115,8 @@
 	let count = 0;
 	/** The files chosen from the message box, kept until uploaded so a failed one can be retried. */
 	const chosen = new SvelteMap<number, File>();
-	let root: HTMLElement | undefined = $state();
 	let composer: HTMLTextAreaElement | undefined = $state();
 	let formPlace: HTMLElement | undefined = $state();
-	/** Where the chat starts on the page, so the composer can sit at the bottom of the screen. */
-	let top = $state<number | null>(null);
 
 	const party = $derived(data.who?.party ?? null);
 	const connected = $derived(party !== null && party.connected && !signInAgain);
@@ -145,15 +150,6 @@
 			return filingTool(part.name) ? 'Sending the filing to Tejido…' : 'Checking with Qatom…';
 		}
 		return 'Working on a reply…';
-	});
-
-	// The header's menu opens the report form with /chat?form.
-	afterNavigate(() => {
-		if (page.url.searchParams.has('form') && canFill) void showForm();
-	});
-
-	onMount(() => {
-		if (root) top = Math.round(root.getBoundingClientRect().top + window.scrollY);
 	});
 
 	function clock(): string {
@@ -520,11 +516,16 @@
 		</EmptyState>
 	</div>
 {:else}
-	<div
-		class="tj-fieldapp chat"
-		bind:this={root}
-		style:--chat-top={top === null ? undefined : `${top}px`}
-	>
+	<div class="tj-fieldapp chat">
+		<!-- The page's one header, as on the App's other pages (see FieldPage). The chat is a flow
+		     off the home page, so a back arrow replaces the mark. -->
+		<FieldHeader title={party.campaignTitle} subtitle="{party.name} · {roleName(party)}" back="/">
+			{#snippet end()}
+				<form method="POST" action="/auth/sign-out">
+					<button type="submit" class="tj-btn tj-btn--quiet tj-btn--field">Sign out</button>
+				</form>
+			{/snippet}
+		</FieldHeader>
 		<h1 class="tj-vh">File a report</h1>
 
 		<div class="notices">
@@ -961,15 +962,36 @@
 {/if}
 
 <style>
-	/* Tall enough that the composer sits at the bottom of the screen when little has been said. */
+	/* The layout's <main> hands its whole height to the chat, so the composer rests at the bottom
+	   of the screen when little has been said. */
+	:global(main:has(> .chat)) {
+		display: flex;
+		flex-direction: column;
+	}
+	/* The chat names itself in its own header, as the App's other pages do (see FieldPage). The
+	   layout's general header and its row of links stand down while the chat is showing. */
+	:global(.tj-screen:has(.chat) > .tj-fieldheader),
+	:global(.tj-screen:has(.chat) > .tj-fieldnav) {
+		display: none;
+	}
 	.chat {
-		min-height: calc(100dvh - var(--chat-top, 108px));
-		grid-template-rows: auto minmax(0, 1fr);
+		display: flex;
+		flex-direction: column;
+		flex: 1 0 auto;
+		min-height: 0;
+	}
+	/* The design's header is 60px. A 48px control inside it needs the smaller padding to fit. */
+	.chat > :global(.tj-fieldheader) {
+		padding-block: var(--space-1);
+	}
+	.chat :global(.tj-fieldheader form) {
+		margin: 0;
 	}
 	.notices:not(:empty) {
 		padding: var(--space-4) var(--space-4) 0;
 	}
 	.body {
+		flex: 1 0 auto;
 		align-content: stretch;
 	}
 	.column {

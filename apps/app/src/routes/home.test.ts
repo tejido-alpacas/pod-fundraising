@@ -111,18 +111,24 @@ describe('the home page', () => {
 			milestones: [
 				{
 					id: 'm1-foundation',
+					position: 1,
 					title: 'Foundation and floor slab',
 					dueDate: '2026-10-30',
 					part: 'owes',
 					step: 'done',
+					status: 'confirmed',
+					overdueDays: 0,
 					overdue: false
 				},
 				{
 					id: 'm2-walls',
+					position: 2,
 					title: 'Walls up to roof height',
 					dueDate: '2026-11-27',
 					part: 'owes',
 					step: 'claim',
+					status: 'in-progress',
+					overdueDays: 0,
 					overdue: false
 				}
 			]
@@ -136,8 +142,8 @@ describe('the home page', () => {
 			viewer: 'party',
 			milestones: [
 				// A finished milestone is never overdue, however old.
-				{ id: 'm1-foundation', step: 'done', overdue: false },
-				{ id: 'm2-walls', step: 'claim', overdue: true }
+				{ id: 'm1-foundation', step: 'done', overdueDays: 0, overdue: false },
+				{ id: 'm2-walls', step: 'claim', status: 'in-progress', overdueDays: 1, overdue: true }
 			]
 		});
 	});
@@ -154,6 +160,8 @@ describe('the home page', () => {
 					dueDate: '2026-11-20',
 					part: 'owes',
 					step: 'waiting',
+					status: 'claimed',
+					overdueDays: 0,
 					overdue: false
 				}
 			]
@@ -175,6 +183,25 @@ describe('the home page', () => {
 			]
 		});
 		expectNothingPrivate(sent, headTeacher);
+	});
+
+	it('counts the days a claimed milestone is late for the confirmer, without calling it theirs to claim', async () => {
+		vi.setSystemTime(new Date('2026-11-23T12:00:00.000Z'));
+		expect(await home(sessionFor(headTeacher))).toMatchObject({
+			milestones: [
+				{ id: 'm1-foundation', status: 'confirmed', overdueDays: 0 },
+				{ id: 'm3-books-delivered', status: 'claimed', overdueDays: 3, overdue: false },
+				{ id: 'm2-walls', overdueDays: 0 }
+			]
+		});
+	});
+
+	it('sends only whether a milestone has been reported on, never the reports', async () => {
+		const text = JSON.stringify(await home(sessionFor(headTeacher)));
+		for (const entry of fixtures.entries) {
+			expect(text).not.toContain(entry.id);
+			expect(text).not.toContain(entry.inputs.summary);
+		}
 	});
 
 	it('says when a party has not linked their wallets yet', async () => {
@@ -204,10 +231,6 @@ describe('the header on every page', () => {
 	it('shows a party their name and no reports to fix when none is incomplete', async () => {
 		const sent = await header(sessionFor(contractor));
 		expect(sent).toEqual({
-			header: {
-				title: fixtures.campaign.title,
-				subtitle: `${contractor.name} · ${contractor.title}`
-			},
 			nav: { email: contractor.email, party: { name: contractor.name, incompleteReports: 0 } }
 		});
 		expectNothingPrivate(sent, contractor);
@@ -216,7 +239,6 @@ describe('the header on every page', () => {
 	it('counts the incomplete reports of the party looking, and nobody else', async () => {
 		const sent = await header(sessionFor(supplier));
 		expect(sent).toEqual({
-			header: { title: fixtures.campaign.title, subtitle: `${supplier.name} · ${supplier.title}` },
 			nav: { email: supplier.email, party: { name: supplier.name, incompleteReports: 1 } }
 		});
 		expectNothingPrivate(sent, supplier);
