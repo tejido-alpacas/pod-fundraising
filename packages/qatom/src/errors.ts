@@ -84,6 +84,24 @@ export class QatomResponseError extends QatomError {
 	}
 }
 
+/**
+ * Qatom answered, and its catalog has no item for this commodity id that the merchant account
+ * may manage: the id is wrong, belongs to another Qatom environment, or is another account's.
+ * There is no hash to read a ledger with, and none is guessed.
+ */
+export class QatomUnknownCommodityError extends QatomError {
+	readonly commodityId: number;
+
+	constructor(operation: string, commodityId: number) {
+		super(
+			operation,
+			`Qatom ${operation} found no catalog item for commodity id ${commodityId} that the merchant account may manage`
+		);
+		this.name = 'QatomUnknownCommodityError';
+		this.commodityId = commodityId;
+	}
+}
+
 export type SignInFailure =
 	/** The person, or Qatom, declined at the authorization step. `code` holds Qatom's reason. */
 	| 'authorization_refused'

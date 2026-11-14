@@ -4,11 +4,14 @@
  * These seed OUR database so every page has something to show from the first minute. They are
  * our own data. They are not a stand-in for Qatom and nothing here is sent to Qatom.
  *
- * Two things are deliberately unreal, so that fixture data can never move money or reach a
- * real person:
- * - wallet hostnames and email addresses use the reserved `.example` domain. Qatom only
- *   transfers to twins under `biz.todaq.net`, so a refund aimed at a fixture party is refused.
- * - the campaign's commodity hashes are null, so the reconciler has no ledger to read for it.
+ * Wallet hostnames and email addresses are deliberately unreal, so that fixture data can never
+ * move money or reach a real person: they use the reserved `.example` domain. Qatom only
+ * transfers to twins under `biz.todaq.net`, so a refund aimed at a fixture party is refused.
+ *
+ * The campaign's two commodity ids are real. They are the catalog items the project owner
+ * created for this campaign, and they exist in one Qatom environment only: the one those items
+ * were created in. Against any other environment the ids are unknown, so the reconciler
+ * reports that it could not read the ledgers and stamps nothing.
  */
 import type { Campaign, Milestone } from './campaign.ts';
 import type { Deposit } from './deposit.ts';
@@ -34,8 +37,8 @@ export const fixtureCampaign: Campaign = {
 	creatorEmail: 'pta@mangrovebayprimary.example',
 	status: 'reporting',
 	cadence: 'weekly',
-	logWorkCommodityHash: null,
-	milestoneHitCommodityHash: null,
+	logWorkCommodityId: 3152,
+	milestoneHitCommodityId: 3153,
 	createdAt: '2026-10-05T14:00:00.000Z'
 };
 

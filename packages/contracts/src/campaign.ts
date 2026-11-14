@@ -19,10 +19,12 @@ export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
 export const cadenceSchema = z.enum(['weekly', 'fortnightly']);
 export type Cadence = z.infer<typeof cadenceSchema>;
 
-/** Identifies a commodity in Qatom. A catalog item's ledger is read by its commodity hash. */
-export const commodityHashSchema = z
-	.string()
-	.regex(/^[0-9a-fA-F]{16,128}$/, { error: 'must be a commodity hash: hexadecimal characters' });
+/**
+ * Identifies a commodity in Qatom: the `commodity_id` of a catalog item, a positive whole
+ * number. A ledger is read by the commodity's hash, which the Qatom client looks up from this id.
+ */
+export const commodityIdSchema = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
+export type CommodityId = z.infer<typeof commodityIdSchema>;
 
 export const campaignSchema = z.object({
 	id: idSchema,
@@ -36,11 +38,12 @@ export const campaignSchema = z.object({
 	cadence: cadenceSchema,
 	/**
 	 * The commodity behind this campaign's "Log work" catalog item in Qatom, owned by Tejido's
-	 * merchant account. Null until the item has been created. The reconciler reads this ledger.
+	 * merchant account. Null until the item has been created. The reconciler reads this
+	 * commodity's ledger.
 	 */
-	logWorkCommodityHash: commodityHashSchema.nullable(),
+	logWorkCommodityId: commodityIdSchema.nullable(),
 	/** The same, for this campaign's "Milestone hit" catalog item. */
-	milestoneHitCommodityHash: commodityHashSchema.nullable(),
+	milestoneHitCommodityId: commodityIdSchema.nullable(),
 	createdAt: timestampSchema
 });
 export type Campaign = z.infer<typeof campaignSchema>;
