@@ -18,7 +18,7 @@ import {
 } from '@tejido/contracts';
 import { and, asc, count, desc, eq } from 'drizzle-orm';
 import type { Database, Executor } from './client.ts';
-import { campaigns, deposits, entries, milestones, parties } from './schema.ts';
+import { campaigns, deposits, entries, milestones, parties, partySignInTokens } from './schema.ts';
 
 /**
  * Narrows a stored row to an Entry, checking it against the contract on the way. A row cannot
@@ -86,6 +86,61 @@ export async function linkPartyWallets(
 			primaryWalletHostname: wallets.primaryWalletHostname
 		})
 		.where(eq(parties.id, partyId));
+}
+
+// --- Sign-in tokens (sealed) ---
+
+/**
+ * A party's Qatom sign-in tokens as the database holds them: sealed.
+ *
+ * `sealedTokens` is an opaque string. Sealing (encrypting with a key derived from
+ * SESSION_SECRET) and unsealing are the App's job, in its own server code. Nothing in this
+ * package can read a token, and none of these functions may be given one in the clear.
+ */
+export interface SealedSignInTokens {
+	partyId: string;
+	/** Already sealed by the caller. Never a token, and never JSON holding one. */
+	sealedTokens: string;
+	updatedAt: Timestamp;
+}
+
+/**
+ * Saves a party's sealed sign-in tokens. A party has one row: a later save replaces the
+ * earlier one. The caller seals the tokens first; this stores the string as given.
+ */
+export async function saveSealedSignInTokens(
+	db: Executor,
+	record: SealedSignInTokens
+): Promise<void> {
+	await db
+		.insert(partySignInTokens)
+		.values(record)
+		.onConflictDoUpdate({
+			target: partySignInTokens.partyId,
+			set: { sealedTokens: record.sealedTokens, updatedAt: record.updatedAt }
+		});
+}
+
+/** A party's sealed sign-in tokens, still sealed. The caller unseals them. */
+export async function readSealedSignInTokens(
+	db: Executor,
+	partyId: string
+): Promise<SealedSignInTokens | undefined> {
+	const [row] = await db
+		.select()
+		.from(partySignInTokens)
+		.where(eq(partySignInTokens.partyId, partyId))
+		.limit(1);
+	return row;
+}
+
+/** Forgets a party's sealed sign-in tokens. Answers whether there was a row to delete. */
+export async function deleteSealedSignInTokens(db: Executor, partyId: string): Promise<boolean> {
+	const deleted = await db
+		.delete(partySignInTokens)
+		.where(eq(partySignInTokens.partyId, partyId))
+		.returning({ partyId: partySignInTokens.partyId });
+	return deleted.length > 0;
 }
 
 // --- Milestones ---
