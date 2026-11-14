@@ -19,7 +19,7 @@ import {
 	isEvidenceContentType,
 	type EvidenceUploadResponse
 } from '@tejido/contracts';
-import { createHash } from 'node:crypto';
+import { storeEvidence } from '#lib/server/evidence.ts';
 import type { RequestHandler } from './$types';
 
 export const POST: RequestHandler = async ({ request, locals, url }) => {
@@ -51,13 +51,8 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		error(413, `Evidence can be at most ${EVIDENCE_MAX_BYTES / 1024 / 1024} MB.`);
 	}
 
-	const bytes = Buffer.from(await file.arrayBuffer());
-	const sha256 = createHash('sha256').update(bytes).digest('hex');
-	const name = `${sha256}.${EVIDENCE_CONTENT_TYPES[file.type]}`;
+	// The upload page's form action stores files through the same function.
+	const stored = await storeEvidence(locals.ctx.evidence, file, file.type, url.origin);
 
-	await locals.ctx.evidence.put(name, bytes, { httpMetadata: { contentType: file.type } });
-
-	return json({ url: `${url.origin}/evidence/${name}`, sha256 } satisfies EvidenceUploadResponse, {
-		status: 201
-	});
+	return json(stored satisfies EvidenceUploadResponse, { status: 201 });
 };
