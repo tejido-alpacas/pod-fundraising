@@ -362,7 +362,7 @@ describe('who may call it', () => {
 	});
 
 	it('refuses a session for a party that is not in the database', async () => {
-		const response = await ask({ ...sessionFor(contractor), partyId: 'pty-nobody' });
+		const response = await ask({ ...sessionFor(contractor), partyId: 'nobody' });
 
 		expect(response.status).toBe(403);
 		expect(sent).toHaveLength(0);
