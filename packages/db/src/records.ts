@@ -15,6 +15,7 @@ import {
 	type Milestone,
 	type MilestoneState,
 	type Party,
+	type Photo,
 	type PrimaryWalletHostname,
 	type Timestamp
 } from '@tejido/contracts';
@@ -373,6 +374,82 @@ export async function countWorkLogs(
 			)
 		);
 	return row?.total ?? 0;
+}
+
+// --- Adding evidence to an incomplete entry ---
+
+/** The entries a party filed that are still `incomplete`, oldest first. */
+export async function listIncompleteEntries(db: Executor, partyId: string): Promise<Entry[]> {
+	const rows = await db
+		.select()
+		.from(entries)
+		.where(and(eq(entries.partyId, partyId), eq(entries.status, 'incomplete')))
+		.orderBy(asc(entries.filedAt), asc(entries.id));
+	return rows.map(toEntry);
+}
+
+/** Evidence being added to an entry after it was filed. No deposit is paid for this. */
+export interface EvidenceAddition {
+	/** The entry exactly as it was just read. The write only lands if it has not changed since. */
+	entry: Entry;
+	/** The files to add, after the ones the entry already has. Checked by the caller. */
+	added: Photo[];
+	/** True when, with these files, the check-in rules find nothing missing any more. */
+	complete: boolean;
+	/** What is still missing, in words a donor can read. Used only when `complete` is false. */
+	stillMissing: string | null;
+	updatedAt: Timestamp;
+}
+
+/**
+ * Adds evidence to an entry that is `incomplete`, and says where the entry stands afterwards.
+ * One statement, so the files and the status change land together or not at all.
+ *
+ * Only the list of files grows. The files already there keep their place, and nothing else
+ * about the entry (its note, times, milestone, party, paying wallet, transaction) can be
+ * changed through this function. No deposit is written and no milestone moves.
+ *
+ * A complete entry gets the status it would have had if it had been filed complete: `filed`
+ * while it has no ledger transaction, so the reconciler picks it up as usual, and `verified`
+ * if it has one, because the reconciler only leaves a stamped entry `incomplete` when it was
+ * paid from the party's registered wallet (otherwise it is `flagged`, and not changed here).
+ *
+ * Answers the entry's new status. Answers null, and writes nothing, when the entry is not the
+ * named party's, is not `incomplete`, or changed after it was read (say, the reconciler
+ * stamped it, or evidence was added from another window): read it again and decide again.
+ * Throws if the entry would no longer satisfy the contract, e.g. more than ten files.
+ */
+export async function addEvidenceToIncompleteEntry(
+	db: Executor,
+	partyId: string,
+	addition: EvidenceAddition
+): Promise<EntryStatus | null> {
+	const { entry, added, complete, updatedAt } = addition;
+	if (added.length === 0) throw new RangeError('There is no evidence to add.');
+
+	const status: EntryStatus = !complete
+		? 'incomplete'
+		: entry.twistId === null
+			? 'filed'
+			: 'verified';
+	const statusReason = complete ? null : addition.stillMissing;
+	const inputs = { ...entry.inputs, photos: [...(entry.inputs.photos ?? []), ...added] };
+	// What is stored must still be an entry: this is where an eleventh file is turned away.
+	entrySchema.parse({ ...entry, inputs, status, statusReason, updatedAt });
+
+	const changed = await db
+		.update(entries)
+		.set({ inputs, status, statusReason, updatedAt })
+		.where(
+			and(
+				eq(entries.id, entry.id),
+				eq(entries.partyId, partyId),
+				eq(entries.status, 'incomplete'),
+				eq(entries.updatedAt, entry.updatedAt)
+			)
+		)
+		.returning({ id: entries.id });
+	return changed.length > 0 ? status : null;
 }
 
 // --- Deposit refunds ---

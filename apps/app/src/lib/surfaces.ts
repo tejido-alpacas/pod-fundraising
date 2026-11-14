@@ -51,6 +51,14 @@ export const SURFACES: Surface[] = [
 		path: '/reminder',
 		what: 'Says what is due, which tool to use, the milestone id, the fields required and the deadline.',
 		files: [`${R}/reminder/`]
+	},
+	{
+		id: 'B5',
+		name: 'Fix an incomplete entry',
+		path: '/fix',
+		what: 'A signed-in party sees their own reports marked incomplete, with what is missing, and adds the missing photos or documents. Nothing is paid again.',
+		files: [`${R}/fix/`],
+		working: true
 	}
 ];
 
