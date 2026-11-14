@@ -13,6 +13,9 @@ deposits paid on it back.
 This is the hackathon build. Three people work in it in parallel, one track each. The existing
 site at tejido.net is a separate app and is not used here.
 
+The design is in [`docs/architecture.md`](docs/architecture.md) and the schedule in
+[`docs/build-plan.md`](docs/build-plan.md).
+
 ## Prerequisites
 
 - Node 24 (`nvm use` reads `.nvmrc`)

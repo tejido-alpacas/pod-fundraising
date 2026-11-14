@@ -3,6 +3,14 @@
 Tejido's hackathon monorepo. Three people work here in parallel, one track each. Read
 `README.md` for what the system does. These are the rules.
 
+## Read first
+
+- `docs/architecture.md`: what we are building and why, the flow through Qatom, and the rules
+  the check-in endpoint enforces. Its last section lists corrections; where it and the code
+  differ, the code is right.
+- `docs/build-plan.md`: every surface by track, its priority, the checkpoints, the order to cut
+  in, and what the foundation already built.
+
 ## Package manager
 
 - npm only, with npm workspaces. Never pnpm, yarn or bun. Never add Turborepo or Nx.
