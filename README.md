@@ -75,7 +75,7 @@ those four.
 
 ## Configuration
 
-Configuration is parsed once at startup against one zod schema in `packages/config`. All nine
+Configuration is parsed once at startup against one zod schema in `packages/config`. All ten
 values are required. Locally they come from `.env`; deployed, they are Worker secrets. Nothing
 else in the repository reads the environment.
 
@@ -86,6 +86,7 @@ else in the repository reads the environment.
 | `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`                                           |
 | `QATOM_MCP_URL`               | Tejido's managed MCP server on Qatom                                                                                           |
 | `OIDC_CLIENT_ID`              | **Identity 1.** The sign-in client registration                                                                                |
+| `OIDC_CLIENT_SECRET`          | **Identity 1.** The sign-in client's own secret, issued with its ID. Server-side only                                          |
 | `OIDC_REDIRECT_URI`           | **Identity 1.** The callback is in the App: locally `http://localhost:5174/auth/callback`. Must match the registration exactly |
 | `QATOM_ACCOUNT_CLIENT_ID`     | **Identity 2.** Tejido's merchant account                                                                                      |
 | `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                                               |
@@ -140,7 +141,7 @@ layout and index page, and the root configuration files.
 
 Both apps are SvelteKit 3 with Svelte 5 and the Cloudflare adapter. Each is deployed as its own
 Worker, and they share everything underneath: the same packages, the same D1 database and the
-same nine configuration values.
+same ten configuration values.
 
 |       | Campaign Site (`apps/web`)                             | App (`apps/app`)                                    |
 | ----- | ------------------------------------------------------ | --------------------------------------------------- |
@@ -164,7 +165,8 @@ The app deals with Qatom as two different actors. They use two separate sets of 
 are both called client IDs. Mixing them is the easiest mistake to make here, so they are kept
 apart in configuration, in code and in naming.
 
-**1. A person, signed in with Qatom.** `OIDC_CLIENT_ID`, `OIDC_REDIRECT_URI`. Code:
+**1. A person, signed in with Qatom.** `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
+`OIDC_REDIRECT_URI`. Code:
 `@tejido/qatom/person`.
 Creators, third parties and confirmers sign in through Qatom's OpenID Connect provider. A sign-in
 returns two wallet hostnames:

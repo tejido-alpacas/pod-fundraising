@@ -31,6 +31,8 @@ export interface PersonSignInConfig {
 	paymentApiUrl: string;
 	/** OIDC_CLIENT_ID. The sign-in client registration, never the merchant account's client ID. */
 	clientId: string;
+	/** OIDC_CLIENT_SECRET. That registration's own secret, never the merchant account's. */
+	clientSecret: string;
 	/** OIDC_REDIRECT_URI. Must match the registration exactly. */
 	redirectUri: string;
 }
@@ -107,6 +109,18 @@ const tokenResponseSchema = z.object({
 const jwksSchema = z.object({ keys: z.array(z.record(z.string(), z.unknown())) });
 
 const base64url = (bytes: Buffer) => bytes.toString('base64url');
+
+/**
+ * `client_secret_basic` (RFC 6749 section 2.3.1): the ID and the secret are each
+ * form-urlencoded, joined with a colon, then base64-encoded.
+ */
+function clientAuthorization(
+	config: Pick<PersonSignInConfig, 'clientId' | 'clientSecret'>
+): string {
+	const encode = (value: string) => new URLSearchParams({ v: value }).toString().slice(2);
+	const pair = `${encode(config.clientId)}:${encode(config.clientSecret)}`;
+	return `Basic ${Buffer.from(pair).toString('base64')}`;
+}
 
 export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 	let discovery: Promise<Discovery> | null = null;
@@ -224,17 +238,19 @@ export function createPersonSignIn(config: PersonSignInConfig): PersonSignIn {
 			const code = params.get('code');
 			if (!code) throw new QatomSignInError('missing_code', 'Qatom returned no code.');
 
-			// A public client: PKCE proves it is us. No secret, no Authorization header.
+			// A confidential client (Qatom's default for a registration): the sign-in client's
+			// own ID and secret go in the Authorization header, as `client_secret_basic`, and
+			// PKCE still binds the code to this browser's sign-in.
 			const tokens = tokenResponseSchema.safeParse(
 				await send({
 					operation: 'person.token',
 					method: 'POST',
 					url: provider.token_endpoint,
+					headers: { authorization: clientAuthorization(config) },
 					form: {
 						grant_type: 'authorization_code',
 						code,
 						redirect_uri: config.redirectUri,
-						client_id: config.clientId,
 						code_verifier: pending.codeVerifier,
 						...(pending.resource ? { resource: pending.resource } : {})
 					},

@@ -73,6 +73,8 @@ export const configSchema = z
 
 		/** The sign-in client registration. Not the merchant account. */
 		OIDC_CLIENT_ID: required(),
+		/** The sign-in client's own secret. Sent only to Qatom's token endpoint. Server-side only. */
+		OIDC_CLIENT_SECRET: required(),
 		OIDC_REDIRECT_URI: httpUrl(),
 
 		// --- Qatom identity 2: Tejido's merchant account ---
@@ -94,6 +96,15 @@ export const configSchema = z
 				input: undefined,
 				message:
 					'must not be the same as OIDC_CLIENT_ID: the sign-in client and the merchant account are two separate credentials'
+			});
+		}
+		if (ctx.value.OIDC_CLIENT_SECRET === ctx.value.QATOM_ACCOUNT_CLIENT_SECRET) {
+			ctx.issues.push({
+				code: 'custom',
+				path: ['QATOM_ACCOUNT_CLIENT_SECRET'],
+				input: undefined,
+				message:
+					'must not be the same as OIDC_CLIENT_SECRET: the sign-in client and the merchant account are two separate credentials'
 			});
 		}
 	});
