@@ -18,6 +18,7 @@ const discoveryDocument = {
 	authorization_endpoint: `${API}/v4/oidc/auth`,
 	token_endpoint: `${API}/v4/oidc/token`,
 	userinfo_endpoint: `${API}/v4/oidc/me`,
+	introspection_endpoint: `${API}/v4/oidc/token/introspection`,
 	jwks_uri: `${API}/v4/oidc/jwks`,
 	id_token_signing_alg_values_supported: ['RS256'],
 	authorization_response_iss_parameter_supported: true
@@ -42,6 +43,7 @@ interface Recorded {
 let requests: Recorded[];
 let tokenAnswer: { status: number; json: unknown };
 let userinfoAnswer: unknown;
+let introspectionAnswer: unknown;
 
 beforeAll(async () => {
 	const pair = await generateKeyPair('RS256');
@@ -53,6 +55,7 @@ beforeEach(() => {
 	requests = [];
 	tokenAnswer = { status: 500, json: {} };
 	userinfoAnswer = {};
+	introspectionAnswer = { active: false };
 	vi.stubGlobal('fetch', (input: string | URL, init: RequestInit = {}) => {
 		const url = String(input);
 		requests.push({
@@ -68,6 +71,7 @@ beforeEach(() => {
 		if (url === discoveryDocument.jwks_uri) return json({ keys: [publicJwk] });
 		if (url === discoveryDocument.token_endpoint) return json(tokenAnswer.json, tokenAnswer.status);
 		if (url === discoveryDocument.userinfo_endpoint) return json(userinfoAnswer);
+		if (url === discoveryDocument.introspection_endpoint) return json(introspectionAnswer);
 		return Promise.reject(new Error(`unexpected request to ${url}`));
 	});
 });
@@ -152,10 +156,23 @@ describe('starting a sign-in', () => {
 		expect(new URL(authorizationUrl).searchParams.get('resource')).toBe('https://mcp.test/x');
 		expect(pending.resource).toBe('https://mcp.test/x');
 	});
+
+	it('asks for long-lived access with offline_access and consent, which Qatom requires together', async () => {
+		const { authorizationUrl } = await signIn().begin({ offlineAccess: true });
+		const asked = new URL(authorizationUrl).searchParams;
+		expect(asked.get('scope')).toBe('openid profile email twin offline_access');
+		expect(asked.get('prompt')).toBe('consent');
+	});
+
+	it('does not ask for consent or offline_access unless told to', async () => {
+		const asked = new URL((await signIn().begin()).authorizationUrl).searchParams;
+		expect(asked.get('scope')).toBe('openid profile email twin');
+		expect(asked.has('prompt')).toBe(false);
+	});
 });
 
 describe('finishing a sign-in', () => {
-	it('exchanges the code as a public client and returns the email and both wallets', async () => {
+	it('exchanges the code as the sign-in client and returns the email and both wallets', async () => {
 		const person = signIn();
 		const { pending } = await person.begin();
 		tokenAnswer = {
@@ -219,6 +236,79 @@ describe('finishing a sign-in', () => {
 			(request) => request.url === discoveryDocument.userinfo_endpoint
 		);
 		expect(userinfo?.headers.authorization).toBe('Bearer person-access-token');
+	});
+
+	describe('for a token bound to the MCP server', () => {
+		const RESOURCE = 'https://tejido.mcp.test';
+		const EMAIL = 'site@coralridgebuilders.example';
+		const introspected = {
+			active: true,
+			sub: EMAIL,
+			twin_hostname: walletClaims.twin_hostname,
+			agent_twin_hostname: walletClaims.agent_twin_hostname
+		};
+
+		async function finish() {
+			const person = signIn();
+			const { pending } = await person.begin({ resource: RESOURCE, offlineAccess: true });
+			tokenAnswer = {
+				status: 200,
+				json: {
+					access_token: 'bound-access-token',
+					refresh_token: 'person-refresh-token',
+					expires_in: 259200,
+					// Qatom's subject for a person is their email address.
+					id_token: await idToken({ nonce: pending.nonce }, { sub: EMAIL })
+				}
+			};
+			return person.complete(callback(pending), pending);
+		}
+
+		it('reads the email and both wallets by introspecting the token, never from userinfo', async () => {
+			introspectionAnswer = introspected;
+
+			const signedIn = await finish();
+
+			expect(signedIn.email).toBe(EMAIL);
+			expect(signedIn.primaryWalletHostname).toBe(walletClaims.twin_hostname);
+			expect(signedIn.agentWalletHostname).toBe(walletClaims.agent_twin_hostname);
+			expect(signedIn.tokens.refreshToken).toBe('person-refresh-token');
+
+			const asked = requests.find(
+				(request) => request.url === discoveryDocument.introspection_endpoint
+			);
+			expect(asked?.method).toBe('POST');
+			// The sign-in client introspects its own token, with its own ID and secret.
+			expect(asked?.headers.authorization).toBe(
+				`Basic ${Buffer.from(`${CLIENT_ID}:sign-in%2Bsecret%3A%2F%3D`).toString('base64')}`
+			);
+			expect(Object.fromEntries(new URLSearchParams(asked?.body))).toEqual({
+				token: 'bound-access-token',
+				token_type_hint: 'access_token'
+			});
+			// Qatom refuses userinfo for a resource-bound token, so it is never asked.
+			expect(requests.some((request) => request.url === discoveryDocument.userinfo_endpoint)).toBe(
+				false
+			);
+			// The code exchange names the same resource.
+			const exchange = requests.find((request) => request.url === discoveryDocument.token_endpoint);
+			expect(new URLSearchParams(exchange?.body).get('resource')).toBe(RESOURCE);
+		});
+
+		it('refuses a token Qatom does not recognise', async () => {
+			introspectionAnswer = { active: false };
+			expect(await failureOf(finish())).toBe('invalid_id_token');
+		});
+
+		it('refuses a token that is for someone else', async () => {
+			introspectionAnswer = { ...introspected, sub: 'someone-else@example.test' };
+			expect(await failureOf(finish())).toBe('invalid_id_token');
+		});
+
+		it('refuses when the token carries no wallets', async () => {
+			introspectionAnswer = { active: true, sub: EMAIL };
+			expect(await failureOf(finish())).toBe('missing_claims');
+		});
 	});
 
 	it('refuses userinfo that is about someone else', async () => {
@@ -388,5 +478,46 @@ describe('finishing a sign-in', () => {
 			detail: 'grant request is invalid'
 		});
 		expect(String(error)).not.toContain(pending.codeVerifier);
+	});
+});
+
+describe('refreshing a person\u2019s tokens', () => {
+	it('trades the refresh token for new tokens, as the sign-in client, for the same resource', async () => {
+		tokenAnswer = {
+			status: 200,
+			json: { access_token: 'new-access', refresh_token: 'new-refresh', expires_in: 3600 }
+		};
+		const before = Date.now();
+
+		const tokens = await signIn().refresh('old-refresh', { resource: 'https://tejido.mcp.test' });
+
+		expect(tokens.accessToken).toBe('new-access');
+		expect(tokens.refreshToken).toBe('new-refresh');
+		expect(tokens.expiresAtMs).toBeGreaterThanOrEqual(before + 3600 * 1000);
+
+		const asked = requests.find((request) => request.url === discoveryDocument.token_endpoint);
+		expect(asked?.headers.authorization).toBe(
+			`Basic ${Buffer.from(`${CLIENT_ID}:sign-in%2Bsecret%3A%2F%3D`).toString('base64')}`
+		);
+		expect(Object.fromEntries(new URLSearchParams(asked?.body))).toEqual({
+			grant_type: 'refresh_token',
+			refresh_token: 'old-refresh',
+			resource: 'https://tejido.mcp.test'
+		});
+	});
+
+	it('keeps the refresh token it sent when Qatom does not issue a new one', async () => {
+		tokenAnswer = { status: 200, json: { access_token: 'new-access', expires_in: 3600 } };
+		expect((await signIn().refresh('old-refresh')).refreshToken).toBe('old-refresh');
+	});
+
+	it('carries the status and OAuth error code when Qatom refuses the refresh token', async () => {
+		tokenAnswer = { status: 400, json: { error: 'invalid_grant' } };
+		const error = await signIn()
+			.refresh('old-refresh')
+			.catch((caught: unknown) => caught);
+		expect(error).toBeInstanceOf(QatomHttpError);
+		expect((error as QatomHttpError).status).toBe(400);
+		expect((error as QatomHttpError).code).toBe('invalid_grant');
 	});
 });

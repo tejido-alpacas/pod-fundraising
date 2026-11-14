@@ -17,7 +17,7 @@ import {
 	systemPrompt,
 	unavailableMessage
 } from '#lib/server/agent.ts';
-import { usablePersonToken } from '#lib/server/person-tokens.ts';
+import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
 import {
 	CHAT_MAX_TURN_CHARACTERS,
 	CHAT_MAX_TURNS,
@@ -70,7 +70,7 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		);
 	}
 
-	const { config, db } = locals.ctx;
+	const { config, db, qatom } = locals.ctx;
 
 	const party = await getParty(db, session.partyId);
 	const campaign = party ? await getCampaign(db, party.campaignId) : undefined;
@@ -93,7 +93,10 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 		);
 	}
 
-	const token = await usablePersonToken(db, config.SESSION_SECRET, party.id);
+	const token = await usablePersonToken(db, config.SESSION_SECRET, party.id, {
+		person: qatom.person,
+		resource: mcpResource(config.QATOM_MCP_URL)
+	});
 	if (!token.ok) return refuse(409, 'sign_in_again', SIGN_IN_AGAIN);
 
 	const system = systemPrompt({
