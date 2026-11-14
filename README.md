@@ -157,6 +157,8 @@ same ten configuration values.
 - **Code runs in a Worker, not in Node.** `node:crypto` and `Buffer` work (the `nodejs_compat`
   flag); the file system does not. Store files in R2. D1 has no interactive transactions:
   writes that must land together go in one `db.batch([...])`.
+- **The campaign builder's endpoints** (`POST /api/campaigns/check`, `POST /api/campaigns`) are
+  described in [`docs/campaign-api.md`](docs/campaign-api.md).
 - In production each app is a Worker at its own hostname. `infra/deploy.sh` deploys both.
 
 ## The two Qatom identities
