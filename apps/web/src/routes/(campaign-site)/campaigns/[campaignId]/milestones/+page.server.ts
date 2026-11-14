@@ -10,7 +10,8 @@ import {
 import { getCampaign, listDeposits, listEntries, listMilestones, listParties } from '@tejido/db';
 import type { PageServerLoad } from './$types';
 
-// Milestone status (A4): where every milestone of a campaign stands. Everything returned here
+// Milestones (A3, the index): where every milestone of a campaign stands. Each one has its own
+// page under `[milestoneId]/`. Everything returned here
 // is shown to the public, so it is built field by field: no reporter code, no email address
 // and no wallet leaves this file.
 
@@ -72,6 +73,7 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 
 		return {
 			id: milestone.id,
+			position: milestone.position,
 			title: milestone.title,
 			description: milestone.description,
 			kind: milestone.kind,
@@ -106,6 +108,8 @@ export const load: PageServerLoad = async ({ params, locals }) => {
 	});
 
 	return {
+		/** The server's date, so the page writes dates the same on the server and in the browser. */
+		today,
 		campaign: { id: campaign.id, title: campaign.title, status: campaign.status },
 		milestones: rows
 	};
