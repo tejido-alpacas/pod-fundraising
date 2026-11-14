@@ -22,6 +22,20 @@
       "when": 1794670915729,
       "tag": "0002_deposit_refunds",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1794675208294,
+      "tag": "0003_commodity_ids_add",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794675209011,
+      "tag": "0004_commodity_ids_drop_hashes",
+      "breakpoints": true
     }
   ]
 }

@@ -3,10 +3,12 @@
 import { primaryWalletHostnameSchema } from '@tejido/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+	QatomError,
 	QatomHttpError,
 	QatomNetworkError,
 	QatomResponseError,
-	QatomTimeoutError
+	QatomTimeoutError,
+	QatomUnknownCommodityError
 } from '../errors.ts';
 import { sameTwin, twinHostname } from '../index.ts';
 import { createMerchantAccount } from './index.ts';
@@ -270,6 +272,127 @@ describe('the ledger', () => {
 
 	it('refuses a hash that could change the request path, before any request', async () => {
 		await expect(account().listCommodityTransactions('../user')).rejects.toBeInstanceOf(TypeError);
+		expect(requests).toHaveLength(0);
+	});
+});
+
+describe('a commodity id', () => {
+	const HASH = '9f2c4e1a7b3d5f60819a2b3c4d5e6f708192a3b4c5d6e7f8091a2b3c4d5e6f70';
+	const item = (commodity_id: number, commodity_hash: string = HASH) => ({
+		id: 42,
+		commodity_id,
+		commodity_hash,
+		active: true,
+		commodity_name: 'Library wing log work'
+	});
+	const listing = (...items: unknown[]): Answer => ({
+		json: { items, total: items.length, limit: null, offset: 0 }
+	});
+
+	it("is turned into its hash from the account's own catalog listing", async () => {
+		answer(tokenAnswer('token-1'), listing(item(3152)));
+		expect(await account().resolveCommodityHash(3152)).toBe(HASH);
+
+		expect(requests[1]).toEqual({
+			method: 'GET',
+			url: `${API}/v4/catalog/items?commodity_id=3152&mine=true&active=all`,
+			headers: { accept: 'application/json', authorization: 'Bearer token-1' },
+			body: undefined
+		});
+	});
+
+	it('is asked about once, and remembered after that', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), listing(item(3152)));
+		await merchant.resolveCommodityHash(3152);
+		expect(await merchant.resolveCommodityHash(3152)).toBe(HASH);
+
+		expect(requests).toHaveLength(2);
+	});
+
+	it('is asked about once when several calls start together', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), listing(item(3152)));
+		const hashes = await Promise.all([
+			merchant.resolveCommodityHash(3152),
+			merchant.resolveCommodityHash(3152)
+		]);
+
+		expect(hashes).toEqual([HASH, HASH]);
+		expect(requests).toHaveLength(2);
+	});
+
+	it('is remembered separately from other ids', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), listing(item(3152)), listing(item(3153, 'abc123')));
+
+		expect(await merchant.resolveCommodityHash(3152)).toBe(HASH);
+		expect(await merchant.resolveCommodityHash(3153)).toBe('abc123');
+		expect(await merchant.resolveCommodityHash(3152)).toBe(HASH);
+		expect(requests).toHaveLength(3);
+	});
+
+	it('is reported as unknown when the listing has no item for it', async () => {
+		answer(tokenAnswer(), listing());
+		const error = await account()
+			.resolveCommodityHash(3152)
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(QatomUnknownCommodityError);
+		expect(error).toBeInstanceOf(QatomError);
+		expect(error).toMatchObject({ operation: 'account.commodity-hash', commodityId: 3152 });
+	});
+
+	it("is reported as unknown when the listing only holds another commodity's item", async () => {
+		answer(tokenAnswer(), listing(item(9999, 'abc123')));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(
+			QatomUnknownCommodityError
+		);
+	});
+
+	it('is asked about again after it was unknown or the listing failed', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), listing(), { status: 500, json: { error: 'Internal', status: 500 } });
+		await expect(merchant.resolveCommodityHash(3152)).rejects.toBeInstanceOf(
+			QatomUnknownCommodityError
+		);
+		await expect(merchant.resolveCommodityHash(3152)).rejects.toMatchObject({
+			name: 'QatomHttpError',
+			operation: 'account.commodity-hash',
+			status: 500
+		});
+
+		answer(listing(item(3152)));
+		expect(await merchant.resolveCommodityHash(3152)).toBe(HASH);
+		expect(requests).toHaveLength(4);
+	});
+
+	it('reports a listing that could not be reached or did not answer in time', async () => {
+		answer(tokenAnswer(), new TypeError('fetch failed'));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomNetworkError);
+
+		answer(tokenAnswer(), new DOMException('timed out', 'TimeoutError'));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomTimeoutError);
+	});
+
+	it('refuses an answer without items, or an item without its hash', async () => {
+		answer(tokenAnswer(), { json: { total: 0 } });
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
+
+		answer(tokenAnswer(), listing({ id: 42, commodity_id: 3152 }));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
+	});
+
+	it('refuses a hash that could change a request path, and two hashes for one id', async () => {
+		answer(tokenAnswer(), listing(item(3152, '../user')));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
+
+		answer(tokenAnswer(), listing(item(3152), item(3152, 'abc123')));
+		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
+	});
+
+	it.each([0, -1, 1.5, Number.NaN])('refuses the id %s before any request', async (id) => {
+		await expect(account().resolveCommodityHash(id)).rejects.toBeInstanceOf(RangeError);
 		expect(requests).toHaveLength(0);
 	});
 });

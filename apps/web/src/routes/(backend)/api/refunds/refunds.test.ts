@@ -27,6 +27,9 @@ const SECRET = 'test-checkin-secret-test-checkin-secret';
 const QATOM = 'https://qatom.invalid';
 const CAMPAIGN = fixtures.campaign.id;
 const MILESTONE = 'm9-roof';
+/** The commodity ids the seeded campaign carries, and the hash Qatom's catalog gives for each. */
+const LOG_ID = fixtures.campaign.logWorkCommodityId!;
+const HIT_ID = fixtures.campaign.milestoneHitCommodityId!;
 const LOG_HASH = 'logworkcommodityhash01';
 const HIT_HASH = 'milestonehitcommodityhash02';
 const DQ = '41dq0000000000000000000000000000000000000000000000000000000000000a';
@@ -44,6 +47,19 @@ let requests: { method: string; path: string; body: unknown }[];
 let answerTransfer: () => Response | Promise<Response>;
 /** What Qatom "answers" to a ledger read in this test. */
 let answerLedger: (hash: string) => Response;
+/** What Qatom "answers" when asked for the catalog item of a commodity id in this test. */
+let answerListing: (commodityId: number) => Response;
+
+/** A catalog listing as Qatom gives it: the commodity's one item, or none if it is unknown. */
+const listing = (commodityId: number, hash: string | null) => {
+	const items =
+		hash === null
+			? []
+			: [{ id: 42, commodity_id: commodityId, commodity_hash: hash, active: true }];
+	return Response.json({ items, total: items.length, limit: null, offset: 0 });
+};
+const ledgerReads = () => requests.filter((request) => request.path.startsWith('/v4/commodity/'));
+const listingReads = () => requests.filter((request) => request.path === '/v4/catalog/items');
 
 const accepted = () => Response.json({}, { status: 202 });
 const transfers = () => requests.filter((request) => request.path === '/v4/transfer');
@@ -54,6 +70,11 @@ beforeEach(async () => {
 	entryNumber = 0;
 	answerTransfer = accepted;
 	answerLedger = () => Response.json({ commodity: { dq: DQ }, calculation: { transactions: [] } });
+	answerListing = (commodityId) =>
+		listing(
+			commodityId,
+			commodityId === LOG_ID ? LOG_HASH : commodityId === HIT_ID ? HIT_HASH : null
+		);
 
 	vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit) => {
 		const url = new URL(input instanceof Request ? input.url : input);
@@ -67,6 +88,14 @@ beforeEach(async () => {
 		}
 		const ledger = /^\/v4\/commodity\/([0-9a-zA-Z]+)\/transactions$/.exec(url.pathname);
 		if (method === 'GET' && ledger) return answerLedger(ledger[1]!);
+		if (
+			method === 'GET' &&
+			url.pathname === '/v4/catalog/items' &&
+			url.searchParams.get('mine') === 'true' &&
+			url.searchParams.get('active') === 'all'
+		) {
+			return answerListing(Number(url.searchParams.get('commodity_id')));
+		}
 		if (method === 'POST' && url.pathname === '/v4/transfer') return answerTransfer();
 		throw new Error(`A test made a request it did not expect: ${method} ${url.pathname}`);
 	});
@@ -79,10 +108,11 @@ afterEach(async () => {
 
 // --- Setting the scene -------------------------------------------------------------------
 
-async function setCommodityHashes() {
+/** Stores the two items' commodity ids on the fixture campaign. The seed already has both. */
+async function setCommodityIds() {
 	await test.db
 		.update(campaigns)
-		.set({ logWorkCommodityHash: LOG_HASH, milestoneHitCommodityHash: HIT_HASH })
+		.set({ logWorkCommodityId: LOG_ID, milestoneHitCommodityId: HIT_ID })
 		.where(eq(campaigns.id, CAMPAIGN));
 }
 
@@ -124,7 +154,7 @@ async function addEntry(
  * claim (0.10 + 0.10 + 1.00) and the head teacher's confirmation (1.00). All verified.
  */
 async function confirmedRoof() {
-	await setCommodityHashes();
+	await setCommodityIds();
 	await test.db.insert(milestones).values({
 		campaignId: CAMPAIGN,
 		id: MILESTONE,
@@ -216,7 +246,7 @@ describe('who may ask, and for what', () => {
 	});
 
 	it('refuses a milestone that is not confirmed, and sends nothing', async () => {
-		await setCommodityHashes();
+		await setCommodityIds();
 		// The fixtures have m2-walls open and m3-books-delivered claimed, both with deposits.
 		for (const milestoneId of ['m2-walls', 'm3-books-delivered']) {
 			const answer = await post({ campaign_id: CAMPAIGN, milestone_id: milestoneId });
@@ -526,21 +556,86 @@ describe('when the transfer does not go through', () => {
 });
 
 describe('the digital quantity', () => {
-	it('sends nothing when the campaign has no commodity hashes', async () => {
+	it('sends nothing when the campaign has no commodity ids', async () => {
 		await confirmedRoof();
 		await test.db
 			.update(campaigns)
-			.set({ logWorkCommodityHash: null, milestoneHitCommodityHash: null })
+			.set({ logWorkCommodityId: null, milestoneHitCommodityId: null })
 			.where(eq(campaigns.id, CAMPAIGN));
 
 		const report = await refund();
 
 		expect(report.sent).toEqual([]);
 		expect(new Set(report.skipped.map((line) => line.reason))).toEqual(
-			new Set(['no_commodity_hash'])
+			new Set(['no_commodity_id'])
 		);
 		expect(requests).toEqual([]);
 		expect(await roofRefunds()).toEqual([]);
+	});
+
+	it('looks up each hash from its commodity id, then reads that ledger', async () => {
+		await confirmedRoof();
+
+		const report = await refund();
+
+		expect(report.skipped).toEqual([]);
+		expect(listingReads()).toHaveLength(2);
+		expect(
+			ledgerReads()
+				.map((request) => request.path)
+				.sort()
+		).toEqual([LOG_HASH, HIT_HASH].map((hash) => `/v4/commodity/${hash}/transactions`).sort());
+		expect(transfers()).toHaveLength(2);
+	});
+
+	it('sends nothing for a commodity id Qatom does not know, and reads no ledger for it', async () => {
+		await confirmedRoof();
+		answerListing = (commodityId) => listing(commodityId, null);
+
+		const report = await refund();
+
+		expect(report.sent).toEqual([]);
+		expect(new Set(report.skipped.map((line) => line.reason))).toEqual(
+			new Set(['ledger_unavailable'])
+		);
+		expect(listingReads()).toHaveLength(2);
+		expect(ledgerReads()).toEqual([]);
+		expect(transfers()).toEqual([]);
+		expect(await roofRefunds()).toEqual([]);
+	});
+
+	it('sends nothing when the catalog listing fails', async () => {
+		await confirmedRoof();
+		answerListing = () => Response.json({ error: 'Unavailable', status: 503 }, { status: 503 });
+
+		const report = await refund();
+
+		expect(report.sent).toEqual([]);
+		expect(new Set(report.skipped.map((line) => line.reason))).toEqual(
+			new Set(['ledger_unavailable'])
+		);
+		expect(ledgerReads()).toEqual([]);
+		expect(transfers()).toEqual([]);
+		expect(await roofRefunds()).toEqual([]);
+	});
+
+	it('still refunds the item whose id resolves when the other does not', async () => {
+		await confirmedRoof();
+		answerListing = (commodityId) => listing(commodityId, commodityId === HIT_ID ? HIT_HASH : null);
+
+		const report = await refund();
+
+		expect(ledgerReads().map((request) => request.path)).toEqual([
+			`/v4/commodity/${HIT_HASH}/transactions`
+		]);
+		expect(new Set(report.skipped.map((line) => line.reason))).toEqual(
+			new Set(['ledger_unavailable'])
+		);
+		// Only the two Milestone hit deposits go back: the claim and the confirmation.
+		expect(transfers().map((request) => request.body)).toEqual([
+			expect.objectContaining({ type: DQ, amount: DEPOSIT_AMOUNT.milestone_hit }),
+			expect.objectContaining({ type: DQ, amount: DEPOSIT_AMOUNT.milestone_hit })
+		]);
 	});
 
 	it('sends nothing when the ledger cannot be read or names no digital quantity', async () => {
@@ -571,7 +666,8 @@ describe('the digital quantity', () => {
 
 		const report = await refund();
 
-		expect(requests.filter((request) => request.method === 'GET')).toHaveLength(2);
+		expect(ledgerReads()).toHaveLength(2);
+		expect(listingReads()).toHaveLength(2);
 		// The contractor's work logs and claim were paid in different quantities: two transfers.
 		expect(report.sent.filter((line) => line.party_id === contractor.id)).toHaveLength(2);
 		expect(transfers().map((request) => request.body)).toContainEqual(
@@ -583,7 +679,7 @@ describe('the digital quantity', () => {
 
 describe('the fixtures', () => {
 	it('has nothing to send for a milestone whose deposits already went back', async () => {
-		await setCommodityHashes();
+		await setCommodityIds();
 		const answer = await post({ campaign_id: CAMPAIGN, milestone_id: 'm1-foundation' });
 		expect(answer.status).toBe(200);
 		expect(answer.body).toMatchObject({ refunded: false, sent: [], skipped: [] });

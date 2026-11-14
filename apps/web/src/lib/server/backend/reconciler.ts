@@ -95,10 +95,13 @@ function paidFrom(transaction: LedgerTransaction, agentWalletHostname: string): 
 export interface ReconcileSummary {
 	/** Campaigns with at least one catalog item to read. */
 	campaigns: number;
-	/** Campaigns skipped because neither commodity hash is stored on them yet. */
+	/** Campaigns skipped because neither commodity id is stored on them yet. */
 	campaignsWithoutItems: number;
 	ledgersRead: number;
-	/** Ledgers Qatom did not give us. Their entries stay as they were and count as unmatched. */
+	/**
+	 * Ledgers Qatom did not give us, including a commodity id Qatom does not know or could not
+	 * look up. Their entries stay as they were and count as unmatched.
+	 */
 	ledgerErrors: { campaignId: string; item: EntryItem; problem: string }[];
 	/** Entries given a transaction in this pass: verified + flagged + stampedIncomplete. */
 	matched: number;
@@ -122,9 +125,9 @@ interface Candidate {
 	stampedAt: string;
 }
 
-const ITEM_HASH = {
-	log_work: 'logWorkCommodityHash',
-	milestone_hit: 'milestoneHitCommodityHash'
+const ITEM_COMMODITY_ID = {
+	log_work: 'logWorkCommodityId',
+	milestone_hit: 'milestoneHitCommodityId'
 } as const satisfies Record<EntryItem, keyof Campaign>;
 
 const ITEMS = Object.keys(DEPOSIT_AMOUNT) as EntryItem[];
@@ -249,7 +252,7 @@ function matchLedger(
  */
 export async function reconcile(
 	db: Database,
-	account: Pick<MerchantAccount, 'listCommodityTransactions'>,
+	account: Pick<MerchantAccount, 'resolveCommodityHash' | 'listCommodityTransactions'>,
 	now: string = new Date().toISOString()
 ): Promise<ReconcileSummary> {
 	const summary: ReconcileSummary = {
@@ -268,7 +271,7 @@ export async function reconcile(
 	};
 
 	for (const campaign of await listCampaigns(db)) {
-		if (ITEMS.every((item) => campaign[ITEM_HASH[item]] === null)) {
+		if (ITEMS.every((item) => campaign[ITEM_COMMODITY_ID[item]] === null)) {
 			summary.campaignsWithoutItems += 1;
 			continue;
 		}
@@ -277,13 +280,15 @@ export async function reconcile(
 		summary.unmatched += waiting.length;
 
 		for (const item of ITEMS) {
-			const commodityHash = campaign[ITEM_HASH[item]];
+			const commodityId = campaign[ITEM_COMMODITY_ID[item]];
 			const waitingForItem = waiting.filter((row) => row.entry.item === item);
 			// Nothing to prove, or no ledger to read yet: do not call Qatom.
-			if (commodityHash === null || waitingForItem.length === 0) continue;
+			if (commodityId === null || waitingForItem.length === 0) continue;
 
 			let transactions: LedgerTransaction[];
 			try {
+				// The ledger is read by hash. The account looks it up from the id and remembers it.
+				const commodityHash = await account.resolveCommodityHash(commodityId);
 				const ledger = await account.listCommodityTransactions(commodityHash);
 				transactions = ledger.transactions;
 				summary.ledgersRead += 1;
