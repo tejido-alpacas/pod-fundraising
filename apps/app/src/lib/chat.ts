@@ -100,3 +100,67 @@ function isChatEvent(value: unknown): value is ChatEvent {
 			return false;
 	}
 }
+
+/**
+ * Which of the campaign's two filing tools a tool name is, or null for any other Qatom tool.
+ * The names end in `log_work` and `milestone_hit` (see the agent's instructions).
+ */
+export function filingTool(name: string): 'log_work' | 'milestone_hit' | null {
+	if (name.endsWith('log_work')) return 'log_work';
+	if (name.endsWith('milestone_hit')) return 'milestone_hit';
+	return null;
+}
+
+/**
+ * The first line of the message in which the assistant shows a report before filing it. The
+ * agent's instructions give it this layout; the page reads it back to draw the review card.
+ */
+export const REVIEW_MARKER = 'Review before you file';
+
+/** The assistant's review message, taken apart. Every word in it is the assistant's own. */
+export interface ChatReview {
+	/** One row per line of the report, in the order the assistant wrote them. */
+	rows: { label: string; value: string }[];
+	/** What the assistant said about the filing deposit. */
+	deposit: string;
+	/** Whatever the assistant wrote after the deposit: its limit, and its question. */
+	closing: string[];
+}
+
+const REVIEW_LINE = /^([A-Z][A-Za-z ]{0,30}):\s+(\S.*)$/;
+
+/**
+ * Reads a finished reply as a review, or answers null when it is not one. It is a review only
+ * when it starts with the marker line, lists at least one "Label: value" line and has a
+ * "Deposit:" line. Anything else stays an ordinary message, so nothing is ever hidden.
+ */
+export function chatReview(text: string): ChatReview | null {
+	const lines = text
+		.trim()
+		.split(/\r?\n/)
+		.map((line) => line.trim());
+	if (lines[0] !== REVIEW_MARKER) return null;
+
+	const rows: ChatReview['rows'] = [];
+	const closing: string[] = [];
+	let deposit: string | null = null;
+	for (const line of lines.slice(1)) {
+		if (line === '') continue;
+		if (deposit !== null) {
+			closing.push(line);
+			continue;
+		}
+		const match = REVIEW_LINE.exec(line);
+		const label = match?.[1];
+		const value = match?.[2];
+		if (label === undefined || value === undefined) {
+			// A second line of the note, or of another value.
+			const last = rows.at(-1);
+			if (!last) return null;
+			last.value += `\n${line}`;
+		} else if (label === 'Deposit') deposit = value;
+		else rows.push({ label, value });
+	}
+	if (deposit === null || rows.length === 0) return null;
+	return { rows, deposit, closing };
+}
