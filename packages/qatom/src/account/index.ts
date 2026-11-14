@@ -10,7 +10,7 @@
  */
 import type { PrimaryWalletHostname } from '@tejido/contracts';
 import { z } from 'zod';
-import { QatomHttpError, QatomResponseError } from '../errors.ts';
+import { QatomHttpError, QatomResponseError, QatomUnknownCommodityError } from '../errors.ts';
 import { apiUrl, DEFAULT_TIMEOUT_MS, send, SLOW_TIMEOUT_MS } from '../http.ts';
 
 export interface MerchantAccountConfig {
@@ -73,6 +73,18 @@ export interface TransferRequest {
 
 export interface MerchantAccount {
 	/**
+	 * Turns a catalog item's commodity id into the commodity hash its ledger is read by.
+	 * GET /v4/catalog/items?commodity_id=…&mine=true&active=all, with the account's own token.
+	 *
+	 * A commodity's hash never changes, so each answer is remembered for as long as this
+	 * account object lives and Qatom is asked once per id. A failure is not remembered.
+	 *
+	 * Throws QatomUnknownCommodityError when Qatom lists no item for that id that the account
+	 * may manage. Nothing is guessed in its place.
+	 */
+	resolveCommodityHash(commodityId: number): Promise<string>;
+
+	/**
 	 * Lists the transactions of one catalog item's commodity.
 	 * GET /v4/commodity/{hash}/transactions. Only the commodity's owner may ask.
 	 */
@@ -95,6 +107,12 @@ export interface MerchantAccount {
 const REFRESH_WHEN_LEFT_MS = 60_000;
 
 const tokenResponseSchema = z.object({ access_token: z.string().min(1), expires_at: z.number() });
+
+const catalogListingSchema = z.object({ items: z.array(z.unknown()) });
+
+const catalogItemSchema = z.object({ commodity_id: z.number(), commodity_hash: z.string() });
+
+const HASH = /^[0-9a-zA-Z]+$/;
 
 const ledgerResponseSchema = z.object({
 	commodity: z.object({ dq: z.string().optional() }).optional(),
@@ -157,10 +175,70 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 		}
 	}
 
+	// Commodity id to its hash. Holds the request while it is in flight, so callers that ask
+	// together share one, and keeps the answer afterwards. A failed request is forgotten.
+	const commodityHashes = new Map<number, Promise<string>>();
+
+	async function fetchCommodityHash(commodityId: number): Promise<string> {
+		const operation = 'account.commodity-hash';
+		const url = apiUrl(config.paymentApiUrl, '/v4/catalog/items');
+		url.searchParams.set('commodity_id', String(commodityId));
+		// Only items the account may manage, on sale or not: a paused item still has a ledger.
+		url.searchParams.set('mine', 'true');
+		url.searchParams.set('active', 'all');
+
+		const body = await authorized((authorization) =>
+			send({
+				operation,
+				method: 'GET',
+				url,
+				headers: { authorization },
+				timeoutMs: DEFAULT_TIMEOUT_MS
+			})
+		);
+		const parsed = catalogListingSchema.safeParse(body);
+		if (!parsed.success) throw new QatomResponseError(operation, 'items is missing');
+
+		const hashes = new Set<string>();
+		for (const raw of parsed.data.items) {
+			const item = catalogItemSchema.safeParse(raw);
+			if (!item.success) {
+				throw new QatomResponseError(operation, 'an item has no commodity_id or commodity_hash');
+			}
+			// Trust the filter only as far as the answer shows it was applied.
+			if (item.data.commodity_id !== commodityId) continue;
+			if (!HASH.test(item.data.commodity_hash)) {
+				throw new QatomResponseError(operation, 'commodity_hash is not letters and digits');
+			}
+			hashes.add(item.data.commodity_hash);
+		}
+		const [hash] = hashes;
+		if (hash === undefined) throw new QatomUnknownCommodityError(operation, commodityId);
+		if (hashes.size > 1) {
+			throw new QatomResponseError(operation, 'more than one commodity_hash for one commodity_id');
+		}
+		return hash;
+	}
+
 	return {
+		resolveCommodityHash(commodityId) {
+			if (!Number.isSafeInteger(commodityId) || commodityId <= 0) {
+				return Promise.reject(new RangeError('commodityId must be a positive whole number'));
+			}
+			let lookup = commodityHashes.get(commodityId);
+			if (!lookup) {
+				lookup = fetchCommodityHash(commodityId);
+				commodityHashes.set(commodityId, lookup);
+				lookup.catch(() => {
+					if (commodityHashes.get(commodityId) === lookup) commodityHashes.delete(commodityId);
+				});
+			}
+			return lookup;
+		},
+
 		async listCommodityTransactions(commodityHash) {
 			const operation = 'account.ledger';
-			if (!/^[0-9a-zA-Z]+$/.test(commodityHash)) {
+			if (!HASH.test(commodityHash)) {
 				throw new TypeError('commodityHash must be letters and digits only');
 			}
 			const body = await authorized((authorization) =>

@@ -1,6 +1,6 @@
 // Runs the reconciler through its route against a real, migrated, seeded database, with the
 // real merchant account client. Nothing here reaches the network: `fetch` is replaced, in this
-// file only, by a stub that answers Qatom's token and ledger endpoints from prepared data.
+// file only, by a stub that answers Qatom's token, catalog listing and ledger endpoints from prepared data.
 import { CHECKIN_SECRET_HEADER, DEPOSIT_AMOUNT, type Deposit, type Entry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import { campaigns, getEntry, insertEntryWithDeposit, listEntries, parties } from '@tejido/db';
@@ -14,6 +14,9 @@ import { POST } from './+server.ts';
 const SECRET = 'test-checkin-secret-test-checkin-secret';
 const API = 'https://pay.stage.m.todaq.net';
 const CAMPAIGN = fixtures.campaign.id;
+/** The commodity ids the seeded campaign carries, and the hash Qatom's catalog gives for each. */
+const LOG_ID = fixtures.campaign.logWorkCommodityId!;
+const HIT_ID = fixtures.campaign.milestoneHitCommodityId!;
 const LOG_HASH = 'loghash111';
 const HIT_HASH = 'hithash222';
 
@@ -28,14 +31,19 @@ const SUPPLIER_WALLET = supplier.agentWalletHostname!;
 const STRANGER = 'someone-else.wallets.tejido.example';
 
 type Ledger = Record<string, unknown>[] | { status: number } | Error;
+/** What the catalog listing answers for a commodity id: its hash, or a failure. */
+type Listing = string | { status: number } | Error;
 
 let test: TestDatabase;
 let ledgers: Record<string, Ledger>;
+/** A commodity id that is not here is one Qatom does not know: the listing comes back empty. */
+let catalog: Record<number, Listing>;
 let requests: { url: string; authorization: string | undefined }[];
 
 beforeEach(async () => {
 	test = await createTestDatabase({ seed: true });
 	ledgers = {};
+	catalog = { [LOG_ID]: LOG_HASH, [HIT_ID]: HIT_HASH };
 	requests = [];
 	vi.stubGlobal('fetch', (url: string | URL, init: RequestInit = {}) => {
 		const address = String(url);
@@ -52,7 +60,24 @@ beforeEach(async () => {
 				expires_at: Math.floor(Date.now() / 1000) + 3600
 			});
 		}
-		const hash = /^\/v4\/commodity\/(\w+)\/transactions$/.exec(new URL(address).pathname)?.[1];
+		const { pathname, searchParams } = new URL(address);
+		if (pathname === '/v4/catalog/items') {
+			if (searchParams.get('mine') !== 'true' || searchParams.get('active') !== 'all') {
+				return Promise.reject(new Error(`unexpected request: ${address}`));
+			}
+			const commodityId = Number(searchParams.get('commodity_id'));
+			const listing = catalog[commodityId];
+			if (listing instanceof Error) return Promise.reject(listing);
+			if (typeof listing === 'object') {
+				return answer({ error: 'Something went wrong', status: listing.status }, listing.status);
+			}
+			const items =
+				listing === undefined
+					? []
+					: [{ id: 42, commodity_id: commodityId, commodity_hash: listing, active: true }];
+			return answer({ items, total: items.length, limit: null, offset: 0 });
+		}
+		const hash = /^\/v4\/commodity\/(\w+)\/transactions$/.exec(pathname)?.[1];
 		const ledger = hash === undefined ? undefined : ledgers[hash];
 		if (ledger === undefined) return Promise.reject(new Error(`unexpected request: ${address}`));
 		if (ledger instanceof Error) return Promise.reject(ledger);
@@ -71,14 +96,14 @@ afterEach(async () => {
 	await test.destroy();
 });
 
-/** Stores the two items' commodity hashes on the fixture campaign, as C2 will. */
+/** Stores the two items' commodity ids on the fixture campaign. The seed already has both. */
 async function giveCampaignItems(
-	hashes: { logWorkCommodityHash?: string | null; milestoneHitCommodityHash?: string | null } = {
-		logWorkCommodityHash: LOG_HASH,
-		milestoneHitCommodityHash: HIT_HASH
+	ids: { logWorkCommodityId: number | null; milestoneHitCommodityId: number | null } = {
+		logWorkCommodityId: LOG_ID,
+		milestoneHitCommodityId: HIT_ID
 	}
 ) {
-	await test.db.update(campaigns).set(hashes).where(eq(campaigns.id, CAMPAIGN));
+	await test.db.update(campaigns).set(ids).where(eq(campaigns.id, CAMPAIGN));
 }
 
 /** One ledger row, as Qatom returns it. */
@@ -173,7 +198,7 @@ describe('POST /api/reconcile', () => {
 		expect(await entry(delivery.id)).toEqual(delivery);
 	});
 
-	it('reads ledgers with the merchant account token only', async () => {
+	it('looks up each hash from its commodity id, then reads the ledgers, with the merchant account token only', async () => {
 		await giveCampaignItems();
 		ledgers[LOG_HASH] = [];
 		ledgers[HIT_HASH] = [];
@@ -182,12 +207,15 @@ describe('POST /api/reconcile', () => {
 
 		expect(requests.map((request) => request.url)).toEqual([
 			`${API}/v4/account/oauth/token`,
+			`${API}/v4/catalog/items?commodity_id=${LOG_ID}&mine=true&active=all`,
 			`${API}/v4/commodity/${LOG_HASH}/transactions`,
+			`${API}/v4/catalog/items?commodity_id=${HIT_ID}&mine=true&active=all`,
 			`${API}/v4/commodity/${HIT_HASH}/transactions`
 		]);
 		expect(requests[0]!.authorization).toMatch(/^Basic /);
-		expect(requests[1]!.authorization).toBe('Bearer account-token');
-		expect(requests[2]!.authorization).toBe('Bearer account-token');
+		for (const request of requests.slice(1)) {
+			expect(request.authorization).toBe('Bearer account-token');
+		}
 	});
 
 	it('flags an entry paid from a different wallet, with a reason a donor can read', async () => {
@@ -442,7 +470,58 @@ describe('POST /api/reconcile', () => {
 		expect(await allEntries()).toEqual(before);
 	});
 
-	it('skips a campaign with no commodity hashes without calling Qatom', async () => {
+	it('reports a commodity id Qatom does not know, reads no ledger for it, and still reconciles the other', async () => {
+		await giveCampaignItems();
+		delete catalog[LOG_ID];
+		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+		ledgers[HIT_HASH] = [
+			sale('41cc', '2026-11-11T11:05:44.000Z', SUPPLIER_WALLET, DEPOSIT_AMOUNT.milestone_hit)
+		];
+
+		const { status, body } = await run();
+
+		expect(status).toBe(200);
+		expect(body).toMatchObject({ ledgersRead: 1, matched: 1, stampedIncomplete: 1, unmatched: 1 });
+		expect(body.ledgerErrors).toEqual([
+			{
+				campaignId: CAMPAIGN,
+				item: 'log_work',
+				problem: expect.stringContaining(`no catalog item for commodity id ${LOG_ID}`)
+			}
+		]);
+		expect(requests.some((request) => request.url.includes(`/commodity/${LOG_HASH}/`))).toBe(false);
+		expect(await entry(workLog.id)).toEqual(workLog);
+		expect((await entry(delivery.id)).twistId).toBe('41cc');
+	});
+
+	it('reports a catalog listing Qatom would not give, and stamps nothing for that item', async () => {
+		await giveCampaignItems();
+		catalog[LOG_ID] = { status: 500 };
+		catalog[HIT_ID] = new TypeError('fetch failed');
+		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+		ledgers[HIT_HASH] = [
+			sale('41cc', '2026-11-11T11:05:44.000Z', SUPPLIER_WALLET, DEPOSIT_AMOUNT.milestone_hit)
+		];
+		const before = await allEntries();
+
+		const { status, body } = await run();
+
+		expect(status).toBe(200);
+		expect(body).toMatchObject({ ledgersRead: 0, matched: 0, unmatched: 2 });
+		expect(body.ledgerErrors).toEqual([
+			{ campaignId: CAMPAIGN, item: 'log_work', problem: expect.stringContaining('500') },
+			{
+				campaignId: CAMPAIGN,
+				item: 'milestone_hit',
+				problem: expect.stringContaining('could not be reached')
+			}
+		]);
+		expect(requests.some((request) => request.url.includes('/v4/commodity/'))).toBe(false);
+		expect(await allEntries()).toEqual(before);
+	});
+
+	it('skips a campaign with no commodity ids without calling Qatom', async () => {
+		await giveCampaignItems({ logWorkCommodityId: null, milestoneHitCommodityId: null });
 		const before = await allEntries();
 
 		const { status, body } = await run();
@@ -460,12 +539,13 @@ describe('POST /api/reconcile', () => {
 	});
 
 	it('reads only the ledger of the item a campaign has', async () => {
-		await giveCampaignItems({ logWorkCommodityHash: LOG_HASH });
+		await giveCampaignItems({ logWorkCommodityId: LOG_ID, milestoneHitCommodityId: null });
 		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
 
 		const { body } = await run();
 
 		expect(body).toMatchObject({ campaigns: 1, ledgersRead: 1, verified: 1, unmatched: 1 });
-		expect(requests.filter((request) => request.url.includes('/commodity/'))).toHaveLength(1);
+		expect(requests.filter((request) => request.url.includes('/v4/commodity/'))).toHaveLength(1);
+		expect(requests.filter((request) => request.url.includes('/v4/catalog/items'))).toHaveLength(1);
 	});
 });

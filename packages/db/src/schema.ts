@@ -36,8 +36,8 @@ export const campaigns = sqliteTable('campaigns', {
 	creatorEmail: text('creator_email').notNull(),
 	status: text('status').$type<CampaignStatus>().notNull(),
 	cadence: text('cadence').$type<Cadence>().notNull(),
-	logWorkCommodityHash: text('log_work_commodity_hash'),
-	milestoneHitCommodityHash: text('milestone_hit_commodity_hash'),
+	logWorkCommodityId: integer('log_work_commodity_id'),
+	milestoneHitCommodityId: integer('milestone_hit_commodity_id'),
 	createdAt: text('created_at').notNull()
 });
 

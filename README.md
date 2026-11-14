@@ -196,8 +196,11 @@ For each campaign, both items (Log work at 0.10, Milestone hit at 1.00) need:
 - **Schema**: generate it from the contracts so it cannot drift:
   `itemInputJsonSchema('log_work', milestoneIds)` in `@tejido/contracts`.
 
-Then store each item's commodity hash on the campaign (`logWorkCommodityHash`,
-`milestoneHitCommodityHash`) so the reconciler knows which ledgers to read.
+Then store each item's commodity id (a whole number) on the campaign (`logWorkCommodityId`,
+`milestoneHitCommodityId`) so the reconciler knows which ledgers to read. Qatom reads a ledger by
+the commodity's hash; the merchant account looks each hash up from its id
+(`resolveCommodityHash`) and remembers it. The example campaign's two ids are real and exist in
+one Qatom environment only: the one its items were created in.
 
 ## Still to confirm on staging
 

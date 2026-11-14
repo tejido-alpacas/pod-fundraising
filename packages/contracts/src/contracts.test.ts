@@ -371,6 +371,17 @@ describe('fixtures', () => {
 		expect(deposits).toHaveLength(5);
 	});
 
+	it('take a commodity id as a positive whole number or null, never a hash', () => {
+		const withLogWork = (logWorkCommodityId: unknown) =>
+			campaignSchema.safeParse({ ...campaign, logWorkCommodityId }).success;
+
+		expect(withLogWork(3152)).toBe(true);
+		expect(withLogWork(null)).toBe(true);
+		for (const bad of [0, -1, 1.5, '3152', '9f2c4e1a7b3d5f60819a2b3c4d5e6f70']) {
+			expect(withLogWork(bad), String(bad)).toBe(false);
+		}
+	});
+
 	it('all satisfy the contracts', () => {
 		expect(campaignSchema.parse(campaign)).toEqual(campaign);
 		for (const party of parties) expect(partySchema.parse(party)).toEqual(party);
@@ -458,9 +469,12 @@ describe('fixtures', () => {
 		}
 	});
 
+	it('point at the two catalog items the owner created', () => {
+		expect(campaign.logWorkCommodityId).toBe(3152);
+		expect(campaign.milestoneHitCommodityId).toBe(3153);
+	});
+
 	it('cannot move money or reach a real person', () => {
-		expect(campaign.logWorkCommodityHash).toBeNull();
-		expect(campaign.milestoneHitCommodityHash).toBeNull();
 		expect(campaign.creatorEmail).toMatch(/\.example$/);
 		for (const party of parties) {
 			expect(party.email).toMatch(/\.example$/);
