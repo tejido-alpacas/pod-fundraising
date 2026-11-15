@@ -35,6 +35,11 @@ export type ChatEvent =
 	| { type: 'text'; text: string }
 	/** The agent started using a tool on the Qatom MCP server, or that tool answered. */
 	| { type: 'tool'; id: string; name: string; state: 'running' | 'done' | 'failed' }
+	/**
+	 * The assistant did not answer and the server is asking again by itself. `message` is
+	 * written for the person, in plain words. Nothing of the reply is lost or sent twice.
+	 */
+	| { type: 'retrying'; message: string }
 	/** The reply stopped early. `message` is written for the person, in plain words. */
 	| { type: 'error'; message: string }
 	/** The reply is complete. */
@@ -97,6 +102,7 @@ function isChatEvent(value: unknown): value is ChatEvent {
 				typeof event.name === 'string' &&
 				(event.state === 'running' || event.state === 'done' || event.state === 'failed')
 			);
+		case 'retrying':
 		case 'error':
 			return typeof event.message === 'string';
 		case 'done':

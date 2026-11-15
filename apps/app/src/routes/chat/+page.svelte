@@ -107,6 +107,8 @@
 	let messages = $state<Message[]>([]);
 	let draft = $state('');
 	let waiting = $state(false);
+	/** Set while the server is asking the assistant again by itself; what to say meanwhile. */
+	let tryingAgain = $state<string | null>(null);
 	/** A problem that stopped a message from being sent at all. */
 	let problem = $state<string | null>(null);
 	let signInAgain = $state(false);
@@ -164,6 +166,7 @@
 	/** What the assistant is doing while a reply arrives. Null once its words are coming. */
 	const working = $derived.by(() => {
 		if (!waiting) return null;
+		if (tryingAgain) return tryingAgain;
 		const last = messages.at(-1);
 		const part = last?.role === 'assistant' ? last.parts.at(-1) : undefined;
 		if (part?.kind === 'text') return null;
@@ -380,6 +383,9 @@
 			reply = current;
 			let finished = false;
 			await readChatEvents(response.body, (chatEvent) => {
+				// Said only until the next thing arrives.
+				tryingAgain = chatEvent.type === 'retrying' ? chatEvent.message : null;
+				if (chatEvent.type === 'retrying') return;
 				if (chatEvent.type === 'text') {
 					current.text += chatEvent.text;
 					const last = current.parts.at(-1);
@@ -438,6 +444,7 @@
 				reply.settled = true;
 			}
 			waiting = false;
+			tryingAgain = null;
 			stopper = null;
 			void scrollDown();
 		}

@@ -9,6 +9,10 @@
  * model's reply and every tool call in it. So "the loop" here is small: send the conversation,
  * pass the reply on as it arrives, and resume if the API pauses a long turn.
  *
+ * A request the API turns away before any reply starts, for a cause that passes (see
+ * `retryFloorMs`), is sent again by itself, twice at most. A request whose reply has started
+ * is never sent again: the model may already have filed a report, and a filing is a payment.
+ *
  * The person's token goes to the Claude API inside the request body and nowhere else: not into
  * what the browser receives, and not into a log.
  */
@@ -215,15 +219,82 @@ export function agentRequest(input: AgentRequestInput): { url: string; init: Req
 	};
 }
 
-/** Why a reply could not start. `status` is the Claude API's, or null when it never answered. */
+/**
+ * Why a reply could not start. `status` is the Claude API's, or null when it never answered.
+ * `retryFloorMs` is null unless the request may be sent again by itself; then it is the least
+ * time to wait first.
+ */
 export class AgentUnavailableError extends Error {
 	readonly status: number | null;
+	readonly retryFloorMs: number | null;
 
-	constructor(status: number | null) {
+	constructor(status: number | null, retryFloorMs: number | null = null) {
 		super(`The Claude API did not start a reply${status === null ? '' : ` (${status})`}.`);
 		this.name = 'AgentUnavailableError';
 		this.status = status;
+		this.retryFloorMs = retryFloorMs;
 	}
+}
+
+/** How long to wait before the second try, and before the third. There is no fourth. */
+const RETRY_WAITS_MS = [1000, 3000];
+/** The longest `retry-after` we wait out. Asked to wait longer, we give up and say so. */
+const LONGEST_RETRY_AFTER_MS = 5000;
+/** The API or a gateway in front of it could not serve the request just now. */
+const PASSING_STATUSES = new Set([502, 503, 504, 529]);
+
+/** What the person is told while a request is sent again. */
+export const TRYING_AGAIN = 'The assistant did not answer. Trying again…';
+
+/** The response's `retry-after` in milliseconds, null without one, Infinity if unreadable. */
+function retryAfterMs(response: Response): number | null {
+	const header = response.headers.get('retry-after');
+	if (header === null) return null;
+	const seconds = Number(header);
+	if (header.trim() !== '' && Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+	const date = Date.parse(header);
+	return Number.isNaN(date) ? Infinity : Math.max(0, date - Date.now());
+}
+
+/**
+ * Whether a request the API turned away may be sent again by itself: null for no, otherwise
+ * the least time to wait first.
+ *
+ * Only a response that is not OK gets here. We ask for a stream, and the model's reply, its
+ * tool calls included, exists only inside that stream; a status other than OK means no stream
+ * began, so nothing was filed. Of those, we send again only for the causes that pass by
+ * themselves: 502, 503, 504 and 529 (overloaded), and 429 when the API names a short wait. A
+ * 429 without `retry-after` is a spend cap, which does not pass. The API's own word
+ * (`x-should-retry: false`) and a long `retry-after` both mean give up.
+ */
+export function retryFloorMs(response: Response): number | null {
+	if (response.ok) return null;
+	if (response.headers.get('x-should-retry') === 'false') return null;
+	const after = retryAfterMs(response);
+	if (after !== null && after > LONGEST_RETRY_AFTER_MS) return null;
+	if (PASSING_STATUSES.has(response.status)) return after ?? 0;
+	if (response.status === 429) return after;
+	return null;
+}
+
+/** Waits, and stops waiting at once if the person's request is aborted. */
+function pause(ms: number, signal: AbortSignal): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const stopped = () => new DOMException('The request was stopped.', 'AbortError');
+		if (signal.aborted) {
+			reject(stopped());
+			return;
+		}
+		const onAbort = () => {
+			clearTimeout(timer);
+			reject(stopped());
+		};
+		const timer = setTimeout(() => {
+			signal.removeEventListener('abort', onAbort);
+			resolve();
+		}, ms);
+		signal.addEventListener('abort', onAbort, { once: true });
+	});
 }
 
 type Block = Record<string, unknown>;
@@ -292,6 +363,8 @@ async function onePass(
 		response = await fetch(url, { ...init, signal });
 	} catch (cause) {
 		if (signal.aborted) throw cause;
+		// Never sent again by itself: the request may have reached the API before the connection
+		// failed, and then the model may have run.
 		throw new AgentUnavailableError(null);
 	}
 	if (!response.ok || !response.body) {
@@ -303,7 +376,7 @@ async function onePass(
 			response.headers.get('request-id') ?? 'no request id'
 		);
 		await response.body?.cancel();
-		throw new AgentUnavailableError(response.status);
+		throw new AgentUnavailableError(response.status, retryFloorMs(response));
 	}
 
 	const pass: Pass = { blocks: [], stopReason: null, failed: false };
@@ -378,6 +451,8 @@ export interface AgentReplyInput {
 	turns: ChatTurn[];
 	signal: AbortSignal;
 	emit: (event: ChatEvent) => void;
+	/** How to wait between tries. Tests pass their own so that they do not sleep. */
+	wait?: (ms: number, signal: AbortSignal) => Promise<void>;
 }
 
 const BUSY = 'The agent is busy right now. Wait a minute and send your message again.';
@@ -393,20 +468,54 @@ export function unavailableMessage(error: AgentUnavailableError): string {
 
 /**
  * Produces one reply to the conversation, emitting it piece by piece.
- * Throws AgentUnavailableError if the first request never starts a reply; after that, problems
- * are reported to the person as an `error` event, because part of a reply is already out.
+ * Throws AgentUnavailableError if the first request never starts a reply and nothing has been
+ * emitted; after that, problems are reported to the person as an `error` event, because the
+ * browser is already reading.
  */
 export async function agentReply(input: AgentReplyInput): Promise<void> {
 	const { emit, signal } = input;
 	const messages: unknown[] = input.turns.map((turn) => ({ role: turn.role, content: turn.text }));
 	const toolNames = new Map<string, string>();
+	const wait = input.wait ?? pause;
+	let toldTryingAgain = false;
+
+	/**
+	 * One request, sent again (twice at most) only while the API turns it away before any reply
+	 * starts, for a cause that passes. Once `onePass` is reading a reply it never throws
+	 * AgentUnavailableError, so a reply that has started is never asked for twice.
+	 */
+	async function passThatStarts(): Promise<Pass> {
+		for (let tries = 0; ; tries++) {
+			try {
+				return await onePass({ ...input, messages }, signal, emit, toolNames);
+			} catch (cause) {
+				const backoff = RETRY_WAITS_MS[tries];
+				if (
+					!(cause instanceof AgentUnavailableError) ||
+					cause.retryFloorMs === null ||
+					backoff === undefined
+				) {
+					throw cause;
+				}
+				toldTryingAgain = true;
+				emit({ type: 'retrying', message: TRYING_AGAIN });
+				await wait(Math.max(backoff, cause.retryFloorMs), signal);
+			}
+		}
+	}
 
 	for (let attempt = 0; ; attempt++) {
 		let pass: Pass;
 		try {
-			pass = await onePass({ ...input, messages }, signal, emit, toolNames);
+			pass = await passThatStarts();
 		} catch (cause) {
-			if (attempt === 0 || !(cause instanceof AgentUnavailableError)) throw cause;
+			if (!(cause instanceof AgentUnavailableError)) throw cause;
+			if (attempt === 0) {
+				// Nothing is out yet: the caller answers with a plain refusal.
+				if (!toldTryingAgain) throw cause;
+				emit({ type: 'error', message: unavailableMessage(cause) });
+				return;
+			}
 			emit({ type: 'error', message: STOPPED_EARLY });
 			return;
 		}
