@@ -22,15 +22,10 @@
  * is logged, nothing calls Qatom and no money moves.
  */
 import { json } from '@sveltejs/kit';
-import {
-	AMOUNT_UNITS_PER_USD_TDN,
-	CHECKIN_SECRET_HEADER,
-	donationInputSchema,
-	formatAmount,
-	type Amount
-} from '@tejido/contracts';
+import { CHECKIN_SECRET_HEADER, donationInputSchema, formatAmount } from '@tejido/contracts';
 import { getCampaign, recordDonation } from '@tejido/db';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { donationAmountOf } from '#lib/server/backend/donation-items.ts';
 import type { RequestHandler } from './$types';
 
 /** Qatom sets this itself on every dispatch; an item's own headers cannot use the name. */
@@ -46,15 +41,6 @@ function refuse(status: number, error: string, message: string) {
 	return json({ accepted: false, error, message }, { status });
 }
 
-/**
- * The amount an address stands for, in our units, or null when it names none: `5` is 5.00
- * USD-TDN. Whole numbers from 1 to 999,999 only, written plainly: no sign, no decimals, no
- * leading zero. This reads our own address, not an amount from Qatom's API.
- */
-function amountOf(segment: string): Amount | null {
-	return /^[1-9][0-9]{0,5}$/.test(segment) ? Number(segment) * AMOUNT_UNITS_PER_USD_TDN : null;
-}
-
 export const POST: RequestHandler = async ({ request, params, locals }) => {
 	const { config, db } = locals.ctx;
 
@@ -64,7 +50,7 @@ export const POST: RequestHandler = async ({ request, params, locals }) => {
 	}
 
 	// 2. The address says how much the item costs.
-	const amount = amountOf(params.amount);
+	const amount = donationAmountOf(params.amount);
 	if (amount === null) {
 		return refuse(
 			404,

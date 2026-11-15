@@ -158,6 +158,14 @@
 				<!-- Funding is shown only when it is known. "Not known" is not zero, so nothing is drawn. -->
 				{#if data.funding.state === 'known'}
 					<FundingProgress funding={data.funding} />
+				{/if}
+				<!-- Giving is offered only while the campaign is raising money. It happens on /give. -->
+				{#if data.campaign.status === 'funding'}
+					<Button variant="primary" block href="/give/{data.campaign.id}">
+						Give to this campaign
+					</Button>
+				{/if}
+				{#if data.funding.state === 'known' || data.campaign.status === 'funding'}
 					<div class="tj-panel__sep"></div>
 				{/if}
 				<DeliveryProgress
