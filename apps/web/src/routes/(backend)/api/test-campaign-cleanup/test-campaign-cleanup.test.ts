@@ -281,9 +281,10 @@ async function fixedCampaign(age: number, options: { ownsPublicPicture?: boolean
 
 // --- Looking at the database -------------------------------------------------------------
 
-const tables = Object.values(schema).filter((value): value is SQLiteTable =>
-	is(value, SQLiteTable)
-);
+const tables: SQLiteTable[] = [];
+for (const value of Object.values(schema)) {
+	if (is(value, SQLiteTable)) tables.push(value);
+}
 
 /** Every row of every table, as text: two equal snapshots mean nothing at all changed. */
 async function snapshot(): Promise<Record<string, string[]>> {

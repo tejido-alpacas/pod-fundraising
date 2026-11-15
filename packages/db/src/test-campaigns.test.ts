@@ -9,9 +9,10 @@ import { CAMPAIGN_OWNED_TABLES, deleteCampaignAndAllOfItsOwn, E2E_CAMPAIGN_ID } 
 import type { Database } from './client.ts';
 
 /** Every table in the schema, and the tables each one points at with a foreign key. */
-const tables = Object.values(schema).filter((value): value is SQLiteTable =>
-	is(value, SQLiteTable)
-);
+const tables: SQLiteTable[] = [];
+for (const value of Object.values(schema)) {
+	if (is(value, SQLiteTable)) tables.push(value);
+}
 const nameOf = (table: SQLiteTable) => getTableConfig(table).name;
 const pointsAt = new Map(
 	tables.map((table) => [
