@@ -597,8 +597,6 @@
 									{#if about && !focus}
 										<strong>{about.title}</strong> is already confirmed. There is nothing more to file
 										on it.
-									{:else if focus}
-										You opened this from a reminder.
 									{/if}
 									{#if !next}
 										Every milestone you are named on is confirmed. There is nothing to file.
@@ -612,7 +610,8 @@
 										<strong>{next.title}</strong> is reported as complete and waiting for its confirmer.
 										You can still log work on it.
 									{:else}
-										Next due from you: <strong>{next.title}</strong>, {shortDate(
+										{focus ? 'Your reminder is about' : 'Next due from you:'}
+										<strong>{next.title}</strong>, {focus ? 'due ' : ''}{shortDate(
 											next.dueDate
 										)}{overdue(next) > 0 ? `. It is ${days(overdue(next))} overdue` : ''}.
 									{/if}
