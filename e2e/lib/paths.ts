@@ -15,5 +15,7 @@ export const REPORT = join(ARTIFACTS, 'report');
 const AUTH = join(root, '.auth');
 export const CONTRACTOR_STATE = join(AUTH, 'contractor.json');
 export const CONFIRMER_STATE = join(AUTH, 'confirmer.json');
+/** The visitor signed in on the Campaign Site: a different cookie, for a different host. */
+export const DONOR_STATE = join(AUTH, 'donor.json');
 /** Playwright's own scratch output (failure screenshots before they reach the report). */
 export const TEST_OUTPUT = join(root, '.test-output');
