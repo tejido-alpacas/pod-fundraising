@@ -12,11 +12,15 @@
 		const list: { href: string; label: string; icon: IconName }[] = [
 			{ href: '/', label: 'Home', icon: 'home' },
 			{ href: '/chat', label: 'Report', icon: 'message' },
-			{ href: '/upload', label: 'Evidence', icon: 'camera' }
+			{ href: '/upload', label: 'Evidence', icon: 'camera' },
+			// Always here, so it is in the same place every day. The count shows only when there is
+			// something to fix; with nothing, the page says so.
+			{
+				href: '/fix',
+				label: incompleteReports > 0 ? `Fix (${incompleteReports})` : 'Fix',
+				icon: 'receipt-missing'
+			}
 		];
-		if (incompleteReports > 0) {
-			list.push({ href: '/fix', label: `Fix (${incompleteReports})`, icon: 'receipt-missing' });
-		}
 		return list;
 	});
 </script>

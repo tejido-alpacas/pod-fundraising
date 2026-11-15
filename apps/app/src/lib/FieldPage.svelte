@@ -42,15 +42,17 @@
 	// From 900px there is no tab bar, so the home page's header carries the same links.
 	const links = $derived.by(() => {
 		if (!tabs) return [];
-		const list = [
+		// "Fix reports" is always here; the count shows only when there is something to fix.
+		return [
 			{ href: '/', label: 'Home' },
 			{ href: '/chat', label: 'File a report' },
-			{ href: '/upload', label: 'Add evidence' }
+			{ href: '/upload', label: 'Add evidence' },
+			{
+				href: '/fix',
+				label:
+					tabs.incompleteReports > 0 ? `Fix reports (${tabs.incompleteReports})` : 'Fix reports'
+			}
 		];
-		if (tabs.incompleteReports > 0) {
-			list.push({ href: '/fix', label: `Fix reports (${tabs.incompleteReports})` });
-		}
-		return list;
 	});
 </script>
 
