@@ -43,7 +43,6 @@ const schema = z.object({
 	E2E_CONFIRMER_PARTY_ID: id,
 	E2E_PAID: switchedOn,
 	E2E_SKIP_SIGN_IN: switchedOn,
-	E2E_CREATE_CAMPAIGN: switchedOn,
 	E2E_RUN_LABEL: z
 		.string()
 		.regex(/^[A-Za-z0-9][A-Za-z0-9 ._-]{0,39}$/, {
@@ -85,12 +84,6 @@ export interface E2eConfig {
 	 * sets it when enough recent runs have signed in already (Qatom limits codes per address).
 	 */
 	signIn: boolean;
-	/**
-	 * True only when `E2E_CREATE_CAMPAIGN` is exactly `true`: the builder's last button is then
-	 * pressed, which writes one draft campaign to the database of the site under test. Nothing
-	 * sets it: see e2e/README.md.
-	 */
-	createCampaign: boolean;
 	/**
 	 * What this run is called in the title of a campaign it creates, so the campaign can be found
 	 * and removed later: the workflow gives its run number. Null when not given.
@@ -158,7 +151,6 @@ export function parseE2eConfig(env: Readonly<Record<string, string | undefined>>
 		donor: { email: `e2e-donor@${values.E2E_INBOX_DOMAIN}` },
 		paid: values.E2E_PAID,
 		signIn: !values.E2E_SKIP_SIGN_IN,
-		createCampaign: values.E2E_CREATE_CAMPAIGN,
 		runLabel: values.E2E_RUN_LABEL ?? null
 	};
 }

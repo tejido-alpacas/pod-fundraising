@@ -51,15 +51,6 @@ describe('parseE2eConfig', () => {
 		}
 	});
 
-	it('creates a campaign only for exactly "true"', () => {
-		expect(parseE2eConfig({ ...complete, E2E_CREATE_CAMPAIGN: 'true' }).createCampaign).toBe(true);
-		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
-			expect(parseE2eConfig({ ...complete, E2E_CREATE_CAMPAIGN: value }).createCampaign).toBe(
-				false
-			);
-		}
-	});
-
 	it('names every missing value at once, and no value', () => {
 		const error = refusal({ E2E_INBOX_DOMAIN: 'e2e.m.todaq.net' });
 		expect(error.names).toEqual([

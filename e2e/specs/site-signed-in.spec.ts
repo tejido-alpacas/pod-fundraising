@@ -6,11 +6,14 @@
  * - the campaign builder, every step, forwards and then Back through every step again;
  * - signing out.
  *
- * NOTHING IS CREATED in a normal run. The builder keeps its answers in the browser, and
- * "Continue" only asks the site to check them. The last button, "Create campaign", writes a
- * campaign to the database of the site under test, the live one in a normal run. It is pressed
- * by one test only, and only when `E2E_CREATE_CAMPAIGN` is exactly `true`, which nothing sets.
- * See e2e/README.md.
+ * - creating one campaign with the builder's last button, publishing it as its creator, and
+ *   what anyone then sees: it is on no public list, and its own page and Give page open.
+ *
+ * The builder keeps its answers in the browser, and "Continue" only asks the site to check
+ * them. ONE CAMPAIGN IS CREATED on each unpaid run that signs in, by the one test that presses
+ * "Create campaign", and published by the next. It is the tests' own (its organiser and its two
+ * people are at the test inbox), so Tejido keeps it off every public list and deletes it by
+ * itself about two hours later. No money is involved. See e2e/README.md.
  */
 import type { Page } from '@playwright/test';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
@@ -27,6 +30,18 @@ import {
 	startInMenu,
 	type Lang
 } from '../lib/site-header.ts';
+import {
+	GIVE,
+	UNIT,
+	amountButtons,
+	amountsOffered,
+	campaignIdOf,
+	giveHeading,
+	giveWords,
+	say
+} from '../lib/give-page.ts';
+import { milestoneStatus, openMilestone } from '../lib/milestone-page.ts';
+import { whole } from '../lib/site-words.ts';
 import { DESKTOP, PHONE } from '../lib/viewports.ts';
 
 needsSignIn();
@@ -76,7 +91,8 @@ interface Answers {
 
 /**
  * Every answer says it is a test, and every address is at example.org, which is reserved for
- * examples: no mail can reach anyone, and nobody can accept an invitation sent there.
+ * examples: no mail can reach anyone, and nobody can accept an invitation sent there. The one
+ * test that creates a campaign puts test-inbox addresses in their place.
  */
 function answers(title: string): Answers {
 	return {
@@ -432,45 +448,75 @@ for (const screen of SCREENS) {
 }
 
 // ---------------------------------------------------------------------------
-// Creating a campaign: only when a person switched it on
+// Creating a campaign, publishing it, and what the public then sees
 // ---------------------------------------------------------------------------
 
-test.describe('creating a campaign', () => {
+/**
+ * One campaign per run, the tests' own: its organiser is the signed-in visitor and its two
+ * people have addresses at the test inbox, where nobody signs in. Tejido leaves such a campaign
+ * off every public list whatever its state, and deletes it by itself about two hours later.
+ * No money is involved in any step.
+ *
+ * Not on a paid run: that run already created a campaign of its own, and the site creates at
+ * most 20 an hour counting everyone, real organisers included.
+ */
+test.describe('creating and publishing a campaign', () => {
 	test.use(DESKTOP);
-	// Never retried: a retry would create a second campaign.
-	test.describe.configure({ retries: 0 });
+	// In order, the rest left out once one fails. Never retried: a retry would create another.
+	test.describe.configure({ mode: 'serial', retries: 0 });
 
-	test('“Create campaign” saves a draft that is on no public list', async ({
+	/** What the first step made, for the steps after it. */
+	let made: { title: string; path: string; id: string } | null = null;
+	const madeOrSkip = (): { title: string; path: string; id: string } => {
+		test.skip(made === null, 'Not checked: no campaign was created in this run.');
+		if (made === null) throw new Error('No campaign was created in this run.');
+		return made;
+	};
+	const notOnPaidRuns = (paid: boolean) =>
+		test.skip(
+			paid,
+			'Not on a paid run: it already created a campaign of its own, and the site creates at ' +
+				'most 20 campaigns an hour. Unpaid runs check this.'
+		);
+
+	test('“Create campaign” shows the created screen, and the draft is on no public list', async ({
 		page,
 		browser,
 		cfg,
 		waypoint
 	}) => {
-		test.skip(
-			!cfg.createCampaign,
-			'Not switched on. Pressing “Create campaign” writes a draft campaign to the database of the ' +
-				'site under test, and it is never removed. It runs only when E2E_CREATE_CAMPAIGN is exactly ' +
-				'"true", which nothing sets. Every step before that button is checked on every run.'
-		);
+		notOnPaidRuns(cfg.paid);
 
-		// Its own name, so this run's draft cannot be mistaken for an earlier one.
-		const a = answers(`Automated test ${Date.now().toString(36)}, not a real campaign`);
+		// Its own name, so this run's campaign cannot be mistaken for an earlier one. The
+		// organiser is the signed-in visitor, so that person can publish it; the two people are at
+		// the test inbox, so the campaign is the tests' own.
+		const inbox = cfg.donor.email.slice(cfg.donor.email.indexOf('@') + 1);
+		const base = answers(`Automated test ${Date.now().toString(36)}, not a real campaign`);
+		const a: Answers = {
+			...base,
+			organiserEmail: cfg.donor.email,
+			worker: { ...base.worker, email: `e2e-builder-contractor@${inbox}` },
+			confirmer: { ...base.confirmer, email: `e2e-builder-inspector@${inbox}` }
+		};
 		await answerToReview(page, cfg, a, () => Promise.resolve());
 
-		// THE ONE PRESS THAT WRITES. Once, and never again in this test.
+		// THE ONE PRESS THAT CREATES. Once, and never again in this run.
 		await page.getByRole('button', { name: 'Create campaign', exact: true }).click();
 		const created = page.getByText('Campaign created', { exact: true });
 		const refused = page.getByRole('alert').filter({ hasText: 'Not created: try again later' });
 		await expect(created.or(refused)).toBeVisible({ timeout: 45_000 });
 		if (await refused.isVisible()) {
-			throw new Error(
-				'The site refused to create the campaign: it creates at most 20 an hour, counting ' +
-					'everyone. Nothing was saved. Run again in an hour.'
-			);
+			// Not a fault: the site's own limit, shared with real organisers and the paid runs.
+			const notice =
+				'NOT CREATED: the site creates at most 20 campaigns an hour, counting everyone, and ' +
+				'that many were just created. Nothing was saved. The steps after this one are left out.';
+			console.log(`::warning title=End-to-end: campaign not created::${notice}`);
+			test.skip(true, notice);
 		}
 
 		// What the creator is shown: the campaign's name, that it is a draft, the way to its page,
-		// and one invitation link for each of the two people, into the App.
+		// one invitation link for each of the two people, into the App, and the button that
+		// publishes it.
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(a.title);
 		await expect(page.getByText('Saved as a draft. It is on no public list')).toBeVisible();
 		const path = await page
@@ -487,36 +533,160 @@ test.describe('creating a campaign', () => {
 		for (const invitation of await invitations.all()) {
 			expect((await invitation.getAttribute('href')) ?? '').toContain(`${cfg.appUrl}/invite/`);
 		}
+		await expect(page.getByRole('heading', { name: 'This campaign is a draft' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Publish campaign', exact: true })).toBeEnabled();
 		// No picture of this page: the two invitation links on it are for those two people only.
+		made = { title: a.title, path, id: campaignIdOf(path) };
 
 		// As anyone else, signed out: the draft is on none of the three pages that list campaigns,
-		// by its address or by its name.
+		// and its own link does open it, as the page said.
 		const stranger = await browser.newContext({ storageState: { cookies: [], origins: [] } });
 		try {
 			const visitor = await stranger.newPage();
-			for (const list of ['/', '/explore', '/needs']) {
-				await visitor.goto(`${cfg.siteUrl}${list}`);
-				await expect(visitor.getByRole('heading', { level: 1 })).toBeVisible();
-				await expect(
-					visitor.locator(`a[href^="${path}"]`),
-					`${list} should not link to the new draft.`
-				).toHaveCount(0);
-				await expect(
-					visitor.getByText(a.title),
-					`${list} should not name the new draft.`
-				).toHaveCount(0);
-			}
-
-			// Its own link does open it, as the page said: that is the only way to reach a draft.
+			await expectOnNoList(visitor, cfg.siteUrl, made);
 			const response = await visitor.goto(`${cfg.siteUrl}${path}`);
 			expect(response?.status()).toBe(200);
 			await expect(visitor.getByRole('heading', { level: 1 })).toHaveText(a.title);
+			// A draft is not raising money: its page offers no way to give.
+			await expect(visitor.getByRole('link', { name: 'Give to this campaign' })).toHaveCount(0);
 			await waypoint(visitor, 'created-draft-by-its-link');
 		} finally {
 			await stranger.close();
 		}
 	});
+
+	test('its creator publishes it, and its page then offers “Give to this campaign”', async ({
+		page,
+		cfg,
+		waypoint
+	}) => {
+		notOnPaidRuns(cfg.paid);
+		const campaign = madeOrSkip();
+
+		// The creator, signed in, on the draft's own page: it says it is a draft and offers the
+		// button. Nobody could give to it yet.
+		await page.goto(`${cfg.siteUrl}${campaign.path}`);
+		await expect(page.getByRole('heading', { level: 1 })).toHaveText(campaign.title);
+		await expect(page.getByRole('heading', { name: 'This campaign is a draft' })).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Give to this campaign' })).toHaveCount(0);
+		const publish = page.getByRole('button', { name: 'Publish campaign', exact: true });
+		await waypoint(page, 'draft-before-publishing');
+
+		// THE ONE PRESS THAT PUBLISHES. Pressed until the page's script takes it, once it has.
+		await expect(async () => {
+			if (await publish.isVisible()) await publish.click();
+			await expect(page.getByRole('status').filter({ hasText: 'Campaign published' })).toBeVisible({
+				timeout: 5_000
+			});
+		}).toPass({ timeout: 45_000 });
+		await expect(page.getByRole('status').filter({ hasText: 'Not published' })).toHaveCount(0);
+
+		// It is now a campaign that is raising money: no longer a draft, nothing left to publish,
+		// and its page leads to its Give page.
+		await expect(page.getByRole('heading', { name: 'This campaign is a draft' })).toHaveCount(0);
+		await expect(publish).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Give to this campaign' })).toHaveAttribute(
+			'href',
+			`/give/${campaign.id}`
+		);
+		await waypoint(page, 'published');
+
+		// And it stays so for the creator who comes back.
+		await page.reload();
+		await expect(page.getByRole('heading', { name: 'This campaign is a draft' })).toHaveCount(0);
+		await expect(page.getByRole('link', { name: 'Give to this campaign' })).toBeVisible();
+	});
+
+	test.describe('as anyone, signed out', () => {
+		test.use({ storageState: { cookies: [], origins: [] } });
+
+		test('once published, the test campaign is still on no public list, and opens by its address', async ({
+			page,
+			cfg,
+			waypoint
+		}) => {
+			notOnPaidRuns(cfg.paid);
+			const campaign = madeOrSkip();
+
+			// Home, Explore and the Give list: none links to it or names it.
+			await expectOnNoList(page, cfg.siteUrl, campaign);
+
+			// Its own page opens for anyone who has the address, and offers the way to give.
+			const response = await page.goto(`${cfg.siteUrl}${campaign.path}`);
+			expect(response?.status(), 'The published test campaign’s own page should open.').toBe(200);
+			await expect(page.getByRole('heading', { level: 1 })).toHaveText(campaign.title);
+			await expect(page.getByRole('link', { name: 'Give to this campaign' })).toHaveAttribute(
+				'href',
+				`/give/${campaign.id}`
+			);
+			await waypoint(page, 'published-by-its-address');
+
+			// Its one milestone has its own page, and nothing has been reported on it.
+			await openMilestone(page, cfg.siteUrl, campaign.id, 'Test milestone, nothing is built');
+			expect(await milestoneStatus(page)).toBe('Not started');
+		});
+
+		test('its Give page opens by its address and lists the amounts on sale', async ({
+			page,
+			cfg,
+			waypoint
+		}, testInfo) => {
+			notOnPaidRuns(cfg.paid);
+			const campaign = madeOrSkip();
+
+			const response = await page.goto(`${cfg.siteUrl}/give/${campaign.id}`);
+			expect(response?.status(), 'The published test campaign’s Give page should open.').toBe(200);
+			const main = page.getByRole('main');
+			await expect(page.getByRole('heading', { level: 1 })).toHaveText(
+				giveHeading('en', campaign.title)
+			);
+			// It is raising money: the page does not say otherwise.
+			await expect(main.getByText(whole(giveWords('en', GIVE.notRaising)))).toHaveCount(0);
+
+			// The amounts on sale, each once and smallest first; or the plain statement that giving
+			// is not available, when Qatom lists no donation item or could not be asked. NOTHING IS
+			// PRESSED: the run's one unpaid checkout is made elsewhere (site-give.spec.ts).
+			const unavailable = main.getByText(whole(giveWords('en', GIVE.notAvailable)));
+			await expect(amountButtons(page).first().or(unavailable)).toBeVisible();
+			if ((await amountButtons(page).count()) === 0) {
+				await expect(unavailable).toBeVisible();
+				await waypoint(page, 'published-give-not-available');
+				say(
+					testInfo,
+					'The published test campaign’s Give page says giving is not available (Qatom lists no donation item, or could not be asked).'
+				);
+				return;
+			}
+			const offered = await amountsOffered(page);
+			await expect(unavailable).toHaveCount(0);
+			await waypoint(page, 'published-give-amounts');
+			say(
+				testInfo,
+				`The published test campaign’s Give page offers ${offered.join(', ')} ${UNIT}. None was pressed.`
+			);
+		});
+	});
 });
+
+/** Home, Explore and the Give list neither link to the campaign nor name it. */
+async function expectOnNoList(
+	page: Page,
+	siteUrl: string,
+	campaign: { title: string; path: string }
+): Promise<void> {
+	for (const list of ['/', '/explore', '/needs']) {
+		await page.goto(`${siteUrl}${list}`);
+		await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+		await expect(
+			page.locator(`a[href^="${campaign.path}"]`),
+			`${list} should not link to the test campaign.`
+		).toHaveCount(0);
+		await expect(
+			page.getByText(campaign.title),
+			`${list} should not name the test campaign.`
+		).toHaveCount(0);
+	}
+}
 
 // ---------------------------------------------------------------------------
 // Signing out. Last, and each in a browser of its own.
