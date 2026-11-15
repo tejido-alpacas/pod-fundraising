@@ -52,16 +52,35 @@ spends a deposit.
 
    Until all three are set, the workflow ends at its first step with a notice and a green tick.
 
-3. **Load the test campaign into the live database.** Print it as SQL:
+3. **Load the test campaign into the live database.** Print it as SQL. Keep `--silent`: without
+   it npm writes two lines of its own at the top of the file, and the database refuses the file
+   with `near ">": syntax error`.
 
    ```bash
-   npm run db:seed:e2e:sql -- --inbox-domain e2e.m.todaq.net > e2e-fixture.sql
+   npm run --silent db:seed:e2e:sql -- --inbox-domain e2e.m.todaq.net > e2e-fixture.sql
    ```
 
-   Then load that file the same way the demo fixtures were loaded (see `infra/README.md`):
-   with Wrangler's `d1 execute` for the `tejido` database, against the remote database, with
-   `--file e2e-fixture.sql`. The file holds two new reporter codes, which are private: delete it
-   afterwards and do not commit it. Loading it twice is safe; nothing already there is changed.
+   Then load it, from the repository root, with your Cloudflare token and account id in the
+   shell as for a deploy. A person runs these, never an agent. The first command writes a copy
+   of the Campaign Site's Wrangler settings with the live database's id in place of the
+   placeholder, as `infra/deploy.sh` does; `npx wrangler d1 list` shows the id of `tejido`. The
+   copy is ignored by git.
+
+   ```bash
+   sed "s/00000000-0000-0000-0000-000000000000/<the id of tejido>/" apps/web/wrangler.jsonc > apps/web/wrangler.deploy.jsonc
+   ```
+
+   ```bash
+   npx wrangler d1 execute tejido --remote --yes --file e2e-fixture.sql --config apps/web/wrangler.deploy.jsonc
+   ```
+
+   ```bash
+   rm e2e-fixture.sql
+   ```
+
+   The file holds two new reporter codes, which are private: that is why it is deleted, and it
+   must never be committed. If the load fails, nothing is changed and it is safe to run again.
+   Loading it twice is safe too; nothing already there is changed.
 
    It creates the campaign `e2e-smoke`, titled "Automated test campaign (not a real
    fundraiser)", the parties `e2e-contractor` and `e2e-confirmer` (invited at
@@ -80,7 +99,7 @@ spends a deposit.
    again:
 
    ```bash
-   npm run db:seed:e2e:sql -- --inbox-domain e2e.m.todaq.net --log-work-commodity-id <id> --milestone-hit-commodity-id <id> > e2e-fixture.sql
+   npm run --silent db:seed:e2e:sql -- --inbox-domain e2e.m.todaq.net --log-work-commodity-id <id> --milestone-hit-commodity-id <id> > e2e-fixture.sql
    ```
 
    This changes the two ids and nothing else.
