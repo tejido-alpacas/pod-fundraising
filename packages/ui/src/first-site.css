@@ -1,0 +1,56 @@
+/*
+	The first Tejido site's look, for everything built from the design system.
+
+	The owner decided the whole product looks like the first site (tejido.net): Rubik for text,
+	Poppins for headings, its blues for buttons, links and focus, its page colour, softer rounder
+	cards. The design system still supplies the components, the layout and the trust vocabulary.
+	This file loads last in styles.css and points the design system's brand tokens at the first
+	site's values. Nothing else changes.
+
+	KEEP IN STEP. The Campaign Site holds the same values in
+	apps/web/src/lib/campaign-site/design-system-v1.css (it loads tokens.css and tejido.css by
+	themselves, not styles.css). A change to a value here needs the same change there, and the
+	other way round.
+
+	The status colours (confirmed, in progress, attention, overdue, flagged, record) are left as
+	the design system sets them. They carry meaning, and the trust vocabulary depends on them.
+
+	The fonts themselves are loaded by the app's root layout (Poppins 600 and 700, Rubik 400,
+	500 and 600). Light only: there is no dark block here and there must never be one.
+*/
+:root {
+	/* Type: Rubik for text, Poppins for headings, as on the first site. */
+	--font-sans: Rubik, Roboto, system-ui, sans-serif;
+	--font-serif: Poppins, Rubik, sans-serif;
+
+	/* Surfaces and text. */
+	--bg-page: #f3f7fc;
+	--surface: #ffffff;
+	--surface-2: #f6f9fd;
+	--surface-raised: #ffffff;
+	--text-primary: #0b1322;
+	--text-secondary: #4a5567;
+	--border: #e1e7ef;
+
+	/* The first site's blues for actions, links and focus. */
+	--accent: #0173e6;
+	--accent-hover: #0559b8;
+	--accent-pressed: #04478f;
+	--accent-subtle: #e6f1fd;
+	--link: #0559b8;
+	--focus-ring: #0173e6;
+
+	/* Softer, rounder cards, as on the first site. */
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--shadow-1: 0 1px 1px rgba(11, 19, 34, 0.03), 0 10px 30px -8px rgba(11, 40, 90, 0.14);
+}
+
+/*
+	Headings are Poppins, set a little tighter, as on the first site. Only weights 600 and 700 of
+	Poppins are loaded, so a heading the design system draws at 500 is shown at 600.
+*/
+.tj-screen :is(h1, h2, h3) {
+	font-family: var(--font-serif);
+	letter-spacing: -0.02em;
+}
