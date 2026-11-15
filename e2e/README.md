@@ -132,12 +132,18 @@ trusts no other branch). Tick "paid" only when you mean to spend a deposit.
 | `E2E_CONTRACTOR_PARTY_ID` | `e2e-contractor`                                                  |
 | `E2E_CONFIRMER_PARTY_ID`  | `e2e-confirmer`                                                   |
 | `E2E_PAID`                | Leave unset. Exactly `true` spends a deposit                      |
+| `E2E_SKIP_SIGN_IN`        | Leave unset. Exactly `true` asks Qatom for no code: see below     |
 
 `E2E_APP_URL` and `E2E_SITE_URL` default to the live site. Any other address is refused unless
 `E2E_ALLOW_OTHER_HOSTS=true`, and a paid run is refused anywhere but the live site. If a value
 is missing the suite stops before opening a page and names it.
 
 `npm run e2e:list` lists the tests without running anything, and needs nothing set.
+
+**A run that does not sign in.** With `E2E_SKIP_SIGN_IN=true` the suite asks Qatom for no
+sign-in code. The sign-in and every check that needs a signed-in person are skipped, each
+saying why, and the signed-out checks (the Campaign Site as a donor) run as usual. It is for
+when runs come closer together than Qatom's limit on codes allows. A paid run refuses it.
 
 **Do not run it in a loop.** Qatom sends at most 5 sign-in codes per address and 10 per network
 address in 15 minutes, in production too. Each run asks for one code per person. Three runs in a

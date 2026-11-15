@@ -90,3 +90,16 @@ export async function until<T>(
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
 }
+
+/**
+ * Put at the top of a spec that needs a signed-in person. When the run was told not to sign in
+ * (`E2E_SKIP_SIGN_IN=true`), every test in the file is skipped with this reason, before a
+ * browser is opened: there is no signed-in browser to open.
+ */
+export function needsSignIn(): void {
+	test.skip(
+		({ cfg }) => !cfg.signIn,
+		'This run did not sign in: enough recent runs already asked Qatom for sign-in codes, and ' +
+			'Qatom limits them. The signed-out checks still ran. The next run after the wait signs in.'
+	);
+}

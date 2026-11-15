@@ -9,9 +9,11 @@
  * the spec fails saying exactly that. It does not file again, and neither should a person until
  * they have looked.
  */
-import { expect, test } from '../lib/harness.ts';
+import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { draftWorkLog } from '../lib/chat.ts';
 import { until } from '../lib/harness.ts';
+
+needsSignIn();
 
 test.describe.configure({ retries: 0 });
 test.setTimeout(1_200_000);

@@ -3,10 +3,12 @@
  * for real), the fix page, and the chat as it opens. No message is sent, so no model is called.
  * Then the confirmer's home, to show the other role.
  */
-import { expect, test } from '../lib/harness.ts';
+import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { openChat } from '../lib/chat.ts';
 import { testEvidenceFile } from '../lib/image.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
+
+needsSignIn();
 
 test('home shows the project and what can be done', async ({ page, cfg, waypoint }) => {
 	await page.goto(`${cfg.appUrl}/`);
