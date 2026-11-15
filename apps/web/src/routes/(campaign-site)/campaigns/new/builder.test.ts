@@ -4,10 +4,12 @@ import { campaignSchema, milestoneSchema, partySchema } from '@tejido/contracts'
 import { campaigns, milestones, parties } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkDraft, noticesFor, readGoal } from '#lib/old/builder/check.ts';
-import { reviveDraft, type BuilderDraft } from '#lib/old/builder/draft.ts';
-import { CREATED_PER_HOUR } from '#lib/old/server/create.ts';
-import { load as home } from '../../+page.server.ts';
+import { checkDraft, noticesFor, readGoal } from '#lib/campaign-site/builder/check.ts';
+import { reviveDraft, type BuilderDraft } from '#lib/campaign-site/builder/draft.ts';
+import { CREATED_PER_HOUR } from '#lib/campaign-site/server/create-campaign.ts';
+import { load as home } from '../../../+page.server.ts';
+import { load as explore } from '../../explore/+page.server.ts';
+import { load as give } from '../../needs/+page.server.ts';
 import { actions } from './+page.server.ts';
 
 let test: TestDatabase;
@@ -105,7 +107,7 @@ async function post(action: 'check' | 'create', draft: unknown, step?: string): 
 	body.set('draft', typeof draft === 'string' ? draft : JSON.stringify(draft));
 	if (step !== undefined) body.set('step', step);
 	const event = {
-		request: new Request('http://localhost/old/campaigns/new', { method: 'POST', body }),
+		request: new Request('http://localhost/campaigns/new', { method: 'POST', body }),
 		locals: { ctx: { db: test.db, config } }
 	};
 	const answer = await actions[action](
@@ -119,6 +121,12 @@ function errorsOf(answer: Answer): Record<string, string> {
 	expect(answer.status).toBe(400);
 	return (answer.data?.['errors'] ?? {}) as Record<string, string>;
 }
+
+describe('/campaigns/new', () => {
+	it('has two actions: check a step, and create the campaign', () => {
+		expect(Object.keys(actions).sort()).toEqual(['check', 'create']);
+	});
+});
 
 describe('checking one step', () => {
 	it('passes each step of a valid draft', async () => {
@@ -450,11 +458,28 @@ describe('creating the campaign', () => {
 		expect((await post('create', validDraft()))['created']).toBeDefined();
 	}, 60_000);
 
-	it('leaves a created campaign off the home page, which is sent no email address', async () => {
-		await post('create', validDraft());
+	it('lists a created campaign nowhere, and sends no email address', async () => {
+		const answer = await post('create', validDraft());
+		const { id } = answer['created'] as { id: string };
+
+		// Where campaigns are listed: the home page (/), Explore and Give (/needs).
 		const event = { locals: { ctx: { db: test.db } } };
-		const data = await home(event as unknown as Parameters<typeof home>[0]);
-		expect(data).toEqual({ campaigns: [] });
-		expect(JSON.stringify(data)).not.toContain('@');
+		const lists = async () => [
+			await home(event as unknown as Parameters<typeof home>[0]),
+			await explore(event as unknown as Parameters<typeof explore>[0]),
+			await give(event as unknown as Parameters<typeof give>[0])
+		];
+		for (const data of await lists()) {
+			expect(data).toEqual({ campaigns: [] });
+			expect(JSON.stringify(data)).not.toContain('@');
+		}
+
+		// It is left out because it is a draft: the same campaign, once it is raising money, is
+		// on all three.
+		await test.db.update(campaigns).set({ status: 'funding' });
+		for (const data of await lists()) {
+			expect(data?.campaigns.map((campaign) => campaign.id)).toEqual([id]);
+			expect(JSON.stringify(data)).not.toContain('@');
+		}
 	});
 });

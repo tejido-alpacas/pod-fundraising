@@ -4,7 +4,7 @@ import { campaignSchema, milestoneSchema, partySchema } from '@tejido/contracts'
 import { campaigns, milestones, parties } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CREATED_PER_HOUR } from '#lib/old/server/create.ts';
+import { CREATED_PER_HOUR } from '#lib/campaign-site/server/create-campaign.ts';
 import { MAX_BODY_BYTES } from '#lib/server/backend/campaign-api.ts';
 import { POST } from './+server.ts';
 import { NOW, config, expectNothingPrivate, jsonRequest, validBody } from './testing.ts';
