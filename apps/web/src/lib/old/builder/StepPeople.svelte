@@ -173,7 +173,7 @@
 							</Banner>
 						{/each}
 					{/if}
-					<div class="foot">
+					<div class="item-foot">
 						<ItemActions what={named(person)} onremove={() => remove(person.key)} />
 						<Button size="sm" icon="check" onclick={() => open(null)}>
 							Done<span class="tj-vh"> editing {named(person)}</span>
@@ -283,7 +283,7 @@
 	.choices legend {
 		margin-bottom: var(--space-2);
 	}
-	.foot {
+	.item-foot {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-3);
