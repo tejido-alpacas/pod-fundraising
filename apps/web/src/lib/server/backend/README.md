@@ -43,3 +43,19 @@ definition; every date is a calendar day in UTC.
   no email address, filing code or wallet, and nothing is logged.
 - `POST /api/schedule` needs the `X-Tejido-Checkin-Secret` header, like `POST /api/reconcile`.
   Nothing calls it on a schedule yet: a cron trigger needs a change to `apps/web/wrangler.jsonc`.
+
+## Reminder email (`reminder-email.ts`)
+
+`reminderEmail` writes one of the scheduler's reminders as a subject, an HTML body and a
+plain-text body, in the first site's look. It is a template only: nothing sends it, and it
+does not look up who it is for. A mailer added later gives it a reminder from
+`POST /api/schedule`, the campaign's title and (for a milestone) the milestone's title, and
+hands the three strings to whatever sends mail.
+
+- Built for email programs: tables for layout, every style on its element, no scripts and no
+  pictures. The colours and fonts are copied from `packages/ui/src/first-site.css`; a change
+  there needs the same change in this file.
+- It carries the link to follow, the due date and the filing deposit. No email address, filing
+  code or wallet. Titles and names are escaped.
+- Sending needs an email service, which this project does not have: a Cloudflare binding and
+  a verified sending address, both the owner's to add.
