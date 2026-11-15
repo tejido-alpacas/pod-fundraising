@@ -147,7 +147,11 @@ describe('a request the Claude API turns away before any reply starts', () => {
 
 		expect(failure).toBeInstanceOf(AgentUnavailableError);
 		expect((failure as AgentUnavailableError).status).toBe(status);
-		expect(unavailableMessage(failure as AgentUnavailableError)).toContain('could not be reached');
+		const message = unavailableMessage(failure as AgentUnavailableError);
+		expect(message).toContain('trying again will not help');
+		expect(message).toContain('Nothing was filed by this message');
+		expect(message).toContain(`(code ${status})`);
+		expect(message).not.toContain('could not be reached');
 		expect(sent).toHaveLength(1);
 		expect(waits).toEqual([]);
 		expect(events).toEqual([]);
@@ -174,6 +178,159 @@ describe('a request the Claude API turns away before any reply starts', () => {
 			retrying,
 			{ type: 'error', message: expect.stringContaining('could not be reached') }
 		]);
+	});
+});
+
+describe('a request the Claude API refuses for a cause that waiting will not fix', () => {
+	/** Something only the body's `message` holds. It must never be kept, logged or shown. */
+	const SENTINEL = 'sentinel-from-the-error-body';
+	const refused =
+		(status: number, body: string, headers: Record<string, string> = {}) =>
+		() =>
+			new Response(body, { status, headers });
+	const errorBody = (type: unknown) =>
+		JSON.stringify({ type: 'error', error: { type, message: SENTINEL }, request_id: 'req_body' });
+	const logged = () =>
+		vi
+			.mocked(console.error)
+			.mock.calls.map((parts) => parts.map(String).join(' '))
+			.join('\n');
+
+	async function refusal(): Promise<AgentUnavailableError> {
+		const failure = await ask().catch((cause: unknown) => cause);
+		expect(failure).toBeInstanceOf(AgentUnavailableError);
+		return failure as AgentUnavailableError;
+	}
+
+	it.each([
+		[400, 'invalid_request_error'],
+		[401, 'authentication_error'],
+		[403, 'permission_error'],
+		[404, 'not_found_error']
+	])('names the code and the type after a %i %s', async (status, type) => {
+		answers = [refused(status, errorBody(type), { 'request-id': 'req_abc' })];
+
+		const failure = await refusal();
+
+		expect(failure.status).toBe(status);
+		expect(failure.type).toBe(type);
+		expect(failure.retryFloorMs).toBeNull();
+		expect(unavailableMessage(failure)).toBe(
+			`The assistant is not available, and trying again will not help. Nothing was filed by this message. Whoever runs Tejido needs to look: the assistant's service refused the request (code ${status}, ${type}).`
+		);
+		expect(sent).toHaveLength(1);
+	});
+
+	it.each([
+		['is not JSON', `<html>${SENTINEL}</html>`],
+		['is empty', ''],
+		['has no error', JSON.stringify({ message: SENTINEL })],
+		['has a type with odd characters', errorBody(`bad type: ${SENTINEL}`)],
+		['has a type that is too long', errorBody('x'.repeat(41))],
+		['has a type that is not a word', errorBody({ nested: SENTINEL })],
+		[
+			'is longer than we read',
+			JSON.stringify({
+				padding: 'x'.repeat(5000),
+				error: { type: 'invalid_request_error', message: SENTINEL }
+			})
+		]
+	])('names the code and no type when the body %s', async (_name, body) => {
+		answers = [refused(400, body, { 'request-id': 'req_abc' })];
+
+		const failure = await refusal();
+
+		expect(failure.status).toBe(400);
+		expect(failure.type).toBeNull();
+		const message = unavailableMessage(failure);
+		expect(message).toContain('trying again will not help');
+		expect(message).toContain('(code 400).');
+		expect(message).not.toContain(SENTINEL);
+		expect(failure.message).not.toContain(SENTINEL);
+		expect(logged()).not.toContain(SENTINEL);
+	});
+
+	it('logs the status, the type and the request id, and never the body', async () => {
+		answers = [refused(401, errorBody('authentication_error'), { 'request-id': 'req_abc' })];
+
+		const failure = await refusal();
+
+		expect(console.error).toHaveBeenCalledExactlyOnceWith(
+			'The Claude API refused the chat request:',
+			401,
+			'authentication_error',
+			'req_abc'
+		);
+		expect(logged()).not.toContain(SENTINEL);
+		expect(unavailableMessage(failure)).not.toContain(SENTINEL);
+		expect(JSON.stringify(failure)).not.toContain(SENTINEL);
+	});
+
+	it('logs "no type" when the body gives none', async () => {
+		answers = [refused(403, 'Forbidden')];
+
+		await refusal();
+
+		expect(console.error).toHaveBeenCalledExactlyOnceWith(
+			'The Claude API refused the chat request:',
+			403,
+			'no type',
+			'no request id'
+		);
+	});
+
+	it('keeps the "try again" wording after a 502 that fails three times, whatever its body says', async () => {
+		const overloaded = refused(502, errorBody('api_error'));
+		answers = [overloaded, overloaded, overloaded];
+
+		await ask();
+
+		expect(sent).toHaveLength(3);
+		expect(events.at(-1)).toEqual({
+			type: 'error',
+			message:
+				'The agent could not be reached. Nothing was filed by this message. Try again in a minute.'
+		});
+		expect(logged()).not.toContain(SENTINEL);
+	});
+
+	it('names the cause when a later try is refused for good', async () => {
+		answers = [turnedAway(502), refused(401, errorBody('authentication_error'))];
+
+		await ask();
+
+		expect(sent).toHaveLength(2);
+		expect(events.at(-1)).toEqual({
+			type: 'error',
+			message: expect.stringContaining('(code 401, authentication_error)')
+		});
+	});
+
+	it('names the cause after a 429 that names no wait, which does not pass by itself', async () => {
+		answers = [refused(429, errorBody('rate_limit_error'))];
+
+		const message = unavailableMessage(await refusal());
+
+		expect(message).toContain('trying again will not help');
+		expect(message).toContain('(code 429, rate_limit_error)');
+		expect(sent).toHaveLength(1);
+	});
+
+	it('still says busy after a 429 for which the API named a wait, short or long', async () => {
+		const rateLimited = (wait: string) =>
+			refused(429, errorBody('rate_limit_error'), { 'retry-after': wait });
+		answers = [rateLimited('30')];
+		expect(unavailableMessage(await refusal())).toContain('busy');
+
+		answers = [rateLimited('1'), rateLimited('1'), rateLimited('1')];
+		await ask();
+		expect(events.at(-1)).toEqual({ type: 'error', message: expect.stringContaining('busy') });
+	});
+
+	it('keeps the "try again" wording when the connection fails', () => {
+		expect(unavailableMessage(new AgentUnavailableError(null))).toBe(
+			'The agent could not be reached. Nothing was filed by this message. Try again in a minute.'
+		);
 	});
 });
 
