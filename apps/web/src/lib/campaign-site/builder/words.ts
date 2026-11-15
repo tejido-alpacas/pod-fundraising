@@ -86,6 +86,12 @@ export const ROLE_LABEL: Record<PartyRole, string> = {
 	confirmer: 'Confirms milestones'
 };
 
+/** What each person is, in a whole phrase, on the record of who was set up. */
+export const ROLE_IN_WORDS: Record<PartyRole, string> = {
+	third_party: 'The person or organisation doing the work',
+	confirmer: 'The person who confirms'
+};
+
 /** The three choice cards, in the order the design shows them. */
 export const RELATIONSHIP_CHOICES: {
 	value: PartyRelationship;

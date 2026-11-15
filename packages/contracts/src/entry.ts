@@ -8,8 +8,18 @@ import { idSchema, timestampSchema } from './primitives.ts';
  *   to Qatom's ledger.
  * - `incomplete`: saved, but something the milestone requires is missing. The reporter can add
  *   it without paying again.
- * - `verified`: matched to a ledger transaction paid from the party's registered agent wallet.
- * - `flagged`: matched to a ledger transaction paid from some other wallet. Donors are told.
+ * - `verified`: Qatom confirms a settled sale of the item this entry was filed with, for
+ *   exactly its deposit, tied to this filing by the transaction id Qatom sent with it. It does
+ *   NOT establish which wallet paid: Qatom's records name the payer only in a form that cannot
+ *   be compared with a wallet registered at sign-in (the owner's decision, 15 November 2026:
+ *   "yes, verified by Qatom's purchase record").
+ *   An entry filed without a transaction id is still looked for on Qatom's ledger, and is
+ *   `verified` there only when the ledger shows it paid from the party's registered agent
+ *   wallet.
+ * - `flagged`: the receipt does not fit the filing, and `statusReason` says how. Either Qatom's
+ *   record of the purchase is for another item or another amount, or (for an entry matched on
+ *   the ledger) it was paid from a wallet that is not the party's registered one. Donors are
+ *   told.
  */
 export const entryStatusSchema = z.enum(['filed', 'incomplete', 'verified', 'flagged']);
 export type EntryStatus = z.infer<typeof entryStatusSchema>;
@@ -25,10 +35,16 @@ const entryBase = {
 	statusReason: z.string().max(500).nullable(),
 	/**
 	 * The paying address Qatom's ledger reports for this entry's deposit. Null until the
-	 * reconciler has matched the entry. Verified means it equals the party's agent wallet.
+	 * reconciler has matched the entry, and null for good on an entry verified by Qatom's
+	 * purchase record, which names no payer. Where it is set on a verified entry, it equals
+	 * the party's agent wallet.
 	 */
 	payingWallet: z.string().min(1).nullable(),
-	/** Identifies the entry in the TODA twin's binder. Null until reconciled. */
+	/**
+	 * Identifies the entry's payment at Qatom: the transaction id Qatom sent with the filing,
+	 * or, for an entry matched on the ledger, the row's id in the TODA twin's binder. Null
+	 * until reconciled.
+	 */
 	twistId: z.string().min(1).nullable(),
 	/** When our check-in endpoint saved the entry. */
 	filedAt: timestampSchema,

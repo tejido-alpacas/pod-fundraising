@@ -73,13 +73,15 @@
 		<span class="tj-badges"><StatusBadge state={filingKey(status)} /></span>
 	</header>
 	<p class="tj-receipt__note">
-		A receipt shows that this report was filed, by which wallet, and when. It doesn’t show that the
-		work happened.
+		A receipt shows that this report was filed and its deposit paid, and when. It doesn’t show that
+		the work happened.{receipt.twistId !== null && !receipt.payingWallet
+			? ' It doesn’t show which wallet paid.'
+			: ''}
 	</p>
 	{#if receipt.twistId === null}
 		<p class="tj-receipt__note">
-			Filed with Tejido on {utc(filedAt)}. We haven’t matched it to its public receipt yet, so there
-			is no transaction ID or paying wallet to show.
+			Filed with Tejido on {utc(filedAt)}. We haven’t matched it to its receipt yet, so there is no
+			transaction ID to show.
 		</p>
 	{/if}
 
@@ -98,7 +100,10 @@
 					{#if receipt.stampedAt}
 						<span
 							><time datetime={receipt.stampedAt}>{utc(receipt.stampedAt)}</time><span
-								class="tj-kv__sub">Time on the public ledger</span
+								class="tj-kv__sub"
+								>{receipt.payingWallet
+									? 'Time on the public ledger'
+									: 'When Qatom says the payment settled'}</span
 							></span
 						>
 					{:else}
@@ -106,33 +111,37 @@
 					{/if}
 				</dd>
 			</div>
-			<div class="tj-kv__row">
-				<dt>Wallet that paid</dt>
-				<dd>
-					<span>
-						{#if receipt.payingWallet}
-							<span class={['tj-id', 'tj-id--host', mismatch && 'tj-kv__mismatch']}
-								>{@render host(receipt.payingWallet)}</span
-							>
-							<span class="tj-kv__sub">
-								{#if mismatch}
-									Doesn’t match the registered wallet
-								{:else if receipt.walletsMatch}
-									Matches the registered wallet{status === 'flagged'
-										? ' now. It didn’t when this filing was matched, so the flag stays.'
-										: ''}
-								{:else}
-									There is no registered wallet to compare it with
-								{/if}
-							</span>
-						{:else}
-							Not on record
-						{/if}
-					</span>
-				</dd>
-			</div>
+			<!-- Only an entry matched on the ledger has a paying wallet on record. One verified by
+			     Qatom's purchase record has none, and nothing is claimed about who paid. -->
+			{#if receipt.payingWallet}
+				<div class="tj-kv__row">
+					<dt>Wallet that paid</dt>
+					<dd>
+						<span>
+							{#if receipt.payingWallet}
+								<span class={['tj-id', 'tj-id--host', mismatch && 'tj-kv__mismatch']}
+									>{@render host(receipt.payingWallet)}</span
+								>
+								<span class="tj-kv__sub">
+									{#if mismatch}
+										Doesn’t match the registered wallet
+									{:else if receipt.walletsMatch}
+										Matches the registered wallet{status === 'flagged'
+											? ' now. It didn’t when this filing was matched, so the flag stays.'
+											: ''}
+									{:else}
+										There is no registered wallet to compare it with
+									{/if}
+								</span>
+							{:else}
+								Not on record
+							{/if}
+						</span>
+					</dd>
+				</div>
+			{/if}
 		{/if}
-		{#if receipt.twistId === null || receipt.walletsMatch !== true}
+		{#if receipt.twistId === null || (receipt.payingWallet !== null && receipt.walletsMatch !== true)}
 			<div class="tj-kv__row">
 				<dt>Registered wallet</dt>
 				<dd>

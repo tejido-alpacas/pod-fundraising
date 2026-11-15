@@ -102,7 +102,7 @@
 					question: QUESTION_1,
 					answer: 'Yes · receipt verified',
 					detail:
-						'Recorded and matched to its public receipt, paid from the registered wallet. This shows the filing happened. It doesn’t prove the work.'
+						'Recorded, and Qatom confirms its deposit was paid. This shows the filing happened. It doesn’t prove the work.'
 				}
 			: entry.status === 'flagged'
 				? {
@@ -110,7 +110,9 @@
 						icon: 'receipt-flag',
 						question: QUESTION_1,
 						answer: 'Recorded, but flagged',
-						detail: `The receipt exists. The wallet that paid doesn’t match the ${filerRole}’s.`
+						detail: receipt.payingWallet
+							? `The receipt exists. The wallet that paid doesn’t match the ${filerRole}’s.`
+							: `The receipt doesn’t match this filing. ${entry.statusReason ?? ''}`.trim()
 					}
 				: entry.status === 'incomplete'
 					? {
@@ -195,14 +197,18 @@
 		if (receipt.stampedAt) {
 			happened.push({
 				at: receipt.stampedAt,
-				title: 'Deposit paid and recorded on the public ledger',
+				// With no paying wallet on record, Qatom's purchase record is what shows the payment.
+				// It names no payer, so nothing is said here about who paid.
+				title: receipt.payingWallet
+					? 'Deposit paid and recorded on the public ledger'
+					: 'Deposit paid, confirmed by Qatom',
 				text:
-					(deposit ? `${formatAmount(deposit.amount)} USD-TDN ` : 'Paid ') +
+					(deposit ? `${formatAmount(deposit.amount)} USD-TDN` : 'Paid') +
 					(receipt.walletsMatch === false
-						? `from a wallet not registered to the ${filerRole}`
+						? ` from a wallet not registered to the ${filerRole}`
 						: receipt.walletsMatch
-							? 'from the registered wallet'
-							: 'by the filer')
+							? ' from the registered wallet'
+							: '')
 			});
 		}
 		if (entry.updatedAt !== entry.filedAt) {
@@ -273,7 +279,17 @@
 			</div>
 		</div>
 
-		{#if entry.status === 'flagged'}
+		{#if entry.status === 'flagged' && !receipt.payingWallet}
+			<Banner
+				tone="critical"
+				icon="receipt-flag"
+				role="note"
+				title="This filing was recorded, but its receipt doesn’t match it."
+			>
+				{entry.statusReason ?? 'The receipt on record doesn’t fit this filing.'} The report itself may
+				still be accurate.
+			</Banner>
+		{:else if entry.status === 'flagged'}
 			<Banner
 				tone="critical"
 				icon="receipt-flag"

@@ -42,7 +42,7 @@ function inDays(days: number, now: Date): string {
 
 /** The request for `POST /api/campaigns`. Pure: the same input gives the same request. */
 export function runCampaignRequest(
-	cfg: Pick<E2eConfig, 'contractor' | 'confirmer' | 'inbox' | 'runLabel'>,
+	cfg: Pick<E2eConfig, 'contractor' | 'confirmer' | 'donor' | 'inbox' | 'runLabel'>,
 	now: Date = new Date()
 ): Record<string, unknown> {
 	const due = inDays(365, now);
@@ -64,7 +64,9 @@ export function runCampaignRequest(
 				'Please do not donate.',
 			beneficiary: 'Nobody. This is an automated test.',
 			creatorName: 'Tejido automated tests',
-			creatorEmail: `e2e-creator@${cfg.inbox.domain}`
+			// The suite's visitor, who signs in on the Campaign Site: only a campaign's organiser can
+			// publish it, and the paid donation test publishes this one (specs/paid-donation.spec.ts).
+			creatorEmail: cfg.donor.email
 		},
 		funding: { goal: '' },
 		milestones: [

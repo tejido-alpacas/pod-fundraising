@@ -6,12 +6,15 @@
  * endpoint. On the live site Cloudflare's timer calls it once a minute, in-process
  * (#lib/server/backend/worker.ts). A person who holds the secret can still call it.
  *
+ * Every pass writes one line to the Worker's logs with the summary's numbers and nothing
+ * else: no wallet, hostname, id, email or amount.
+ *
  * The ledgers are read with Tejido's merchant account only. No person's token is involved.
  */
 import { json } from '@sveltejs/kit';
 import { CHECKIN_SECRET_HEADER } from '@tejido/contracts';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { reconcile } from '#lib/server/backend/reconciler.ts';
+import { reconcile, reconcileLogLine } from '#lib/server/backend/reconciler.ts';
 import type { RequestHandler } from './$types';
 
 /** Compares in constant time, whatever the lengths. As in the check-in endpoint. */
@@ -30,5 +33,11 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		);
 	}
 
-	return json(await reconcile(db, qatom.account));
+	const summary = await reconcile(db, qatom.account);
+
+	// One line in the Worker's logs for every pass: the summary's numbers and nothing else. It
+	// shows that the timer runs and what each pass found.
+	console.log(reconcileLogLine(summary));
+
+	return json(summary);
 };

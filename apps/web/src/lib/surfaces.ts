@@ -154,7 +154,7 @@ export const SURFACES: Surface[] = [
 		track: 'C',
 		name: 'Reconciler',
 		path: '/backend/reconciler',
-		what: "Reads each campaign's ledgers from Qatom, attaches the twistId, and checks the paying wallet is the party's registered agent wallet.",
+		what: 'Asks Qatom for the purchase behind each filing and verifies it when the sale is settled, for the right item and amount. Older filings are looked for on the ledger.',
 		files: ['apps/web/src/lib/server/backend/', `${C}/backend/reconciler/`]
 	},
 	{
