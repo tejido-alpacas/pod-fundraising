@@ -12,8 +12,11 @@ Site (tejido.net) has. The rules:
 1. **The look is the first site's**: Rubik for text, Poppins for headings, its blues for buttons,
    links and focus, its page colour, softer rounder cards, and its logo.
 2. **The design system supplies everything else**: the components, the layout and the trust
-   vocabulary (statuses, claimed is dashed, confirmed is solid). The status colours are the design
-   system's own and are never changed to match the brand.
+   vocabulary (statuses, claimed is dashed, confirmed is solid). Warning colours (attention,
+   overdue, flagged) and the indigo "record" tone are the design system's own and are never changed
+   to match the brand. In the App, a confirmed milestone and one in progress are drawn in the first
+   site's blues (`first-site.css`, "Milestone colours"); on the Campaign Site they keep the design
+   system's teal and steel blue.
 3. **Where the look's values live.** For the App: `packages/ui/src/first-site.css`, loaded last by
    `styles.css`. For the Campaign Site: `apps/web/src/lib/campaign-site/design-system-v1.css`. They
    hold the same values. Change one and you change the other, in the same way.
