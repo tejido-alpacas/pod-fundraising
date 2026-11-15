@@ -55,6 +55,7 @@ import {
 	campaigns,
 	deposits,
 	entries,
+	entryPurchases,
 	evidenceFiles,
 	itemProvisioning,
 	milestones,
@@ -341,9 +342,52 @@ export async function listDeposits(db: Executor, campaignId: string): Promise<De
 export async function insertEntryWithDeposit(
 	db: Database,
 	entry: Entry,
-	deposit: Deposit
+	deposit: Deposit,
+	purchase: FiledPurchase | null = null
 ): Promise<void> {
-	await db.batch([db.insert(entries).values(entry), db.insert(deposits).values(deposit)]);
+	await db.batch([
+		db.insert(entries).values(entry),
+		db.insert(deposits).values(deposit),
+		...purchaseInsert(db, entry, purchase)
+	]);
+}
+
+/**
+ * The purchase Qatom named when it called us with a filing: its transaction id, and the
+ * catalog item it was a purchase of when Qatom said which. Kept beside the entry so the
+ * purchase can be looked up at Qatom afterwards.
+ */
+export interface FiledPurchase {
+	transactionId: string;
+	catalogItemId: number | null;
+}
+
+/** The insert that keeps a filing's purchase, in the same batch as its entry, or nothing. */
+function purchaseInsert(db: Database, entry: Entry, purchase: FiledPurchase | null) {
+	if (purchase === null) return [];
+	return [
+		db.insert(entryPurchases).values({
+			entryId: entry.id,
+			transactionId: purchase.transactionId,
+			catalogItemId: purchase.catalogItemId
+		})
+	];
+}
+
+/** The purchase Qatom named with an entry, or undefined when it was filed without one. */
+export async function getEntryPurchase(
+	db: Executor,
+	entryId: string
+): Promise<FiledPurchase | undefined> {
+	const [row] = await db
+		.select({
+			transactionId: entryPurchases.transactionId,
+			catalogItemId: entryPurchases.catalogItemId
+		})
+		.from(entryPurchases)
+		.where(eq(entryPurchases.entryId, entryId))
+		.limit(1);
+	return row;
 }
 
 /** A milestone moving from one state to the next because of an entry. */
@@ -365,7 +409,8 @@ export async function insertEntryAdvancingMilestone(
 	db: Database,
 	entry: Entry,
 	deposit: Deposit,
-	advance: MilestoneAdvance
+	advance: MilestoneAdvance,
+	purchase: FiledPurchase | null = null
 ): Promise<boolean> {
 	const [, , moved] = await db.batch([
 		db.insert(entries).values(entry),
@@ -380,7 +425,8 @@ export async function insertEntryAdvancingMilestone(
 					eq(milestones.state, advance.from)
 				)
 			)
-			.returning({ id: milestones.id })
+			.returning({ id: milestones.id }),
+		...purchaseInsert(db, entry, purchase)
 	]);
 	return moved.length > 0;
 }

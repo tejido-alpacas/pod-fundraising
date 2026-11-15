@@ -3,8 +3,10 @@
 import { CHECKIN_SECRET_HEADER, DEPOSIT_AMOUNT, checkinResponseSchema } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import {
+	entryPurchases,
 	evidenceFiles,
 	getEntry,
+	getEntryPurchase,
 	getMilestone,
 	listDeposits,
 	listEntries,
@@ -666,5 +668,94 @@ describe('the photos list', () => {
 
 		expect(eleven).toMatchObject({ status: 422, body: { error: 'invalid_inputs' } });
 		expect(badHash.body.problems?.map((problem) => problem.input)).toEqual(['photos.0.sha256']);
+	});
+});
+
+describe('the purchase Qatom names with a filing', () => {
+	const TRANSACTION = '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12';
+	const withSale = (extra: Record<string, string>) => ({
+		[CHECKIN_SECRET_HEADER]: SECRET,
+		...extra
+	});
+
+	async function filed(body: unknown, headers: Record<string, string>) {
+		const answer = await post(body, headers);
+		if (!answer.body.accepted) throw new Error(`expected acceptance: ${answer.body.message}`);
+		return answer.body.entry_id;
+	}
+
+	it('is kept beside the entry: the transaction id and the catalog item id', async () => {
+		const entryId = await filed(
+			workLog,
+			withSale({ 'X-Qatom-Transaction-Id': TRANSACTION, 'X-Qatom-Catalog-Item-Id': '42' })
+		);
+
+		expect(await getEntryPurchase(test.db, entryId)).toEqual({
+			transactionId: TRANSACTION,
+			catalogItemId: 42
+		});
+		// The entry itself is saved exactly as before: nothing is verified by a header.
+		expect(await getEntry(test.db, entryId)).toMatchObject({
+			status: 'filed',
+			twistId: null,
+			payingWallet: null,
+			stampedAt: null
+		});
+	});
+
+	it('is kept when the filing also moves its milestone on', async () => {
+		const entryId = await filed(
+			wallsClaim,
+			withSale({ 'x-qatom-transaction-id': TRANSACTION.toUpperCase() })
+		);
+
+		expect(await milestone('m2-walls')).toMatchObject({ state: 'claimed' });
+		// Lower-cased, and no catalog item id because Qatom sent none.
+		expect(await getEntryPurchase(test.db, entryId)).toEqual({
+			transactionId: TRANSACTION,
+			catalogItemId: null
+		});
+	});
+
+	it('a filing without a transaction id is saved all the same, with no purchase', async () => {
+		const entryId = await filed(workLog, withSale({ 'X-Qatom-Catalog-Item-Id': '42' }));
+
+		expect(await getEntryPurchase(test.db, entryId)).toBeUndefined();
+		expect(await test.db.select().from(entryPurchases)).toEqual([]);
+	});
+
+	it('keeps nothing for a transaction id that is not a UUID', async () => {
+		for (const value of [
+			'',
+			'abc',
+			'../v4/transfer',
+			`${TRANSACTION}/x`,
+			`${TRANSACTION} ${TRANSACTION}`
+		]) {
+			await filed(workLog, withSale({ 'X-Qatom-Transaction-Id': value }));
+		}
+		expect(await test.db.select().from(entryPurchases)).toEqual([]);
+	});
+
+	it('keeps the transaction id but no catalog item id when that is not a whole number', async () => {
+		for (const item of ['0', '-3', '4.2', 'forty-two', '1e3']) {
+			const entryId = await filed(
+				workLog,
+				withSale({ 'X-Qatom-Transaction-Id': TRANSACTION, 'X-Qatom-Catalog-Item-Id': item })
+			);
+			expect(await getEntryPurchase(test.db, entryId), item).toEqual({
+				transactionId: TRANSACTION,
+				catalogItemId: null
+			});
+		}
+	});
+
+	it('keeps nothing when the filing is refused', async () => {
+		const answer = await post(
+			{ ...workLog, reporter_code: 'rc_22222222222222222222' },
+			withSale({ 'X-Qatom-Transaction-Id': TRANSACTION })
+		);
+		expect(answer.status).toBe(404);
+		expect(await test.db.select().from(entryPurchases)).toEqual([]);
 	});
 });

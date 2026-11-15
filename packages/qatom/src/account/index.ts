@@ -196,6 +196,27 @@ export interface Checkout {
 	url: string;
 }
 
+/**
+ * What Qatom's own record says about one purchase of a catalog item.
+ *
+ * It says that a sale happened, of which item, for how much and when it settled. It does NOT
+ * say who paid: Qatom's purchase record names no payer.
+ */
+export type Purchase =
+	/** Qatom has no purchase with this transaction id that the account may read. */
+	| { status: 'not_found' }
+	/** Qatom knows the purchase, and it has not settled (yet). */
+	| { status: 'not_settled' }
+	| {
+			status: 'settled';
+			/** The catalog item that was bought. */
+			catalogItemId: number;
+			/** The price paid, in TEJIDO'S unit, whole thousandths of USD-TDN: 0.100 is `100`. */
+			amount: number;
+			/** When the sale settled, as an ISO 8601 string in UTC. */
+			settledAt: string;
+	  };
+
 export interface MerchantAccount {
 	/**
 	 * Turns a catalog item's commodity id into the commodity hash its ledger is read by.
@@ -285,6 +306,17 @@ export interface MerchantAccount {
 	 * is unknown: look with `findCatalogItem` before creating again.
 	 */
 	createCatalogItem(request: NewCatalogItem): Promise<CatalogItem>;
+
+	/**
+	 * Looks up one purchase of one of the account's catalog items by the transaction id Qatom
+	 * sent with the sale (the `X-Qatom-Transaction-Id` header of its call to the item's
+	 * endpoint). GET /v4/catalog/purchases/{transaction_id}, with the account's own token:
+	 * only the item's manager may ask.
+	 *
+	 * It only reads. A 404 is `not_found`; a purchase with no settled time is `not_settled`.
+	 * The answer never says who paid.
+	 */
+	getPurchase(transactionId: string): Promise<Purchase>;
 
 	/**
 	 * Every catalog item the account has on sale, oldest first, with its price and the URL it
@@ -389,6 +421,20 @@ const createdCommoditySchema = z.object({ hash: z.string() });
 
 const updatedCommoditySchema = z.object({
 	commodity: z.object({ id: z.number().int().positive(), hash: z.string() })
+});
+
+/** Qatom's transaction id: a UUID. It goes into a URL path. */
+const TRANSACTION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+// `amount` is a string with three decimals ("0.100"), as Qatom's server sends it. `settled_at`
+// is a date-time, and is null or left out while the sale has not settled.
+const purchaseSchema = z.object({
+	purchase: z.object({
+		transaction_id: z.string(),
+		catalog_item_id: z.number().int().positive(),
+		amount: z.string().regex(/^[0-9]{1,12}(\.[0-9]{1,6})?$/),
+		settled_at: z.string().nullish()
+	})
 });
 
 const managedItemSchema = z.object({
@@ -862,6 +908,53 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 				throw new QatomResponseError(operation, 'url is missing or is not an https link');
 			}
 			return { url: link.href };
+		},
+
+		async getPurchase(transactionId) {
+			const operation = 'account.purchase';
+			if (!TRANSACTION_ID.test(transactionId)) {
+				throw new TypeError('transactionId must be a UUID');
+			}
+			let body: unknown;
+			try {
+				body = await authorized((authorization) =>
+					send({
+						operation,
+						method: 'GET',
+						url: apiUrl(config.paymentApiUrl, `/v4/catalog/purchases/${transactionId}`),
+						headers: { authorization },
+						timeoutMs: DEFAULT_TIMEOUT_MS
+					})
+				);
+			} catch (error) {
+				if (error instanceof QatomHttpError && error.status === 404) {
+					return { status: 'not_found' };
+				}
+				throw error;
+			}
+			const parsed = purchaseSchema.safeParse(body);
+			if (!parsed.success) {
+				throw new QatomResponseError(operation, 'not a purchase with an item and an amount');
+			}
+			const { purchase } = parsed.data;
+			if (purchase.transaction_id.toLowerCase() !== transactionId.toLowerCase()) {
+				throw new QatomResponseError(operation, 'the answer is about another purchase');
+			}
+			if (purchase.settled_at === null || purchase.settled_at === undefined) {
+				return { status: 'not_settled' };
+			}
+			const settledAtMs = Date.parse(purchase.settled_at);
+			// Decimal USD-TDN becomes our thousandths in amounts.ts, the one place that converts.
+			const amount = fromQatomAmount(Number(purchase.amount));
+			if (Number.isNaN(settledAtMs) || amount === null || amount <= 0) {
+				throw new QatomResponseError(operation, 'settled_at or amount cannot be read');
+			}
+			return {
+				status: 'settled',
+				catalogItemId: purchase.catalog_item_id,
+				amount,
+				settledAt: new Date(settledAtMs).toISOString()
+			};
 		},
 
 		refundTestPersonFromItemTwin(request) {

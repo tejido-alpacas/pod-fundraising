@@ -254,6 +254,37 @@ export const donationUndos = sqliteTable('donation_undos', {
 });
 
 // ---------------------------------------------------------------------------
+// The purchase Qatom named with a filing (bookkeeping; not a contract record)
+// ---------------------------------------------------------------------------
+
+/**
+ * What Qatom said about the sale when it called our check-in endpoint: the id of the purchase
+ * (`X-Qatom-Transaction-Id`) and the catalog item it was a purchase of
+ * (`X-Qatom-Catalog-Item-Id`). One row for an entry filed with a transaction id; none for an
+ * entry filed without one.
+ *
+ * It is kept so the purchase can be looked up at Qatom afterwards. It decides nothing by
+ * itself, and it names no wallet and no person.
+ *
+ * The transaction id is not unique here on purpose: if Qatom ever calls twice for one sale,
+ * both filings are saved as they are today, and whatever reads this decides which one the
+ * sale proves.
+ */
+export const entryPurchases = sqliteTable(
+	'entry_purchases',
+	{
+		entryId: text('entry_id')
+			.primaryKey()
+			.references(() => entries.id),
+		/** Qatom's id of the purchase, as it sent it. */
+		transactionId: text('transaction_id').notNull(),
+		/** Qatom's id of the catalog item the purchase was of. Null when it sent none we can read. */
+		catalogItemId: integer('catalog_item_id')
+	},
+	(table) => [index('entry_purchases_transaction_idx').on(table.transactionId)]
+);
+
+// ---------------------------------------------------------------------------
 // Deposit refunds (bookkeeping for transfers; not contract records)
 // ---------------------------------------------------------------------------
 
