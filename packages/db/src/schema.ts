@@ -28,7 +28,9 @@ import type {
 	PrimaryWalletHostname,
 	RefundStatus
 } from '@tejido/contracts';
+import { sql } from 'drizzle-orm';
 import {
+	check,
 	foreignKey,
 	index,
 	integer,
@@ -239,8 +241,13 @@ export const refunds = sqliteTable(
 		partyId: text('party_id')
 			.notNull()
 			.references(() => parties.id),
-		// The wallet the transfer was addressed to. Always a PRIMARY wallet, never an agent wallet.
-		primaryWalletHostname: text('primary_wallet_hostname').$type<PrimaryWalletHostname>().notNull(),
+		// The wallet the transfer was addressed to: exactly one of the two is set (the check
+		// below). For every party but one kind it is the PRIMARY wallet, never the agent wallet.
+		primaryWalletHostname: text('primary_wallet_hostname').$type<PrimaryWalletHostname>(),
+		// Set ONLY on a refund to an end-to-end test person (CLAUDE.md, "Qatom": the one
+		// exception, the owner's decision of 15 November 2026): their deposits go back to the
+		// agent wallet they were paid from. Null on every other refund.
+		agentWalletHostname: text('agent_wallet_hostname').$type<AgentWalletHostname>(),
 		/** The digital quantity hash the ledger reported for the deposits, sent as the transfer's type. */
 		dq: text('dq').notNull(),
 		/** The total sent, in Qatom's smallest unit: the sum of the claimed deposits. */
@@ -255,7 +262,12 @@ export const refunds = sqliteTable(
 			columns: [table.campaignId, table.milestoneId],
 			foreignColumns: [milestones.campaignId, milestones.id]
 		}),
-		index('refunds_milestone_idx').on(table.campaignId, table.milestoneId)
+		index('refunds_milestone_idx').on(table.campaignId, table.milestoneId),
+		// A refund names one wallet, and says which kind it is by the column it is in.
+		check(
+			'refunds_one_wallet',
+			sql`(primary_wallet_hostname is null) <> (agent_wallet_hostname is null)`
+		)
 	]
 );
 

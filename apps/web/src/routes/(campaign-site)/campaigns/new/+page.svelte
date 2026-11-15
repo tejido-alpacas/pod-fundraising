@@ -4,6 +4,7 @@
 	import { page } from '$app/state';
 	import { Banner, Icon } from '@tejido/ui';
 	import { onMount, untrack } from 'svelte';
+	import type { PageProps } from './$types';
 	import { checkDraft, noticesFor } from '#lib/campaign-site/builder/check.ts';
 	import Created from '#lib/campaign-site/builder/Created.svelte';
 	import {
@@ -33,6 +34,8 @@
 		saveDraft
 	} from '#lib/campaign-site/builder/store.ts';
 	import { STEP_NAME, UNIT } from '#lib/campaign-site/builder/words.ts';
+
+	let { data }: PageProps = $props();
 
 	const HOME = '/';
 
@@ -174,7 +177,13 @@
 
 <div class="tj-page builder">
 	{#if showCreated && created}
-		<Created {created} bind:heading />
+		<Created
+			{created}
+			lang={data.lang}
+			email={data.donorEmail}
+			publishing={data.publishing?.campaignId === created.id ? data.publishing : null}
+			bind:heading
+		/>
 	{:else}
 		<form
 			method="POST"
@@ -204,7 +213,8 @@
 						clearDraft();
 						draft = emptyDraft();
 						errors = {};
-						await goto('?created=1');
+						// The address names the campaign, so this screen can offer to publish it.
+						await goto(`?created=${encodeURIComponent(made.id)}`);
 					} else if (result.type === 'success') {
 						errors = Object.fromEntries(
 							Object.entries(errors).filter(([name]) => stepOf(name) !== checking)

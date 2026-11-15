@@ -10,8 +10,19 @@ Cron Trigger in `apps/web/wrangler.jsonc`, `triggers.crons`) calls the `schedule
 `worker.ts`, which hands the Worker's own request handler a `POST /api/reconcile` with the
 shared-secret header. No network hop, and the same route a person's call goes through.
 
-- Reconcile only. `/api/funding` and `/api/schedule` are not on the timer; adding one is one
-  more call in `worker.ts`. `/api/refunds` moves money and must never be put there.
+- Reconcile, and then one more thing. `/api/funding` and `/api/schedule` are not on the timer;
+  adding one is one more call in `worker.ts`. `/api/refunds` moves money and must never be put
+  there: the product's refunds go to primary wallets and only when a person asks.
+- The one more thing is for the end-to-end test accounts only (`CLAUDE.md`, "Qatom": the one
+  exception, the owner's decision of 15 November 2026). After a reconcile pass that worked, the
+  timer asks for `POST /api/test-account-refunds`. A party whose email is at the test inbox
+  domain gets their deposits on a confirmed milestone back in the agent wallet they were paid
+  from, out of the twin the item is sold from, so the automatic paid tests keep themselves
+  funded. Nobody else is refunded that way. The rules are in `test-account-refunds.ts`; the
+  Qatom calls are in `packages/qatom/src/account/item-twin-refund.ts`. To turn it off, remove
+  the `refundTestAccountsOnTimer` call in `worker.ts`. A pass that had something to consider
+  writes one line to the Worker's logs, such as `Test-account refunds: 0 sent, 3 skipped
+(item_twin_balance_too_low 3), a person needs to look: no.` Counts and reason names only.
 - `worker.ts` is the Worker's entry (`main` in `wrangler.jsonc`). SvelteKit's adapter has no
   option for a timer, so the entry is the Worker the build generates plus the handler. The
   build writes the generated Worker to the path in `apps/web/wrangler.build.jsonc`.
@@ -40,10 +51,12 @@ at the top of `reconciler.ts`.
 - A receipt on the wrong entry is worse than a missing one. When it is not exactly one each
   way (two filings a few minutes apart by one person, on one campaign or on two), nothing is
   recorded and the entries are counted as `ambiguous`. They stay at "Receipt pending".
-- A campaign is read only once an item's commodity id is stored on it (`logWorkCommodityId`,
-  `milestoneHitCommodityId`). Until then it is counted in `campaignsWithoutItems` and its
-  entries stay as they are.
-- The answer counts: `campaigns` (with an item to read), `ledgersRead` (a shared ledger counts
+- Every campaign is read. One that stores a commodity id of its own for an item
+  (`logWorkCommodityId`, `milestoneHitCommodityId`) is read under that id. One that stores none,
+  which is every campaign made with the builder, is read under the two shared items
+  (`SHARED_ITEM_COMMODITY_ID` in `reconciler.ts`: the owner's decision, 15 November). It is
+  still counted in `campaignsWithoutItems`, as information; it is not skipped.
+- The answer counts: `campaigns` (every campaign), `ledgersRead` (a shared ledger counts
   once), `matched` (`verified` + `flagged` + `stampedIncomplete`), and `unmatched` (still
   waiting, including `ambiguous` and `waitingForWallet`). `ledgerErrors` has one line for each
   ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.

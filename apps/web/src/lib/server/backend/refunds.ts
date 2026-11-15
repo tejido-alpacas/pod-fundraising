@@ -18,6 +18,10 @@
  *      KNOWN. The refund becomes `unknown` and keeps its deposits. Nothing here ever sends
  *      them again; a person checks the wallet and settles the row.
  *
+ * NOT THE END-TO-END TEST PEOPLE. A party whose email is at the test inbox domain is skipped
+ * here: by the one exception in CLAUDE.md their deposits go back to their agent wallet, by
+ * themselves, in test-account-refunds.ts. Everyone else is refunded here and only here.
+ *
  * WHICH DEPOSITS. Only a deposit whose entry the reconciler has matched to a ledger
  * transaction (it has a `twistId`) and has not flagged. Until then we have not seen that the
  * deposit was paid, or by whom, so it is skipped and reported, and a later request picks it up.
@@ -47,7 +51,7 @@ import {
 	type UnrefundedDeposit
 } from '@tejido/db';
 import { QatomError, QatomHttpError } from '@tejido/qatom';
-import type { MerchantAccount } from '@tejido/qatom/account';
+import { isEndToEndTestEmail, type MerchantAccount } from '@tejido/qatom/account';
 import { randomUUID } from 'node:crypto';
 
 /** Why deposits were not sent back by this request. */
@@ -62,6 +66,11 @@ export type RefundSkipReason =
 	| 'refund_outcome_unknown'
 	/** The party has not signed in with Qatom, so there is no primary wallet to send to. */
 	| 'no_primary_wallet'
+	/**
+	 * The party is an end-to-end test person. Their deposits go back by themselves, to their
+	 * agent wallet (test-account-refunds.ts), and never from here.
+	 */
+	| 'test_person'
 	/** The campaign does not have the catalog item's commodity id stored. */
 	| 'no_commodity_id'
 	/**
@@ -148,6 +157,8 @@ const SKIP_MESSAGES: Record<RefundSkipReason, string> = {
 		'Not sent: an earlier transfer of these deposits got no answer, so it may already have gone through. A person must check the wallet.',
 	no_primary_wallet:
 		'Not sent: this party has not signed in with Qatom, so there is no primary wallet to send to.',
+	test_person:
+		'Not sent from here: this party is an end-to-end test account. Its deposits go back by themselves, on the timer, to its agent wallet.',
 	no_commodity_id:
 		"Not sent: the campaign does not have this catalog item's commodity id, so its ledger cannot be read.",
 	ledger_unavailable:
@@ -329,6 +340,14 @@ export async function refundMilestone(options: RefundMilestoneOptions): Promise<
 	const dqOf = digitalQuantities(account, campaign);
 	for (const [partyId, deposits] of ready) {
 		const party = parties.get(partyId);
+
+		// The one exception to the primary-wallet rule is not made here. An end-to-end test
+		// person is refunded by the timer's own pass (test-account-refunds.ts), to the agent
+		// wallet; sending from here as well would pay the same person by two roads.
+		if (party && isEndToEndTestEmail(party.email)) {
+			skip(partyId, deposits, 'test_person');
+			continue;
+		}
 
 		// Refunds go to the PRIMARY wallet only. With none linked there is nowhere to send:
 		// the agent wallet is never used instead.

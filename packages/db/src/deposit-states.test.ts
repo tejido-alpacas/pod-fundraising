@@ -10,7 +10,7 @@ import {
 	markRefundFailed,
 	markRefundSent,
 	markRefundUnknown,
-	type Refund
+	type NewRefund
 } from './index.ts';
 import { entries, milestones, parties, refundAttempts, refundDeposits } from './schema.ts';
 import { createTestDatabase, type TestDatabase } from './testing.ts';
@@ -35,13 +35,14 @@ beforeEach(async () => {
 });
 afterEach(() => test?.destroy());
 
-function started(id: string, startedAt = AT): Refund {
+function started(id: string, startedAt = AT): NewRefund {
 	return {
 		id,
 		campaignId: CAMPAIGN,
 		milestoneId: WALLS,
 		partyId: contractor.id,
 		primaryWalletHostname: contractor.primaryWalletHostname!,
+		agentWalletHostname: null,
 		dq: '41dq',
 		amount: LOG,
 		status: 'started',

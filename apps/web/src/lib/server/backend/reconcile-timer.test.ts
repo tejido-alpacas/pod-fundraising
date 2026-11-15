@@ -2,7 +2,7 @@
 // reaches the network.
 import { CHECKIN_SECRET_HEADER } from '@tejido/contracts';
 import { describe, expect, it } from 'vitest';
-import { reconcileOnTimer } from './reconcile-timer.ts';
+import { reconcileOnTimer, refundTestAccountsOnTimer } from './reconcile-timer.ts';
 
 const SECRET = 'test-checkin-secret-test-checkin-secret';
 const ORIGIN = 'https://tejido.example';
@@ -59,5 +59,50 @@ describe('reconcileOnTimer', () => {
 		const { result } = await pass(() => Promise.reject(thrown));
 
 		await expect(result).rejects.toBe(thrown);
+	});
+});
+
+describe('refundTestAccountsOnTimer', () => {
+	async function refundPass(answer: () => Promise<Response>) {
+		const requests: Request[] = [];
+		const result = refundTestAccountsOnTimer({
+			respond: (request) => {
+				requests.push(request);
+				return answer();
+			},
+			origin: ORIGIN,
+			secret: SECRET
+		});
+		return { requests, result };
+	}
+
+	it('asks for POST /api/test-account-refunds once, never /api/refunds, with the shared secret', async () => {
+		const { requests, result } = await refundPass(() =>
+			Promise.resolve(Response.json({ sent: [] }))
+		);
+
+		expect(await result).toBe(200);
+		expect(requests).toHaveLength(1);
+		const request = requests[0]!;
+		expect(request.method).toBe('POST');
+		expect(request.url).toBe(`${ORIGIN}/api/test-account-refunds`);
+		expect(request.headers.get(CHECKIN_SECRET_HEADER)).toBe(SECRET);
+		expect(request.headers.get('origin')).toBe(ORIGIN);
+		// It names nobody: who is refunded is not the caller's to say.
+		expect(await request.text()).toBe('');
+	});
+
+	it('fails with the status only when the route refuses or breaks', async () => {
+		for (const status of [401, 403, 500]) {
+			const { result } = await refundPass(() =>
+				Promise.resolve(new Response(`body that names ${SECRET} and a twin key`, { status }))
+			);
+
+			const message = await failure(result);
+			expect(message).toBe(
+				`Test-account refunds on the timer failed: POST /api/test-account-refunds answered ${status}.`
+			);
+			expect(message).not.toContain(SECRET);
+		}
 	});
 });

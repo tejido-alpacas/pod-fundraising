@@ -245,6 +245,86 @@ const NEW_STRINGS = {
 		'Start a campaign',
 		'Lancez une campagne',
 		'Comece uma campanha'
+	],
+	// Publishing a draft campaign: after the builder's last step, and on the draft's own page.
+	publish_title: [
+		'Esta campaña es un borrador',
+		'This campaign is a draft',
+		'Cette campagne est un brouillon',
+		'Esta campanha é um rascunho'
+	],
+	publish_what: [
+		'Al publicarla, la campaña aparece en las listas del sitio (Inicio, Explorar y Dar) y cualquiera puede abrirla. Hasta entonces sigue siendo un borrador.',
+		'Publishing puts the campaign on the site’s lists (Home, Explore and Give), and anyone can open it. Until then it stays a draft.',
+		'Une fois publiée, la campagne apparaît dans les listes du site (Accueil, Explorer et Donner) et tout le monde peut l’ouvrir. D’ici là, elle reste un brouillon.',
+		'Ao publicar, a campanha aparece nas listas do site (Início, Explorar e Doar) e qualquer pessoa pode abri-la. Até lá, continua sendo um rascunho.'
+	],
+	publish_button: [
+		'Publicar campaña',
+		'Publish campaign',
+		'Publier la campagne',
+		'Publicar campanha'
+	],
+	publish_busy: ['Publicando…', 'Publishing…', 'Publication…', 'Publicando…'],
+	publish_signed_out: [
+		'Solo quien organiza la campaña puede publicarla, y no has iniciado sesión. Inicia sesión con Qatom usando el correo del organizador, el que se escribió al crear la campaña. Después volverás a esta página.',
+		'Only the campaign’s organiser can publish it, and you are not signed in. Sign in with Qatom using the organiser’s email, the one entered when the campaign was created. You will come back to this page afterwards.',
+		'Seul l’organisateur de la campagne peut la publier, et vous n’êtes pas connecté. Connectez-vous avec Qatom en utilisant l’e-mail de l’organisateur, celui saisi à la création de la campagne. Vous reviendrez ensuite sur cette page.',
+		'Só quem organiza a campanha pode publicá-la, e você não entrou. Entre com o Qatom usando o e-mail do organizador, o que foi informado ao criar a campanha. Depois você voltará a esta página.'
+	],
+	publish_signin: [
+		'Iniciar sesión para publicar',
+		'Sign in to publish',
+		'Se connecter pour publier',
+		'Entrar para publicar'
+	],
+	publish_someone_else: [
+		'Tu sesión es de {email}, que no es el correo del organizador de esta campaña. Solo ese correo puede publicarla. Cierra la sesión y vuelve a iniciarla con el correo del organizador.',
+		'You are signed in as {email}, which is not the email of this campaign’s organiser. Only that email can publish it. Sign out, then sign in with the organiser’s email.',
+		'Vous êtes connecté en tant que {email}, qui n’est pas l’e-mail de l’organisateur de cette campagne. Seul cet e-mail peut la publier. Déconnectez-vous, puis connectez-vous avec l’e-mail de l’organisateur.',
+		'Você entrou como {email}, que não é o e-mail do organizador desta campanha. Só esse e-mail pode publicá-la. Saia e entre de novo com o e-mail do organizador.'
+	],
+	publish_signin_other: [
+		'Iniciar sesión con otro correo',
+		'Sign in with another email',
+		'Se connecter avec un autre e-mail',
+		'Entrar com outro e-mail'
+	],
+	publish_refused: [
+		'No se publicó. No se cambió nada.',
+		'Not published. Nothing was changed.',
+		'Non publiée. Rien n’a été modifié.',
+		'Não publicada. Nada foi alterado.'
+	],
+	publish_not_draft: [
+		'Esta campaña ya no es un borrador, así que no se cambió nada.',
+		'This campaign is no longer a draft, so nothing was changed.',
+		'Cette campagne n’est plus un brouillon, donc rien n’a été modifié.',
+		'Esta campanha já não é um rascunho, então nada foi alterado.'
+	],
+	publish_failed: [
+		'Eso no llegó a Tejido. No se cambió nada. Revisa tu conexión e inténtalo de nuevo.',
+		'That didn’t reach Tejido. Nothing was changed. Check your connection and try again.',
+		'Cela n’est pas parvenu à Tejido. Rien n’a été modifié. Vérifiez votre connexion et réessayez.',
+		'Isso não chegou ao Tejido. Nada foi alterado. Verifique sua conexão e tente de novo.'
+	],
+	publish_done_title: [
+		'Campaña publicada',
+		'Campaign published',
+		'Campagne publiée',
+		'Campanha publicada'
+	],
+	publish_done: [
+		'Ya aparece en las listas del sitio (Inicio, Explorar y Dar) y cualquiera puede abrirla.',
+		'It is now on the site’s lists (Home, Explore and Give), and anyone can open it.',
+		'Elle apparaît maintenant dans les listes du site (Accueil, Explorer et Donner) et tout le monde peut l’ouvrir.',
+		'Ela já aparece nas listas do site (Início, Explorar e Doar) e qualquer pessoa pode abri-la.'
+	],
+	publish_see_explore: [
+		'Verla en Explorar',
+		'See it on Explore',
+		'La voir dans Explorer',
+		'Ver em Explorar'
 	]
 } as const satisfies Record<string, Row>;
 
