@@ -69,3 +69,36 @@ export function assertQatomPage(url: string, config: Pick<E2eConfig, 'qatomHost'
 		`The sign-in is on ${host}, not on https://${config.qatomHost}. Nothing was typed there.`
 	);
 }
+
+/**
+ * The host of Qatom's checkout pages in production. Qatom's `POST /v4/payment/checkout`
+ * answers a link of the form `{CHECKOUT_BASE_URL}/checkout/{hash}`, and production's
+ * `CHECKOUT_BASE_URL` is `https://checkout.m.todaq.net` (read from Qatom's own code and
+ * deployment). It is not the host its sign-in pages are on.
+ */
+export const QATOM_CHECKOUT_HOST = 'checkout.m.todaq.net';
+
+/**
+ * Fails unless `url` is one of Qatom's checkout pages, over HTTPS. The message names the host
+ * only: the rest of a checkout's address is what lets its holder pay it, so it is never
+ * repeated.
+ */
+export function assertQatomCheckoutPage(url: string): void {
+	let host = 'an unreadable address';
+	try {
+		const parsed = new URL(url);
+		if (
+			parsed.protocol === 'https:' &&
+			parsed.hostname === QATOM_CHECKOUT_HOST &&
+			parsed.pathname.startsWith('/checkout/')
+		) {
+			return;
+		}
+		host = parsed.host;
+	} catch {
+		// Falls through to the refusal below.
+	}
+	throw new SafetyError(
+		`The browser is on ${host}, not on one of Qatom's checkout pages (https://${QATOM_CHECKOUT_HOST}/checkout/…).`
+	);
+}

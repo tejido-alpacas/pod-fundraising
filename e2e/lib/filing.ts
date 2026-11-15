@@ -122,7 +122,34 @@ export async function fileFromReview(
 		);
 	}
 
+	const timeline = page.locator('section[aria-labelledby="timeline"]');
+	/** Whether the entry is on the campaign's public timeline within `timeoutMs`. */
+	const onTimeline = async (timeoutMs: number): Promise<boolean> => {
+		try {
+			await expect(async () => {
+				await page.goto(`${cfg.siteUrl}/campaigns/${cfg.campaignId}`);
+				await expect(timeline).toContainText(reference, { timeout: 5_000 });
+			}).toPass({ timeout: timeoutMs });
+			return true;
+		} catch {
+			return false;
+		}
+	};
+
 	if (outcome === 'not_sent') {
+		// The chat drew no filing. That is not proof that nothing was filed: the chat knows a
+		// filing only by its tool's name, and has shown a real, paid filing as an ordinary answer
+		// from Qatom (run 53). The public timeline is what says whether it was filed.
+		if (await onTimeline(30_000)) {
+			await waypoint(page, 'timeline-entry').catch(() => undefined);
+			throw new Error(
+				`THE ${filing.what.toUpperCase()} WAS FILED AND ITS DEPOSIT PAID, BUT THE APP DID NOT SAY SO. ` +
+					`The entry "${reference}" is on the campaign’s public timeline, so ${filing.deposit} ` +
+					`left the test ${filing.who}’s agent wallet. The App’s chat showed no "Submitted" line ` +
+					'for it: a person filing would not be told their report was filed. That is a fault in ' +
+					`the App, not in the filing. Do not file again. ${words}`
+			);
+		}
 		// A wallet that is short is a job for a person, not a fault in the product: say so as a
 		// notice and stop, without a red failure. This leans on the assistant's wording, because
 		// neither the suite nor the App's pages can read a wallet's balance.
@@ -137,9 +164,10 @@ export async function fileFromReview(
 			test.skip(true, notice);
 		}
 		throw new Error(
-			'NOTHING WAS FILED: the assistant replied without using a filing tool, so no deposit was ' +
-				'paid. It is safe to run again once the cause is dealt with. ' +
-				(approval ? 'It speaks of an approval: see its words. ' : '') +
+			'NOTHING WAS FILED, as far as the App and the public timeline show: the chat drew no filing ' +
+				`and the entry "${reference}" is not on the campaign’s timeline, so no deposit shows as ` +
+				'paid. ' +
+				(approval ? 'The assistant speaks of an approval: see its words. ' : '') +
 				words
 		);
 	}
@@ -147,16 +175,7 @@ export async function fileFromReview(
 	// A filing tool was used and answered ("submitted"), or answered with an error ("problem").
 	// Neither says the report was recorded: Qatom can answer that a payment is waiting to be
 	// approved, and Tejido can refuse a report. The public timeline is what says it landed.
-	const timeline = page.locator('section[aria-labelledby="timeline"]');
-	let listed = true;
-	try {
-		await expect(async () => {
-			await page.goto(`${cfg.siteUrl}/campaigns/${cfg.campaignId}`);
-			await expect(timeline).toContainText(reference, { timeout: 5_000 });
-		}).toPass({ timeout: outcome === 'submitted' ? 120_000 : 30_000 });
-	} catch {
-		listed = false;
-	}
+	const listed = await onTimeline(outcome === 'submitted' ? 120_000 : 30_000);
 
 	if (!listed && approval) {
 		await waypoint(page, 'timeline-without-the-entry');

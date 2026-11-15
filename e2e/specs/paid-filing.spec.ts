@@ -22,8 +22,8 @@
  * The assistant files with the Qatom tools whose names end in log_work and milestone_hit, shared
  * by every campaign; Tejido finds the campaign from the person's reporter code. Nothing here
  * names a tool to the assistant: a real person would not. It never calls `transfer` or
- * `/api/refunds`. Receipts stay "pending" and nothing is refunded yet, so nothing here waits for
- * either.
+ * `/api/refunds`. A receipt may read "pending" or verified and nothing is refunded yet: nothing
+ * here expects or waits for either.
  */
 import type { Page } from '@playwright/test';
 import { BUILD_MILESTONE, draftReport, draftWorkLog } from '../lib/chat.ts';
