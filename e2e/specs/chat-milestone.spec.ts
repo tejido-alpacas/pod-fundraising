@@ -2,8 +2,9 @@
  * The chat opened for one milestone, the way a reminder's button opens it
  * (`/chat?milestone=<id>`). Signed in. No message is sent, so no model is called.
  *
- * The milestone used is the LAST one on the test campaign. Opened without a milestone, the
- * chat names the first one it finds due, so naming a different one shows the link was read.
+ * Where a milestone is picked by its address, it is the LAST one on the test campaign. Opened
+ * without a milestone, the chat names the first one it finds due, so naming a different one
+ * shows the address was read.
  */
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
@@ -45,35 +46,52 @@ async function usualMilestone(page: Page, cfg: E2eConfig): Promise<string> {
 	return (await named(page).innerText()).trim();
 }
 
-test('a reminder’s button opens the chat for that milestone, and the chat names it', async ({
+test('from the reminder page to the chat for one milestone, which the chat names', async ({
 	page,
 	cfg,
 	waypoint
 }) => {
-	const id = await lastMilestoneId(page, cfg);
-	const usual = await usualMilestone(page, cfg);
 	const messages = countMessages(page);
 
-	// The reminder for that milestone, and its one button.
-	await page.goto(`${cfg.appUrl}/reminder?milestone=${id}`);
+	// As a person arrives: the plain reminder, then the milestone it lists as also due. (When
+	// no work log is due, the plain reminder is already about a milestone.)
+	await page.goto(`${cfg.appUrl}/reminder`);
+	await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+	const alsoDue = page.getByRole('link', { name: /^Open milestone \d+$/ });
+	if ((await alsoDue.count()) > 0) {
+		await alsoDue.click();
+		await expect(page).toHaveURL(/\/reminder\?milestone=[a-z0-9-]+$/);
+	}
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Milestone \d+ (is|was) due /);
 	const reminder = await page.getByRole('main').innerText();
-	await page.getByRole('link', { name: 'Report on this milestone' }).click();
-	await expect(page).toHaveURL(`${cfg.appUrl}/chat?milestone=${id}`);
+	await waypoint(page, 'reminder-for-one-milestone');
 
-	// The chat says what the reminder was about: the same milestone the reminder page named,
-	// and not the one it would open with otherwise.
+	// Its one button opens the chat for that milestone.
+	await page.getByRole('link', { name: 'Report on this milestone' }).click();
+	await expect(page).toHaveURL(/\/chat\?milestone=[a-z0-9-]+$/);
 	await expect(greeting(page)).toContainText('Your reminder is about');
 	const title = (await named(page).innerText()).trim();
-	expect(title, 'The chat should name the milestone its address asks for.').not.toBe(usual);
 	expect(reminder, 'The chat should name the milestone the reminder was about.').toContain(title);
 
-	// Its first button is about that milestone. It is not pressed: pressing it asks the model.
+	// The chat's first button is about that milestone. It is not pressed: pressing it asks the
+	// model.
 	await expect(page.getByRole('button', { name: 'Report on this milestone' })).toBeEnabled();
 	await expect(page.getByRole('button', { name: 'Log this week’s work' })).toHaveCount(0);
 	await expect(page.locator('.log .tj-msg--human')).toHaveCount(0);
-	expect(messages(), 'Opening the chat should send the assistant nothing.').toBe(0);
 	await waypoint(page, 'chat-for-one-milestone');
+
+	// The address decides which milestone, not the order they are due in: opened for the LAST
+	// one, the chat names that one and not the one it opens with otherwise.
+	const usual = await usualMilestone(page, cfg);
+	const id = await lastMilestoneId(page, cfg);
+	await page.goto(`${cfg.appUrl}/chat?milestone=${id}`);
+	await expect(greeting(page)).toContainText('Your reminder is about');
+	await expect(
+		named(page),
+		'The chat should name the milestone its address asks for.'
+	).not.toHaveText(usual);
+	await expect(page.getByRole('button', { name: 'Report on this milestone' })).toBeEnabled();
+	expect(messages(), 'Opening the chat should send the assistant nothing.').toBe(0);
 });
 
 test('a chat link naming a milestone that is not this person’s shows nothing of it', async ({

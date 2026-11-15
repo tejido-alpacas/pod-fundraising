@@ -1,29 +1,27 @@
 /**
- * More of the App's evidence page, as the signed-in contractor: a file kept from donors, a PDF,
- * and the files the App refuses. No message is sent to the assistant, so no model is called.
+ * More of the App's evidence page, as the signed-in contractor: a PDF, the same file chosen
+ * twice, the button that copies the files for a report, and the files the App refuses. No
+ * message is sent to the assistant, so no model is called.
  *
- * WHAT THIS LEAVES ON THE LIVE SITE: two tiny PDFs (about 500 bytes each) in the evidence
- * store, uploaded by the test contractor. One is public, one is kept from donors. Each is the
- * same bytes on every run, so the store keeps one copy of each, however many runs there are.
- * Neither is attached to a report, so neither appears on the test campaign's public page.
+ * WHAT THIS LEAVES ON THE LIVE SITE: one tiny public PDF (about 500 bytes) in the evidence
+ * store, uploaded by the test contractor. It is the same bytes on every run, so the store keeps
+ * one copy, however many runs there are. It is not attached to a report, so it does not appear
+ * on the test campaign's public page.
+ *
+ * A file kept from donors is not checked here: the end-to-end session has that in a spec of
+ * its own.
  */
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import {
 	EVIDENCE_MAX_MEGABYTES,
 	fingerprintOf,
 	testDocumentFile,
-	testNotPublicFile,
 	tooBigFile,
 	wrongKindFile
 } from '../lib/files.ts';
-import { CONFIRMER_STATE } from '../lib/paths.ts';
 import type { Page } from '@playwright/test';
 
 needsSignIn();
-
-const NOT_PUBLIC_WORDS =
-	'To keep a file from donors, say what it is (up to 80 characters) and why donors are not ' +
-	'shown it (up to 200 characters). Fill in both, then choose the file again. Nothing was uploaded.';
 
 /**
  * Nobody's browser. It has to be said: a request context made inside a test otherwise starts
@@ -52,82 +50,12 @@ function countUploads(page: Page): () => number {
 	return () => sent;
 }
 
-test('a file can be kept from donors, and only the people named can open it', async ({
-	page,
-	cfg,
-	waypoint,
-	playwright,
-	browser
-}) => {
-	const file = testNotPublicFile();
-	await openEvidencePage(page, cfg.appUrl);
-	const uploads = countUploads(page);
-
-	// Ticked, with the two lines left empty: the file is not sent at all, so it can never go up
-	// as public by mistake.
-	await page.getByRole('checkbox', { name: /Keep these files from donors/ }).check();
-	await expect(page.getByText('Donors read both lines.')).toBeVisible();
-	await chooseFiles(page).setInputFiles(file);
-	await expect(rowOf(page, file.name).getByRole('alert')).toHaveText(NOT_PUBLIC_WORDS);
-	expect(uploads(), 'A file without its two lines should not be sent.').toBe(0);
-	await waypoint(page, 'not-public-lines-missing');
-	await page.getByRole('button', { name: `Remove ${file.name} from this list` }).click();
-	await expect(rowOf(page, file.name)).toHaveCount(0);
-
-	// With both lines, it uploads, and the page says who can open it.
-	await page.getByLabel('What it is').fill('Automated test document');
-	await page
-		.getByLabel('Why donors are not shown it')
-		.fill('An automated check that a file can be kept from donors.');
-	await chooseFiles(page).setInputFiles(file);
-	const row = rowOf(page, file.name);
-	await expect(row).toContainText(
-		'Uploaded. Not public: only you and this project’s confirmers can open it.',
-		{ timeout: 60_000 }
-	);
-	await expect(row).not.toContainText('Donors can see it.');
-	expect(uploads()).toBe(1);
-	await waypoint(page, 'not-public-uploaded');
-
-	const address = await row.getByRole('link', { name: `Open ${file.name}` }).getAttribute('href');
-	expect(address, 'The file should have an address named by its fingerprint.').toContain(
-		`/evidence/${fingerprintOf(file)}.pdf`
-	);
-	const url = new URL(address ?? '', cfg.appUrl).href;
-
-	// Signed out, as a donor would be: refused, and none of the file comes back.
-	const anyone = await playwright.request.newContext({ storageState: SIGNED_OUT });
-	try {
-		const refused = await anyone.get(url);
-		expect(refused.status(), 'A file kept from donors should not open signed out.').toBe(401);
-		expect(refused.headers()['content-type'] ?? '').not.toContain('application/pdf');
-		expect((await refused.body()).includes(file.buffer.subarray(0, 64))).toBe(false);
-	} finally {
-		await anyone.dispose();
-	}
-
-	// The person who uploaded it can open it, and no browser or proxy is told to keep a copy.
-	const theirs = await page.request.get(url);
-	expect(theirs.status(), 'Its uploader should be able to open it.').toBe(200);
-	expect(theirs.headers()['cache-control']).toBe('private, no-store');
-	expect((await theirs.body()).equals(file.buffer)).toBe(true);
-
-	// So can the project's confirmer.
-	const confirmer = await browser.newContext({ storageState: CONFIRMER_STATE });
-	try {
-		const seen = await confirmer.request.get(url);
-		expect(seen.status(), 'The project’s confirmer should be able to open it.').toBe(200);
-		expect((await seen.body()).equals(file.buffer)).toBe(true);
-	} finally {
-		await confirmer.close();
-	}
-});
-
 test('a PDF can be added as evidence, and opens for anyone', async ({
 	page,
 	cfg,
 	waypoint,
-	playwright
+	playwright,
+	context
 }) => {
 	const file = testDocumentFile();
 	await openEvidencePage(page, cfg.appUrl);
@@ -160,6 +88,17 @@ test('a PDF can be added as evidence, and opens for anyone', async ({
 	);
 	await expect(page.getByText('2 chosen · 1 uploaded')).toBeVisible();
 	await waypoint(page, 'pdf-uploaded');
+
+	// "Copy for your report" puts the one file on the clipboard, as its address and fingerprint.
+	await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+	await page.getByRole('button', { name: 'Copy 1 file for your report' }).click();
+	await expect(
+		page.getByRole('button', { name: 'Copied. Now paste it into your report' })
+	).toBeVisible();
+	const copied: unknown = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
+	expect(copied).toEqual([
+		{ url: new URL(address ?? '', cfg.appUrl).href, sha256: fingerprintOf(file) }
+	]);
 });
 
 test('a file that is too big, and one of the wrong kind, are refused in plain words', async ({

@@ -1,6 +1,6 @@
 /**
- * The other small files the suite offers as evidence, besides the picture in `image.ts`: two
- * PDFs it uploads, and two files the App must refuse. All are made here, so no binary file is
+ * The other small files the suite offers as evidence, besides the picture in `image.ts`: a
+ * PDF it uploads, and two files the App must refuse. All are made here, so no binary file is
  * committed, and each is the same bytes every run, so the evidence store keeps one copy.
  */
 import { createHash } from 'node:crypto';
@@ -44,19 +44,6 @@ export function testDocumentFile(): EvidenceFile {
 		name: 'e2e-document.pdf',
 		mimeType: 'application/pdf',
 		buffer: tinyPdf('Tejido automated end-to-end check. A test document, not real evidence.')
-	};
-}
-
-/**
- * The one file the suite keeps from donors. Its bytes differ from every other test file on
- * purpose: who may see a file is kept per file, so marking this one not public must never
- * change who may see another.
- */
-export function testNotPublicFile(): EvidenceFile {
-	return {
-		name: 'e2e-not-public.pdf',
-		mimeType: 'application/pdf',
-		buffer: tinyPdf('Tejido automated end-to-end check. A test document kept from donors.')
 	};
 }
 
