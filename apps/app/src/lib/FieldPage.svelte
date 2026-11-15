@@ -39,7 +39,7 @@
 	// stands in for it; where the title is the project's name, the mark sits beside it.
 	const logo = $derived(title === BRAND_NAME ? LOGO : MARK);
 
-	// From 900px there is no tab bar, so the home page's header carries the same links.
+	// From 900px there is no tab bar, so the home page's header carries the same links, in the bar.
 	const links = $derived.by(() => {
 		if (!tabs) return [];
 		// "Fix reports" is always here; the count shows only when there is something to fix.
@@ -85,9 +85,8 @@
 		flex-direction: column;
 	}
 	/* This page names itself in its own header, as the design draws it. The layout's general
-	   header and its row of links stand down while a page built on this frame is showing. */
-	:global(.tj-screen:has(.app-frame) > .tj-fieldheader),
-	:global(.tj-screen:has(.app-frame) > .tj-fieldnav) {
+	   header, with its links, stands down while a page built on this frame is showing. */
+	:global(.tj-screen:has(.app-frame) > .tj-fieldheader) {
 		display: none;
 	}
 	.app-frame {
@@ -100,8 +99,8 @@
 	.app-frame > :global(.tj-fieldheader) {
 		padding-block: var(--space-1);
 	}
-	/* Below 900px the tab bar is the navigation; the links under the header are for wide screens. */
-	.app-frame > :global(.tj-fieldnav) {
+	/* Below 900px the tab bar is the navigation; the links in the header are for wide screens. */
+	.app-frame > :global(.tj-fieldheader .tj-fieldnav) {
 		display: none;
 	}
 	.app-page {
@@ -134,9 +133,8 @@
 		padding-bottom: var(--space-3);
 	}
 	@container (min-width: 900px) {
-		.app-frame > :global(.tj-fieldnav) {
+		.app-frame > :global(.tj-fieldheader .tj-fieldnav) {
 			display: flex;
-			justify-content: center;
 		}
 		.app-page {
 			padding-top: var(--space-8);
