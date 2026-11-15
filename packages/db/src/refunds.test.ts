@@ -1,19 +1,21 @@
 // The bookkeeping that makes a deposit refund happen once only, against the real local D1.
 // Nothing here sends a transfer: this package cannot.
-import { DEPOSIT_AMOUNT } from '@tejido/contracts';
+import { agentWalletHostnameSchema, DEPOSIT_AMOUNT } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
+import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	claimDepositsForRefund,
+	listConfirmedUnrefundedDepositsByEmailDomain,
 	listDeposits,
 	listRefunds,
 	listUnrefundedDeposits,
 	markRefundFailed,
 	markRefundSent,
 	markRefundUnknown,
-	type Refund
+	type NewRefund
 } from './index.ts';
-import { deposits, entries, refundDeposits } from './schema.ts';
+import { deposits, entries, milestones, parties, refundDeposits } from './schema.ts';
 import { createTestDatabase, type TestDatabase } from './testing.ts';
 
 const CAMPAIGN = fixtures.campaign.id;
@@ -31,13 +33,14 @@ beforeEach(async () => {
 });
 afterEach(() => test?.destroy());
 
-function started(id: string, amount = 2 * DEPOSIT_AMOUNT.log_work): Refund {
+function started(id: string, amount = 2 * DEPOSIT_AMOUNT.log_work): NewRefund {
 	return {
 		id,
 		campaignId: CAMPAIGN,
 		milestoneId: WALLS,
 		partyId: contractor.id,
 		primaryWalletHostname: contractor.primaryWalletHostname!,
+		agentWalletHostname: null,
 		dq: '41dq',
 		amount,
 		status: 'started',
@@ -197,5 +200,101 @@ describe('recording what happened to the transfer', () => {
 		expect(await markRefundFailed(test.db, 'nope', 'no', AT)).toBe(false);
 		expect(await markRefundUnknown(test.db, 'nope', 'no')).toBe(false);
 		expect(await claimsOf()).toBe(2);
+	});
+});
+
+describe('unrefunded deposits on confirmed milestones, by the filer’s email domain', () => {
+	const DOMAIN = 'e2e.m.todaq.net';
+	const list = () => listConfirmedUnrefundedDepositsByEmailDomain(test.db, DOMAIN);
+	const setEmail = (partyId: string, email: string) =>
+		test.db.update(parties).set({ email }).where(eq(parties.id, partyId));
+	const confirmWalls = () =>
+		test.db
+			.update(milestones)
+			.set({ state: 'confirmed_creator', confirmedAt: AT })
+			.where(eq(milestones.id, WALLS));
+
+	it('lists nobody while no party is at the domain', async () => {
+		await confirmWalls();
+		expect(await list()).toEqual([]);
+	});
+
+	it('lists a party at the domain, whatever the letter case, with what a refund needs', async () => {
+		await confirmWalls();
+		await setEmail(contractor.id, 'Tejido-Contractor@E2E.M.Todaq.Net');
+		const rows = await list();
+
+		expect(rows.map((row) => row.deposit.id)).toEqual(WALLS_DEPOSITS);
+		expect(rows[0]).toMatchObject({
+			campaignId: CAMPAIGN,
+			milestoneId: WALLS,
+			party: {
+				id: contractor.id,
+				email: 'Tejido-Contractor@E2E.M.Todaq.Net',
+				agentWalletHostname: contractor.agentWalletHostname
+			},
+			commodityId: fixtures.campaign.logWorkCommodityId,
+			claim: null,
+			attempted: false
+		});
+	});
+
+	it('leaves out unconfirmed milestones, refunded deposits and every other domain', async () => {
+		// m2-walls is open: nothing yet, though the contractor is at the domain.
+		await setEmail(contractor.id, 'contractor@e2e.m.todaq.net');
+		expect(await list()).toEqual([]);
+
+		await confirmWalls();
+		for (const email of [
+			'contractor@sub.e2e.m.todaq.net',
+			'contractor@e2e.m.todaq.net.example',
+			'contractor@note2e.m.todaq.net',
+			'e2e.m.todaq.net@example.org'
+		]) {
+			await setEmail(contractor.id, email);
+			expect(await list(), email).toEqual([]);
+		}
+	});
+
+	it('says which refund holds a deposit, and whether one was ever tried', async () => {
+		await confirmWalls();
+		await setEmail(contractor.id, 'contractor@e2e.m.todaq.net');
+		const toAgentWallet: NewRefund = {
+			id: 'rfd-agent',
+			campaignId: CAMPAIGN,
+			milestoneId: WALLS,
+			partyId: contractor.id,
+			agentWalletHostname: agentWalletHostnameSchema.parse(contractor.agentWalletHostname),
+			dq: '41dq',
+			amount: DEPOSIT_AMOUNT.log_work,
+			status: 'started',
+			statusReason: null,
+			startedAt: AT,
+			settledAt: null
+		};
+		await claimDepositsForRefund(test.db, toAgentWallet, ['dep-m2-log-1']);
+
+		let rows = await list();
+		expect(rows.map((row) => [row.deposit.id, row.claim?.refundId ?? null, row.attempted])).toEqual(
+			[
+				['dep-m2-log-1', 'rfd-agent', true],
+				['dep-m2-log-2', null, false]
+			]
+		);
+		// The refund names the agent wallet and no primary wallet.
+		expect(await listRefunds(test.db, CAMPAIGN, WALLS)).toEqual([
+			expect.objectContaining({
+				agentWalletHostname: contractor.agentWalletHostname,
+				primaryWalletHostname: null
+			})
+		]);
+
+		// Refused: the claim is released, and the deposit still shows it was tried.
+		await markRefundFailed(test.db, 'rfd-agent', 'refused', AT);
+		rows = await list();
+		expect(rows.map((row) => [row.deposit.id, row.claim, row.attempted])).toEqual([
+			['dep-m2-log-1', null, true],
+			['dep-m2-log-2', null, false]
+		]);
 	});
 });
