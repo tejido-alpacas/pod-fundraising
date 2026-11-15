@@ -48,6 +48,7 @@ import {
 	deposits,
 	donations,
 	donationUndos,
+	entryPurchases,
 	entries,
 	evidenceFiles,
 	itemProvisioning,
@@ -92,6 +93,10 @@ export const CAMPAIGN_OWNED_TABLES: readonly OwnedTable[] = [
 	{ table: refundDeposits, ownedBy: (id) => sql`${refundDeposits.refundId} in ${refundsOf(id)}` },
 	{ table: refunds, ownedBy: (id) => eq(refunds.campaignId, id) },
 	{ table: deposits, ownedBy: (id) => sql`${deposits.entryId} in ${entriesOf(id)}` },
+	{
+		table: entryPurchases,
+		ownedBy: (id) => sql`${entryPurchases.entryId} in ${entriesOf(id)}`
+	},
 	{ table: entries, ownedBy: (id) => eq(entries.campaignId, id) },
 	{ table: reminders, ownedBy: (id) => eq(reminders.campaignId, id) },
 	{

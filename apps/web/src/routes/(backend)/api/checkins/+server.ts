@@ -27,6 +27,7 @@ import {
 	getParty,
 	insertEntryAdvancingMilestone,
 	insertEntryWithDeposit,
+	type FiledPurchase,
 	listNotPublicEvidence
 } from '@tejido/db';
 import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
@@ -42,6 +43,27 @@ function refuse(status: number, body: Omit<CheckinRefused, 'accepted'>) {
 function sameSecret(given: string | null, expected: string): boolean {
 	const digest = (value: string) => createHash('sha256').update(value).digest();
 	return given !== null && timingSafeEqual(digest(given), digest(expected));
+}
+
+/**
+ * The two headers Qatom sends with every call it makes to an item's endpoint after a sale:
+ * the id of the purchase, and the id of the catalog item that was bought.
+ */
+const TRANSACTION_ID_HEADER = 'X-Qatom-Transaction-Id';
+const CATALOG_ITEM_ID_HEADER = 'X-Qatom-Catalog-Item-Id';
+/** Qatom's transaction id is a UUID. Anything else is not kept: it goes into a URL later. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The purchase Qatom named with this call, or null when it named none we can read. A filing
+ * without one is saved all the same.
+ */
+function filedPurchase(headers: Headers): FiledPurchase | null {
+	const transactionId = headers.get(TRANSACTION_ID_HEADER)?.trim();
+	if (!transactionId || !UUID.test(transactionId)) return null;
+	const item = headers.get(CATALOG_ITEM_ID_HEADER)?.trim() ?? '';
+	const catalogItemId = /^[1-9][0-9]{0,14}$/.test(item) ? Number(item) : null;
+	return { transactionId: transactionId.toLowerCase(), catalogItemId };
 }
 
 export const POST: RequestHandler = async ({ request, locals }) => {
@@ -126,16 +148,19 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		amount: DEPOSIT_AMOUNT[item],
 		refundedAt: null
 	};
+	// Which sale this filing came from, as Qatom named it. Kept beside the entry so the
+	// purchase can be looked up at Qatom afterwards; it decides nothing here.
+	const purchase = filedPurchase(request.headers);
 	let advanced = false;
 	let state = milestone.state;
 	if (decision.advance) {
-		advanced = await insertEntryAdvancingMilestone(db, entry, deposit, decision.advance);
+		advanced = await insertEntryAdvancingMilestone(db, entry, deposit, decision.advance, purchase);
 		// If another entry moved the milestone first, read where it stands now.
 		state = advanced
 			? decision.advance.to
 			: ((await getMilestone(db, party.campaignId, milestone.id))?.state ?? state);
 	} else {
-		await insertEntryWithDeposit(db, entry, deposit);
+		await insertEntryWithDeposit(db, entry, deposit, purchase);
 	}
 
 	// 6. Say what was accepted and what is still owed.

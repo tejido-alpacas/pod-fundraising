@@ -16,6 +16,7 @@ import {
 	donationUndos,
 	E2E_CAMPAIGN_ID,
 	entries,
+	entryPurchases,
 	evidenceFiles,
 	itemProvisioning,
 	milestones,
@@ -198,6 +199,12 @@ async function makeCampaign(id: string, made: Made) {
 			refundedAt: refunded && refundStatus === 'sent' ? createdAt : null
 		});
 		depositIds.push(depositId);
+		// The purchase Qatom named with the filing, as the check-in endpoint keeps it.
+		await db.insert(entryPurchases).values({
+			entryId,
+			transactionId: `00000000-0000-4000-8000-${String(sequence).padStart(12, '0')}`,
+			catalogItemId: 42
+		});
 	};
 	const own = ownPicture ? [privatePicture(id)] : [];
 	await file(contractor, 'log_work', [PUBLIC_PICTURE]);
