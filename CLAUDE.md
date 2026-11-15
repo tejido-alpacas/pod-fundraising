@@ -123,15 +123,16 @@ message, changes them.
   one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid story
   of the end-to-end suite (`e2e/`, see `e2e/README.md`). By the owner's decision of 15
   November 2026 it runs by itself, after a release or on that workflow's own timer, never
-  started by hand, under the cap set in `.github/workflows/e2e.yml`. It files real deposits as the two test people (a work log,
-  0.10; a milestone claim, 1.00; its confirmation, 1.00), each run on a campaign it creates
-  through the campaign API. It may also pay one donation, of the smallest amount on sale, on
-  Qatom's checkout page as a test person, to a campaign the tests own (the owner, the same
-  day: "Yes pay real donation is totally fine, make one, then remove it then refund the
-  donation like the other e2e tests"). It moves money only by filing through the App and paying on that
+  started by hand, under the cap set in `.github/workflows/e2e.yml`. It files real deposits as the two test people (work logs,
+  0.10 each; milestone claims and their confirmations, 1.00 each; up to 6.20 a run), each run
+  on a campaign it creates through the campaign API. It may also pay one donation, of the
+  smallest amount on sale, on Qatom's checkout page as a test person, to the run's own
+  campaign (the owner, the same day: "Yes pay real donation is totally fine"). Nothing sends
+  that donation back by itself: the owner returns test money by hand (the owner, the same
+  day: "I'll keep refunding manually from now on"). It moves money only by filing through the App and paying on that
   checkout page, as a real person does: it never calls `transfer`, never calls
   `/api/refunds`, never uses a card, and holds no secret. Only that
-  workflow sets `E2E_PAID`. Never set it yourself, never run that suite from your session,
+  workflow sets `E2E_PAID` and `E2E_PAID_DONATION`. Never set either yourself, never run that suite from your session,
   and never add a way for a test to move money outside that paid story.
 - **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
   pull request, as described above. Delete only your own branch, after it has merged.
@@ -214,11 +215,11 @@ only when the task says so.
   they were paid from: a confirmed milestone's deposits at once, and any other deposit of
   theirs once it is 20 minutes old, because a test run that fails leaves its milestone
   unconfirmed (the owner, the same day: "a failed paid test run should still see if refunds
-  are necessary even if it fails red"). A donation the paid tests make is undone the same way:
-  a donation to a campaign the tests own (its creator's email is at the test inbox domain),
-  paid from a wallet registered to a test person, is taken out of the campaign's total and
-  sent back to the wallet it was paid from, out of the donation item's own twin. Each of these
-  refunds is paid out of the item's own twin by
+  are necessary even if it fails red"). A donation the paid tests make is not sent back by
+  itself: the pass built for it sends only to a wallet Tejido has registered to a test person,
+  Qatom's ledger never names the payer in that form, and so it sends nothing. The owner
+  returns test donations by hand (the same day: "I'll keep refunding manually from now on").
+  Each of the deposit refunds is paid out of the item's own twin by
   calling the twin's own API directly, because Qatom's `POST /v4/transfer` cannot pay from an
   item's twin. The twin's hostname and key are read from Qatom with the merchant account at
   that moment, used once, and never stored or logged. It lives in `packages/qatom`, like every
