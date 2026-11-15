@@ -3,6 +3,27 @@ Track C (Backend): the reconciler, deposit refunds and the cadence scheduler go 
 Everything in this folder is server-only. Reach Qatom through `event.locals.ctx.qatom.account`
 and the database through `event.locals.ctx.db`.
 
+## Donations (`POST /api/donations/<amount>`)
+
+Campaigns share Tejido's donation items: one catalog item per amount on the merchant account,
+not one per campaign. After a donor pays, Qatom calls `POST /api/donations/<amount>` and we
+write one row in `donations`. Pages read the sum with `getFundingSummary` from `@tejido/db`.
+
+- Which campaign comes from the body: the item's one declared input, `campaign_id`
+  (`donationInputJsonSchema()` in `@tejido/contracts` is the schema to enter on the item).
+- How much comes from the address, never from the body: the 5 item's external endpoint is
+  `/api/donations/5`. A whole number of USD-TDN, at least 1.
+- It needs the `X-Tejido-Checkin-Secret` header, like the check-in endpoint.
+- One payment is counted once. Qatom sends `X-Qatom-Transaction-Id` with a dispatch; only its
+  SHA-256 is kept, to recognise a repeat. A call without that header is still saved, and
+  cannot be recognised if repeated.
+- No donor's name, email, wallet or transaction id is stored.
+- A campaign in `funding` with a `fundingGoal` moves to `funded` in the write that brings its
+  donations to the goal. Nothing else is triggered, and no status moves backwards.
+- It calls nothing in Qatom and moves no money. Not yet called by real Qatom.
+- A campaign with recorded donations is summed from them. One with none still reads the
+  totals of the ledger pass below, which no campaign uses now that the items are shared.
+
 ## Funding (`funding.ts`, `POST /api/funding`)
 
 Donors give through Qatom, by paying for a campaign's donation catalog item. `refreshFunding`
