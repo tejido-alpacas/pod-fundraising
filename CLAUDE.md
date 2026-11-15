@@ -204,6 +204,15 @@ only when the task says so.
 - **Refunds go to the primary wallet only** (`primaryWalletHostname`, the `twin_hostname` claim).
   Never to the agent wallet (`agentWalletHostname`, `agent_twin_hostname`), which is where
   deposits are paid from. Do not cast one type to the other.
+- **One exception, for the end-to-end test people only** (the owner's decision, 15 November
+  2026), so the automatic paid tests keep their own wallets funded. A party whose email is at
+  the test inbox domain, `e2e.m.todaq.net`, gets a confirmed milestone's deposits back in the
+  **agent** wallet they were paid from. That refund is paid out of the item's own twin by
+  calling the twin's own API directly, because Qatom's `POST /v4/transfer` cannot pay from an
+  item's twin. The twin's hostname and key are read from Qatom with the merchant account at
+  that moment, used once, and never stored or logged. It lives in `packages/qatom`, like every
+  other Qatom call. Nobody else is ever refunded this way: for every other party the rule
+  above stands, and nothing may widen the exception.
 - A transfer is never retried automatically. After a timeout its outcome is unknown.
 
 ## Secrets and configuration
