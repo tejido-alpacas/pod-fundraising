@@ -52,6 +52,18 @@ body {
 	font-size: 16px;
 	line-height: 24px;
 }
+
+/*
+	The first site's stylesheet pads every <section> top and bottom (88px, less on a phone) to
+	space out the bands of its home page. A campaign's pages are built from <section>s too, and
+	the components space themselves, with the gaps of the page and of each section. So take the
+	band padding off here. `body` is in the selector only to outrank the first site's bare
+	`section` rule wherever it loads; :where() keeps the rule weaker than any component's own
+	class, so a component that sets its own padding keeps it.
+*/
+body :where(.ds-v1) section {
+	padding: 0;
+}
 .ds-v1 :is(h1, h2, h3) {
 	font-family: var(--font-serif);
 	letter-spacing: -0.02em;

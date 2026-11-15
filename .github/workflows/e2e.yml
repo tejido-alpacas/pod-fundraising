@@ -121,16 +121,17 @@ jobs:
           aws-region: ca-central-1
 
       # Qatom gives each address 5 sign-in codes in each fixed quarter-hour (:00, :15, :30, :45
-      # UTC), and several releases close together would spend them. So at most 3 runs sign in per
+      # UTC), and several releases close together would spend them. So at most 2 runs sign in per
       # quarter-hour; a run beyond that walks only the signed-out pages and says so. A run started
       # by hand always signs in. If the count cannot be read, the run does not sign in.
+      # 2, not 3: a paid run's donation asks a second emailed code for the test contractor.
       - name: Decide whether this run signs in
         id: signin
         if: steps.inbox.outputs.ready == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           SIGN_IN_STEP: Note that this run signs in
-          RUNS_PER_QUARTER_HOUR: 3
+          RUNS_PER_QUARTER_HOUR: 2
         run: |
           if [[ $GITHUB_EVENT_NAME == workflow_dispatch ]]; then
             echo "::notice::This run was started by hand, so it signs in."
@@ -169,8 +170,10 @@ jobs:
         if: steps.inbox.outputs.ready == 'true' && steps.signin.outputs.sign_in == 'true'
         run: echo "This run asks Qatom for one sign-in code for each of the two test people."
 
-      # The paid story files a work log, a milestone claim and its confirmation as the two test
-      # people: 2.10 in real deposits, on a campaign the run creates. It tells itself, after a
+      # The paid story files work logs, milestone claims and their confirmations as the two test
+      # people: up to 6.20 in real deposits, on a campaign the run creates. It also gives one real
+      # donation, of the smallest amount on sale, to that campaign from the test contractor's
+      # primary wallet; nothing sends a donation back by itself. It tells itself, after a
       # release or on the five-minute timer while the fast pace lasts, never by hand (CLAUDE.md,
       # "Never move money to test something"). Earlier paid runs are the ones whose job has the
       # step named below, finished. If they cannot be read, the run is unpaid.
@@ -237,14 +240,14 @@ jobs:
               fi
             fi
           fi
-          say "PAID run: it creates its own campaign and files a work log (0.10), a milestone claim (1.00) and its confirmation (1.00) from the two test people's agent wallets."
+          say "PAID run: it creates its own campaign and files work logs (0.10 each), milestone claims and their confirmations (1.00 each), up to 6.20, from the two test people's agent wallets; and it gives one donation of the smallest amount on sale from the test contractor's primary wallet."
           echo "paid=true" >> "$GITHUB_OUTPUT"
 
       # Later runs count this step to know that this run was paid, and read from its name the
       # commit the run tested. Its name begins with PAID_STEP above: change both together.
       - name: Note that this run tells the paid story (${{ github.event.workflow_run.head_sha || github.sha }})
         if: steps.inbox.outputs.ready == 'true' && steps.paid.outputs.paid == 'true'
-        run: echo "This run spends up to 2.10 in real deposits from the two test people's agent wallets."
+        run: echo "This run spends up to 6.20 in real deposits from the two test people's agent wallets, and one donation of the smallest amount on sale from the test contractor's primary wallet, which nothing sends back by itself."
 
       - name: Run the end-to-end suite
         if: steps.inbox.outputs.ready == 'true'
@@ -253,6 +256,10 @@ jobs:
           E2E_SKIP_SIGN_IN: ${{ steps.signin.outputs.sign_in == 'true' && 'false' || 'true' }}
           # "true" only when the step above decided this run tells the paid story.
           E2E_PAID: ${{ steps.paid.outputs.paid == 'true' && 'true' || 'false' }}
+          # "true" on the same runs: the paid story then also gives one real donation, of the
+          # smallest amount on sale, as the test contractor. Nothing sends it back by itself: the
+          # owner returns test money by hand (15 November 2026).
+          E2E_PAID_DONATION: ${{ steps.paid.outputs.paid == 'true' && 'true' || 'false' }}
         run: npm run e2e
 
       # Always, pass or fail: the screenshots are how a person reads what happened. Only this
