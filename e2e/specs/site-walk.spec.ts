@@ -13,6 +13,24 @@ test('the campaign overview', async ({ page, cfg, waypoint }) => {
 	await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What has happened' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'Milestones', exact: true })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Who’s involved' })).toBeVisible();
+	// The campaign's own three tabs.
+	const base = `/campaigns/${cfg.campaignId}`;
+	for (const [name, path] of [
+		[/^Timeline/, base],
+		[/^Milestones/, `${base}/milestones`],
+		[/^Report/, `${base}/report`]
+	] as const) {
+		await expect(page.locator(`a[href="${path}"]`).filter({ hasText: name }).first()).toBeVisible();
+	}
+	// Either entries, each with a way to its proof, or the page saying there are none yet.
+	const timeline = page.locator('section[aria-labelledby="timeline"]');
+	await expect(
+		timeline
+			.getByRole('link', { name: /View proof/ })
+			.first()
+			.or(timeline.getByText('No updates yet'))
+	).toBeVisible();
 	await waypoint(page, 'overview');
 });
 
@@ -26,6 +44,7 @@ test('a proof page', async ({ page, cfg, waypoint }) => {
 	await proof.click();
 	await expect(page.getByRole('heading', { name: 'What was reported' })).toBeVisible();
 	await expect(page.getByRole('heading', { name: 'What happened' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Evidence' })).toBeVisible();
 	await waypoint(page, 'proof');
 });
 
@@ -35,8 +54,18 @@ test('the milestones', async ({ page, cfg, waypoint }) => {
 	await expect(page.getByRole('heading', { level: 1, name: 'Milestones' })).toBeVisible();
 	await waypoint(page, 'milestones');
 
-	await page.locator(`a[href^="${base}/"]`).first().click();
+	// The test campaign has three milestones, each with a page of its own.
+	const links = page.getByRole('main').locator(`a[href^="${base}/"]`);
+	await expect(links.first()).toBeVisible();
+	const pages = new Set(
+		await links.evaluateAll((all) => all.map((link) => link.getAttribute('href')))
+	);
+	expect(pages.size, 'Each milestone should link to its own page.').toBeGreaterThanOrEqual(3);
+
+	await links.first().click();
 	await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'Planned and reported' })).toBeVisible();
+	await expect(page.getByRole('heading', { name: 'History' })).toBeVisible();
 	await waypoint(page, 'milestone');
 });
 
