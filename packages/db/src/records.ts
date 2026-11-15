@@ -589,6 +589,17 @@ export async function addEvidenceToIncompleteEntry(
 /** One transfer of deposits back to one party for one milestone. */
 export type Refund = typeof refunds.$inferSelect;
 
+/**
+ * A refund as it is first written. It names exactly one wallet, and which kind it is: the
+ * party's PRIMARY wallet, or, for an end-to-end test person only, the agent wallet their
+ * deposits were paid from. The table refuses a row with both or neither.
+ */
+export type NewRefund = Omit<Refund, 'primaryWalletHostname' | 'agentWalletHostname'> &
+	(
+		| { primaryWalletHostname: PrimaryWalletHostname; agentWalletHostname?: null }
+		| { agentWalletHostname: AgentWalletHostname; primaryWalletHostname?: null }
+	);
+
 /** A deposit that has not been refunded, with what a refund needs to know about it. */
 export interface UnrefundedDeposit {
 	deposit: Deposit;
@@ -663,6 +674,103 @@ export async function listUnrefundedDeposits(
 }
 
 /**
+ * A deposit not yet refunded, on a CONFIRMED milestone, with the party who filed its entry.
+ * What the automatic refund pass for the end-to-end test people starts from.
+ */
+export interface ConfirmedUnrefundedDeposit extends UnrefundedDeposit {
+	campaignId: string;
+	milestoneId: string;
+	party: Pick<Party, 'id' | 'name' | 'email' | 'agentWalletHostname'>;
+	/** The commodity id of the item the entry was filed with, as its campaign names it. */
+	commodityId: number | null;
+	/** True when any refund has ever covered this deposit, whatever came of it. */
+	attempted: boolean;
+}
+
+/**
+ * Every unrefunded deposit on a confirmed milestone, in any campaign, whose filer's email is
+ * at `emailDomain` (compared without regard to letter case), oldest entry first.
+ *
+ * The domain here only keeps the list short. It decides nothing about who may be refunded
+ * how: the caller asks `isEndToEndTestEmail` in @tejido/qatom about every row it is given.
+ */
+export async function listConfirmedUnrefundedDepositsByEmailDomain(
+	db: Executor,
+	emailDomain: string
+): Promise<ConfirmedUnrefundedDeposit[]> {
+	const suffix = `@${emailDomain.toLowerCase()}`;
+	const rows = await db
+		.select({
+			id: deposits.id,
+			entryId: deposits.entryId,
+			amount: deposits.amount,
+			refundedAt: deposits.refundedAt,
+			campaignId: entries.campaignId,
+			milestoneId: entries.milestoneId,
+			partyId: entries.partyId,
+			item: entries.item,
+			entryStatus: entries.status,
+			twistId: entries.twistId,
+			partyName: parties.name,
+			email: parties.email,
+			agentWalletHostname: parties.agentWalletHostname,
+			logWorkCommodityId: campaigns.logWorkCommodityId,
+			milestoneHitCommodityId: campaigns.milestoneHitCommodityId,
+			refundId: refunds.id,
+			refundStatus: refunds.status,
+			attempts: sql<number>`(select count(*) from ${refundAttempts} where ${refundAttempts.depositId} = ${deposits.id})`
+		})
+		.from(deposits)
+		.innerJoin(entries, eq(entries.id, deposits.entryId))
+		.innerJoin(
+			milestones,
+			and(eq(milestones.campaignId, entries.campaignId), eq(milestones.id, entries.milestoneId))
+		)
+		.innerJoin(campaigns, eq(campaigns.id, entries.campaignId))
+		.innerJoin(parties, eq(parties.id, entries.partyId))
+		.leftJoin(refundDeposits, eq(refundDeposits.depositId, deposits.id))
+		.leftJoin(refunds, eq(refunds.id, refundDeposits.refundId))
+		.where(
+			and(
+				isNull(deposits.refundedAt),
+				inArray(milestones.state, ['confirmed_independent', 'confirmed_creator']),
+				sql`lower(substr(${parties.email}, ${-suffix.length})) = ${suffix}`
+			)
+		)
+		.orderBy(asc(entries.filedAt), asc(deposits.id));
+
+	return rows.map((row) => ({
+		campaignId: row.campaignId,
+		milestoneId: row.milestoneId,
+		deposit: {
+			id: row.id,
+			entryId: row.entryId,
+			amount: row.amount,
+			refundedAt: row.refundedAt
+		},
+		entry: {
+			id: row.entryId,
+			partyId: row.partyId,
+			item: row.item,
+			status: row.entryStatus,
+			twistId: row.twistId
+		},
+		party: {
+			id: row.partyId,
+			name: row.partyName,
+			email: row.email,
+			agentWalletHostname: row.agentWalletHostname
+		},
+		commodityId: row.item === 'log_work' ? row.logWorkCommodityId : row.milestoneHitCommodityId,
+		claim:
+			row.refundId !== null && row.refundStatus !== null
+				? { refundId: row.refundId, status: row.refundStatus }
+				: null,
+		attempted: row.attempts > 0
+	}));
+}
+
+/**
  * Step 1 of a refund: writes the refund and claims its deposits, all or nothing. Call it
  * BEFORE sending the transfer, with `refund.status` set to `started`.
  *
@@ -671,7 +779,7 @@ export async function listUnrefundedDeposits(
  */
 export async function claimDepositsForRefund(
 	db: Database,
-	refund: Refund,
+	refund: NewRefund,
 	depositIds: string[]
 ): Promise<boolean> {
 	if (depositIds.length === 0) throw new RangeError('A refund must cover at least one deposit.');

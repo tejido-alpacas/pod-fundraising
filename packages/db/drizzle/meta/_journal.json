@@ -85,6 +85,13 @@
       "when": 1794732106833,
       "tag": "0011_robust_mephisto",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1794736208882,
+      "tag": "0012_refund_agent_wallet",
+      "breakpoints": true
     }
   ]
 }
