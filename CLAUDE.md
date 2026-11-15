@@ -122,11 +122,15 @@ message, changes them.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
   one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid story
   of the end-to-end suite (`e2e/`, see `e2e/README.md`). By the owner's decision of 15
-  November 2026 it runs by itself after a release, never started by hand, under the cap set
-  in `.github/workflows/e2e.yml`. It files real deposits as the two test people (a work log,
+  November 2026 it runs by itself, after a release or on that workflow's own timer, never
+  started by hand, under the cap set in `.github/workflows/e2e.yml`. It files real deposits as the two test people (a work log,
   0.10; a milestone claim, 1.00; its confirmation, 1.00), each run on a campaign it creates
-  through the campaign API. It moves money only by filing through the App, as a real filer
-  does: it never calls `transfer`, never calls `/api/refunds`, and holds no secret. Only that
+  through the campaign API. It may also pay one donation, of the smallest amount on sale, on
+  Qatom's checkout page as a test person, to a campaign the tests own (the owner, the same
+  day: "Yes pay real donation is totally fine, make one, then remove it then refund the
+  donation like the other e2e tests"). It moves money only by filing through the App and paying on that
+  checkout page, as a real person does: it never calls `transfer`, never calls
+  `/api/refunds`, never uses a card, and holds no secret. Only that
   workflow sets `E2E_PAID`. Never set it yourself, never run that suite from your session,
   and never add a way for a test to move money outside that paid story.
 - **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
@@ -206,8 +210,15 @@ only when the task says so.
   deposits are paid from. Do not cast one type to the other.
 - **One exception, for the end-to-end test people only** (the owner's decision, 15 November
   2026), so the automatic paid tests keep their own wallets funded. A party whose email is at
-  the test inbox domain, `e2e.m.todaq.net`, gets a confirmed milestone's deposits back in the
-  **agent** wallet they were paid from. That refund is paid out of the item's own twin by
+  the test inbox domain, `e2e.m.todaq.net`, gets its deposits back in the **agent** wallet
+  they were paid from: a confirmed milestone's deposits at once, and any other deposit of
+  theirs once it is 20 minutes old, because a test run that fails leaves its milestone
+  unconfirmed (the owner, the same day: "a failed paid test run should still see if refunds
+  are necessary even if it fails red"). A donation the paid tests make is undone the same way:
+  a donation to a campaign the tests own (its creator's email is at the test inbox domain),
+  paid from a wallet registered to a test person, is taken out of the campaign's total and
+  sent back to the wallet it was paid from, out of the donation item's own twin. Each of these
+  refunds is paid out of the item's own twin by
   calling the twin's own API directly, because Qatom's `POST /v4/transfer` cannot pay from an
   item's twin. The twin's hostname and key are read from Qatom with the merchant account at
   that moment, used once, and never stored or logged. It lives in `packages/qatom`, like every
