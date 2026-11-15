@@ -32,7 +32,8 @@ const UNKNOWN =
 
 /**
  * Files what the review card shows, then finds the entry, by `reference`, on the campaign's
- * public timeline and opens its proof page. Returns with the browser on that proof page.
+ * public timeline and opens its proof page. Returns with the browser on that proof page, and
+ * gives that page's public path.
  */
 export async function fileFromReview(
 	page: Page,
@@ -41,7 +42,7 @@ export async function fileFromReview(
 	card: Locator,
 	reference: string,
 	filing: Filing
-): Promise<void> {
+): Promise<string> {
 	// From here on, money may have moved. Every way out says what is and is not known.
 	const bubbles = page.locator('.log .tj-msg--assistant');
 	const before = await bubbles.count();
@@ -232,4 +233,5 @@ export async function fileFromReview(
 				'Do not file again to fix it: the App’s fix page is where a report is completed.'
 		);
 	}
+	return new URL(page.url()).pathname;
 }
