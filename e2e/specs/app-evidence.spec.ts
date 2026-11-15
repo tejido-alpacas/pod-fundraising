@@ -95,8 +95,9 @@ test('a PDF can be added as evidence, and opens for anyone', async ({
 	await expect(
 		page.getByRole('button', { name: 'Copied. Now paste it into your report' })
 	).toBeVisible();
-	const copied: unknown = JSON.parse(await page.evaluate(() => navigator.clipboard.readText()));
-	expect(copied).toEqual([
+	// Read in the page, as text: this suite is not compiled with the browser's clipboard types.
+	const pasted: unknown = await page.evaluate('navigator.clipboard.readText()');
+	expect(typeof pasted === 'string' ? (JSON.parse(pasted) as unknown) : pasted).toEqual([
 		{ url: new URL(address ?? '', cfg.appUrl).href, sha256: fingerprintOf(file) }
 	]);
 });
