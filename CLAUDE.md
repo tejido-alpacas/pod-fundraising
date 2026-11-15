@@ -213,7 +213,9 @@ only when the task says so.
   Never to the agent wallet (`agentWalletHostname`, `agent_twin_hostname`), which is where
   deposits are paid from. Do not cast one type to the other.
 - **One exception, for the end-to-end test people only** (the owner's decision, 15 November
-  2026), so the automatic paid tests keep their own wallets funded. A party whose email is at
+  2026). **It is switched off** (the owner, the same day: "Switch it off, only I move test
+  money"): the code and its routes stay, the timer no longer calls them, and nothing may call
+  them again without the owner's word. As built: a party whose email is at
   the test inbox domain, `e2e.m.todaq.net`, gets its deposits back in the **agent** wallet
   they were paid from: a confirmed milestone's deposits at once, and any other deposit of
   theirs once it is 20 minutes old, because a test run that fails leaves its milestone
