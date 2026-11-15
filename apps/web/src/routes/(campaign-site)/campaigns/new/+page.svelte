@@ -25,13 +25,16 @@
 	import StepPeople from '#lib/campaign-site/builder/StepPeople.svelte';
 	import StepReview from '#lib/campaign-site/builder/StepReview.svelte';
 	import StepSchedule from '#lib/campaign-site/builder/StepSchedule.svelte';
+	import { recordOf, type CreatedRecord } from '#lib/campaign-site/builder/record.ts';
 	import {
 		clearDraft,
 		loadCreated,
 		loadDraft,
+		loadRecord,
 		parseCreated,
 		saveCreated,
-		saveDraft
+		saveDraft,
+		saveRecord
 	} from '#lib/campaign-site/builder/store.ts';
 	import { STEP_NAME, UNIT } from '#lib/campaign-site/builder/words.ts';
 
@@ -69,11 +72,17 @@
 	// --- The draft: in the page, and in this tab's storage so a reload keeps it ---
 	let draft = $state<BuilderDraft>(emptyDraft());
 	let created = $state<CreatedCampaign | null>(null);
+	// Who the campaign was created with, as typed in this tab. Never asked of the server.
+	let record = $state<CreatedRecord | null>(null);
 	let ready = $state(false);
 	let stored = $state(true);
 	onMount(() => {
 		draft = loadDraft();
 		created = loadCreated();
+		// The record holds email addresses, so it is kept no longer than the screen that shows
+		// it: opening the builder itself, rather than a created campaign, removes it.
+		if (page.url.searchParams.has('created')) record = loadRecord();
+		else saveRecord(null);
 		ready = true;
 	});
 	$effect(() => {
@@ -139,6 +148,16 @@
 			}))
 	);
 
+	// Leaving the created screen for the builder ("Start another campaign") removes the record
+	// of people, and so does the campaign being published: it is taken out of this tab's
+	// storage, and stays on the screen only until the tab is reloaded or left.
+	const createdIsPublished = $derived(
+		created !== null && data.publishing?.campaignId === created.id && !data.publishing.draft
+	);
+	$effect(() => {
+		if (ready && showCreated && createdIsPublished) saveRecord(null);
+	});
+
 	let heading = $state<HTMLElement>();
 	let summary = $state<HTMLElement>();
 	afterNavigate((navigation) => {
@@ -147,6 +166,10 @@
 		if (navigation.type === 'enter') return;
 		const from = navigation.from?.url.searchParams;
 		const to = navigation.to?.url.searchParams;
+		if (from?.has('created') && !to?.has('created')) {
+			record = null;
+			saveRecord(null);
+		}
 		if (page.url.hash !== '') return;
 		const opened = to?.get('edit');
 		const closed = from?.get('edit');
@@ -179,6 +202,7 @@
 	{#if showCreated && created}
 		<Created
 			{created}
+			record={record?.campaignId === created.id ? record : null}
 			lang={data.lang}
 			email={data.donorEmail}
 			publishing={data.publishing?.campaignId === created.id ? data.publishing : null}
@@ -208,8 +232,12 @@
 							failed = true;
 							return;
 						}
+						// The people as just typed, beside their links: read from the draft before it
+						// is emptied, because the server's answer holds no email address.
+						record = recordOf($state.snapshot(draft), made);
 						created = made;
 						saveCreated(made);
+						saveRecord(record);
 						clearDraft();
 						draft = emptyDraft();
 						errors = {};

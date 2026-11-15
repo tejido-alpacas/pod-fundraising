@@ -78,8 +78,9 @@ export type RefundStatus = z.infer<typeof refundStatusSchema>;
  *   may already be with the filer. Code never sends it again; a person checks the wallet.
  * - `in_progress`: a refund has claimed this deposit and its outcome is not recorded. It is
  *   being sent right now, or the server stopped part-way. Not sent again by code.
- * - `entry_flagged`: the entry was not paid from the filer's registered wallet. Code does not
- *   refund it; a person must decide. Do not promise this refund.
+ * - `entry_flagged`: the entry's receipt does not fit the filing (another item, another
+ *   amount, or a wallet that is not the filer's registered one). Code does not refund it; a
+ *   person must decide. Do not promise this refund.
  * - `entry_not_verified`: the entry has not been matched to its payment in Qatom's ledger
  *   yet. The refund waits for that.
  * - `no_primary_wallet`: the filer has not signed in with Qatom, so there is no primary wallet
@@ -106,7 +107,7 @@ export const REFUND_OUTSTANDING_MEANING: Record<RefundOutstandingReason, string>
 	in_progress:
 		'A refund of this deposit was started and we have no record yet that it went through.',
 	entry_flagged:
-		'This deposit was not paid from the wallet registered for its filer. It is not sent back until a person has looked at it.',
+		'The receipt for this deposit does not match its filing, so the filing is flagged. The deposit is not sent back until a person has looked at it.',
 	entry_not_verified:
 		'The milestone is confirmed, but a deposit is only sent back once its entry has been matched to the payment ledger.',
 	no_primary_wallet:

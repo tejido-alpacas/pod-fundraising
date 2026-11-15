@@ -22,7 +22,8 @@ import type {
 export const ENTRY_STATUS: Record<EntryStatus, { label: string; meaning: string }> = {
 	verified: {
 		label: 'Verified',
-		meaning: 'The deposit paid with this entry came from the wallet registered for this party.'
+		meaning:
+			'Qatom confirms the deposit for this entry was paid. It does not show which wallet paid.'
 	},
 	filed: {
 		label: 'Filed, not yet verified',
@@ -34,8 +35,7 @@ export const ENTRY_STATUS: Record<EntryStatus, { label: string; meaning: string 
 	},
 	flagged: {
 		label: 'Flagged',
-		meaning:
-			'The deposit paid with this entry did not come from the wallet registered for this party.'
+		meaning: 'The receipt for this entry does not match the filing. The entry says how.'
 	}
 };
 
@@ -100,7 +100,7 @@ export function milestoneMeaning(milestone: {
 		return 'No confirmer answered in the waiting period, so the campaign’s creator signed it off. The creator runs the project.';
 	}
 	if (milestone.strength) {
-		return `The named confirmer signed it off from their own wallet. ${CONFIRMATION_STRENGTH_MEANS[milestone.strength]}`;
+		return `The named confirmer signed it off. ${CONFIRMATION_STRENGTH_MEANS[milestone.strength]}`;
 	}
 	return milestone.state === 'claimed'
 		? 'The party doing the work says it is done. Nobody has confirmed it yet.'

@@ -15,7 +15,12 @@ import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createMerchantAccount } from '@tejido/qatom/account';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { SHARED_ITEM_COMMODITY_ID, type ReconcileSummary } from '#lib/server/backend/reconciler.ts';
+import {
+	PURCHASE_LOOKUP_MAX_AGE_MS,
+	PURCHASE_LOOKUPS_PER_PASS,
+	SHARED_ITEM_COMMODITY_ID,
+	type ReconcileSummary
+} from '#lib/server/backend/reconciler.ts';
 import { POST } from './+server.ts';
 
 const SECRET = 'test-checkin-secret-test-checkin-secret';
@@ -47,11 +52,22 @@ let ledgers: Record<string, Ledger>;
 /** A commodity id that is not here is one Qatom does not know: the listing comes back empty. */
 let catalog: Record<number, Listing>;
 let requests: { url: string; authorization: string | undefined }[];
+/** The catalog item each of the two commodities is sold as. */
+const LOG_ITEM = 4201;
+const HIT_ITEM = 4202;
+const CATALOG_ITEM: Record<number, number> = { [LOG_ID]: LOG_ITEM, [HIT_ID]: HIT_ITEM };
+/**
+ * What Qatom's purchase lookup answers for a transaction id: the purchase's own fields, or a
+ * failure. A transaction id that is not here is one Qatom does not know: a 404.
+ */
+type PurchaseAnswer = Record<string, unknown> | { status: number } | Error;
+let purchases: Record<string, PurchaseAnswer>;
 
 beforeEach(async () => {
 	test = await createTestDatabase({ seed: true });
 	ledgers = {};
 	catalog = { [LOG_ID]: LOG_HASH, [HIT_ID]: HIT_HASH };
+	purchases = {};
 	requests = [];
 	vi.stubGlobal('fetch', (url: string | URL, init: RequestInit = {}) => {
 		const address = String(url);
@@ -83,8 +99,27 @@ beforeEach(async () => {
 			const items =
 				listing === undefined
 					? []
-					: [{ id: 42, commodity_id: commodityId, commodity_hash: listing, active: true }];
+					: [
+							{
+								id: CATALOG_ITEM[commodityId] ?? 42,
+								commodity_id: commodityId,
+								commodity_hash: listing,
+								active: true
+							}
+						];
 			return answer({ items, total: items.length, limit: null, offset: 0 });
+		}
+		const transactionId = /^\/v4\/catalog\/purchases\/([\w-]+)$/.exec(pathname)?.[1];
+		if (transactionId !== undefined) {
+			const purchase = purchases[transactionId];
+			if (purchase === undefined) return answer({ error: 'Not found', status: 404 }, 404);
+			if (purchase instanceof Error) return Promise.reject(purchase);
+			// A failure names a status; a purchase's own fields never include one.
+			const failed = purchase.status;
+			if (typeof failed === 'number') {
+				return answer({ error: 'Something went wrong', status: failed }, failed);
+			}
+			return answer({ purchase: { transaction_id: transactionId, dq: '41dq', ...purchase } });
 		}
 		const hash = /^\/v4\/commodity\/([\w-]+)\/transactions$/.exec(pathname)?.[1];
 		const ledger = hash === undefined ? undefined : ledgers[hash];
@@ -133,6 +168,12 @@ function sale(
 const HEX_PAYER = `41${'0123456789abcdef'.repeat(4)}`;
 
 const NO_OPERATIONS = { send: 0, receive: 0, transfer: 0, split: 0, other: 0, none: 0 };
+const NO_PURCHASES = {
+	purchaseLookups: 0,
+	purchasesNotSettled: 0,
+	purchaseErrors: 0,
+	purchasesNotAsked: 0
+};
 
 /** Saves another work log by the contractor, filed at the given time. */
 async function addWorkLog(id: string, filedAt: string) {
@@ -261,7 +302,8 @@ describe('POST /api/reconcile', () => {
 			payingWalletNotComparable: 0,
 			unreadableTransactions: 0,
 			rowsNotPayments: 0,
-			operationsSeen: { ...NO_OPERATIONS, receive: 1 }
+			operationsSeen: { ...NO_OPERATIONS, receive: 1 },
+			...NO_PURCHASES
 		} satisfies ReconcileSummary);
 		expect(await entry(workLog.id)).toEqual({
 			...workLog,
@@ -816,7 +858,8 @@ describe('POST /api/reconcile', () => {
 				payingWalletNotComparable: 0,
 				unreadableTransactions: 0,
 				rowsNotPayments: 0,
-				operationsSeen: { ...NO_OPERATIONS, receive: 2 }
+				operationsSeen: { ...NO_OPERATIONS, receive: 2 },
+				...NO_PURCHASES
 			} satisfies ReconcileSummary);
 			expect(ledgerReads(LOG_HASH)).toBe(1);
 			expect(ledgerReads(HIT_HASH)).toBe(1);
@@ -987,6 +1030,7 @@ describe('the line each pass writes to the logs', () => {
 				'matched 1 (verified 1, flagged 0, incomplete 0), ' +
 				'unmatched 1 (ambiguous 0, waiting for wallet 0, paying wallet not comparable 0), ' +
 				'rows unreadable 0, rows not payments 0, ' +
+				'purchases asked 0 (not settled 0, errors 0, not asked 0), ' +
 				'operations seen: send 0, receive 1, transfer 0, split 0, other 0, none 0.'
 		]);
 	});
@@ -1033,5 +1077,301 @@ describe('the line each pass writes to the logs', () => {
 	it('is not written for a caller without the secret', async () => {
 		await run({});
 		expect(lines()).toEqual([]);
+	});
+});
+
+describe('an entry filed with a transaction id: Qatom’s own purchase record', () => {
+	const hit = fixtures.entries.find((entry) => entry.item === 'milestone_hit')!;
+	const SETTLED = '2026-11-15T12:20:03.000Z';
+	let number = 0;
+	const transaction = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+
+	/** A settled purchase as Qatom answers it: the amount is a string with three decimals. */
+	const settled = (catalogItemId: number, amount: string, settledAt: string = SETTLED) => ({
+		catalog_item_id: catalogItemId,
+		amount,
+		settled_at: settledAt,
+		dispatch_status: 'delivered'
+	});
+
+	/** Saves a filing as the check-in endpoint does when Qatom names its purchase. */
+	async function file(
+		item: 'log_work' | 'milestone_hit',
+		options: {
+			minutesAgo?: number;
+			told?: number | null;
+			status?: Entry['status'];
+			transactionId?: string | null;
+		} = {}
+	) {
+		number += 1;
+		const id = `ent-purchase-${number}`;
+		const template = item === 'log_work' ? workLog : hit;
+		const filedAt = new Date(Date.now() - (options.minutesAgo ?? 2) * 60_000).toISOString();
+		const status = options.status ?? 'filed';
+		const entry = {
+			...template,
+			id,
+			status,
+			statusReason: status === 'incomplete' ? 'A photo is missing.' : null,
+			payingWallet: null,
+			twistId: null,
+			stampedAt: null,
+			filedAt,
+			updatedAt: filedAt
+		} as Entry;
+		const transactionId =
+			options.transactionId === undefined ? transaction(number) : options.transactionId;
+		await insertEntryWithDeposit(
+			test.db,
+			entry,
+			{ id: `dep-${id}`, entryId: id, amount: DEPOSIT_AMOUNT[item], refundedAt: null },
+			transactionId === null
+				? null
+				: {
+						transactionId,
+						catalogItemId:
+							options.told === undefined
+								? item === 'log_work'
+									? LOG_ITEM
+									: HIT_ITEM
+								: options.told
+					}
+		);
+		return { id, transactionId: transactionId ?? '' };
+	}
+
+	const purchaseReads = () =>
+		requests
+			.filter((request) => request.url.includes('/v4/catalog/purchases/'))
+			.map((request) => request.url.split('/v4/catalog/purchases/')[1]!);
+
+	beforeEach(async () => {
+		number = 0;
+		await giveCampaignItems();
+		// The fixtures' own waiting entries were filed without a transaction id.
+		ledgers[LOG_HASH] = [];
+		ledgers[HIT_HASH] = [];
+	});
+
+	it('is verified when Qatom confirms a settled sale of that item for that amount', async () => {
+		const log = await file('log_work');
+		const claim = await file('milestone_hit');
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+		purchases[claim.transactionId] = settled(HIT_ITEM, '1.000', '2026-11-15T07:21:00-05:00');
+		const { body } = await run();
+
+		expect(body).toMatchObject({
+			matched: 2,
+			verified: 2,
+			flagged: 0,
+			purchaseLookups: 2,
+			purchasesNotSettled: 0,
+			purchaseErrors: 0,
+			purchasesNotAsked: 0
+		});
+		// The transaction id identifies the sale; the time is when Qatom says it settled.
+		expect(await entry(log.id)).toMatchObject({
+			status: 'verified',
+			statusReason: null,
+			twistId: log.transactionId,
+			stampedAt: SETTLED
+		});
+		expect(await entry(claim.id)).toMatchObject({
+			status: 'verified',
+			twistId: claim.transactionId,
+			stampedAt: '2026-11-15T12:21:00.000Z'
+		});
+		// It is asked with the merchant account's token.
+		expect(requests.find((request) => request.url.includes('/purchases/'))!.authorization).toBe(
+			'Bearer account-token'
+		);
+	});
+
+	it('does not say which wallet paid: the paying wallet stays empty', async () => {
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+		await run();
+
+		expect((await entry(log.id))!.payingWallet).toBeNull();
+	});
+
+	it('works for a campaign with no item ids of its own, under the shared items', async () => {
+		await giveCampaignItems({ logWorkCommodityId: null, milestoneHitCommodityId: null });
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(
+			CATALOG_ITEM[SHARED_ITEM_COMMODITY_ID.log_work]!,
+			'0.100'
+		);
+		const { body } = await run();
+
+		expect(body).toMatchObject({ verified: 1, campaignsWithoutItems: 1 });
+		expect((await entry(log.id))!.status).toBe('verified');
+	});
+
+	it('waits while Qatom does not know the purchase or has not settled it, then verifies', async () => {
+		const unknown = await file('log_work');
+		const pending = await file('log_work');
+		purchases[pending.transactionId] = { ...settled(LOG_ITEM, '0.100'), settled_at: null };
+		const first = await run();
+
+		expect(first.body).toMatchObject({ matched: 0, purchaseLookups: 2, purchasesNotSettled: 2 });
+		for (const { id } of [unknown, pending]) {
+			expect(await entry(id)).toMatchObject({ status: 'filed', twistId: null, stampedAt: null });
+		}
+
+		purchases[unknown.transactionId] = settled(LOG_ITEM, '0.100');
+		purchases[pending.transactionId] = settled(LOG_ITEM, '0.100');
+		expect((await run()).body).toMatchObject({ verified: 2, purchasesNotSettled: 0 });
+	});
+
+	it('flags a settled purchase of another item, and says so', async () => {
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(HIT_ITEM, '0.100');
+		// Qatom said, with the filing, that it was a sale of one item; its record says another.
+		const told = await file('milestone_hit', { told: LOG_ITEM });
+		purchases[told.transactionId] = settled(HIT_ITEM, '1.000');
+		const { body } = await run();
+
+		expect(body).toMatchObject({ matched: 2, verified: 0, flagged: 2 });
+		for (const { id, transactionId } of [log, told]) {
+			expect(await entry(id)).toMatchObject({
+				status: 'flagged',
+				statusReason:
+					'Qatom’s record of the purchase filed with this entry is for a different item.',
+				twistId: transactionId
+			});
+		}
+	});
+
+	it('flags a settled purchase for another amount, and says so', async () => {
+		const claim = await file('milestone_hit');
+		purchases[claim.transactionId] = settled(HIT_ITEM, '0.100');
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.101');
+		const { body } = await run();
+
+		expect(body).toMatchObject({ verified: 0, flagged: 2 });
+		expect((await entry(claim.id))!.statusReason).toBe(
+			'Qatom’s record of the purchase filed with this entry is for a different amount than this entry’s deposit.'
+		);
+		expect((await entry(log.id))!.status).toBe('flagged');
+	});
+
+	it('an incomplete entry gets the purchase recorded and stays incomplete', async () => {
+		const log = await file('log_work', { status: 'incomplete' });
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+		const { body } = await run();
+
+		expect(body).toMatchObject({ matched: 1, verified: 0, stampedIncomplete: 1 });
+		expect(await entry(log.id)).toMatchObject({
+			status: 'incomplete',
+			statusReason: 'A photo is missing.',
+			twistId: log.transactionId
+		});
+	});
+
+	it('an entry filed without a transaction id is not asked about: it goes to the ledger as before', async () => {
+		const old = await file('log_work', { transactionId: null });
+		const filedAt = (await entry(old.id))!.filedAt;
+		// The ledger names the payer in a form that cannot be compared, as real Qatom does.
+		ledgers[LOG_HASH] = [sale('41aa', filedAt, HEX_PAYER)];
+		const { body } = await run();
+
+		expect(purchaseReads()).toEqual([]);
+		expect(body).toMatchObject({ matched: 0, purchaseLookups: 0, payingWalletNotComparable: 1 });
+		expect(await entry(old.id)).toMatchObject({ status: 'filed', twistId: null });
+	});
+
+	it('an entry with a transaction id is never matched on the ledger instead', async () => {
+		const log = await file('log_work');
+		const filedAt = (await entry(log.id))!.filedAt;
+		ledgers[LOG_HASH] = [sale('41aa', filedAt, `https://${CONTRACTOR_WALLET}`)];
+		const { body } = await run();
+
+		expect(body).toMatchObject({ matched: 0, purchasesNotSettled: 1 });
+		expect(await entry(log.id)).toMatchObject({ status: 'filed', twistId: null });
+	});
+
+	it('asks about at most the limit in one pass, oldest filing first; the rest next pass', async () => {
+		const filed: { id: string; transactionId: string }[] = [];
+		// Filed 30 minutes ago down to 1 minute ago: the first is the oldest.
+		for (let n = 0; n < PURCHASE_LOOKUPS_PER_PASS + 2; n += 1) {
+			const log = await file('log_work', { minutesAgo: 30 - n });
+			purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+			filed.push(log);
+		}
+		const first = await run();
+
+		expect(PURCHASE_LOOKUPS_PER_PASS).toBe(20);
+		expect(first.body).toMatchObject({ purchaseLookups: 20, verified: 20, purchasesNotAsked: 2 });
+		expect(purchaseReads()).toEqual(filed.slice(0, 20).map((log) => log.transactionId));
+		expect((await entry(filed[21]!.id))!.status).toBe('filed');
+
+		const second = await run();
+		expect(second.body).toMatchObject({ purchaseLookups: 2, verified: 2, purchasesNotAsked: 0 });
+	});
+
+	it('stops asking about a filing once it is too old, so it cannot hold up newer ones', async () => {
+		const old = await file('log_work', { minutesAgo: PURCHASE_LOOKUP_MAX_AGE_MS / 60_000 + 5 });
+		purchases[old.transactionId] = settled(LOG_ITEM, '0.100');
+		const fresh = await file('log_work', { minutesAgo: PURCHASE_LOOKUP_MAX_AGE_MS / 60_000 - 5 });
+		purchases[fresh.transactionId] = settled(LOG_ITEM, '0.100');
+		const { body } = await run();
+
+		expect(body).toMatchObject({ purchaseLookups: 1, verified: 1, purchasesNotAsked: 1 });
+		expect(purchaseReads()).toEqual([fresh.transactionId]);
+		expect((await entry(old.id))!.status).toBe('filed');
+	});
+
+	it('leaves the entry waiting when Qatom cannot be asked, and carries on with the others', async () => {
+		const broken = await file('log_work');
+		purchases[broken.transactionId] = { status: 503 };
+		const dropped = await file('log_work');
+		purchases[dropped.transactionId] = new TypeError('socket hang up');
+		const odd = await file('log_work');
+		purchases[odd.transactionId] = { ...settled(LOG_ITEM, '0.100'), amount: 'a lot' };
+		const fine = await file('log_work');
+		purchases[fine.transactionId] = settled(LOG_ITEM, '0.100');
+		const { status, body } = await run();
+
+		expect(status).toBe(200);
+		expect(body).toMatchObject({ purchaseLookups: 4, purchaseErrors: 3, verified: 1 });
+		for (const { id } of [broken, dropped, odd]) {
+			expect(await entry(id)).toMatchObject({ status: 'filed', twistId: null });
+		}
+	});
+
+	it('leaves the entry waiting, unasked, when the item it names is not in Qatom’s catalog', async () => {
+		await giveCampaignItems({ logWorkCommodityId: 9999, milestoneHitCommodityId: HIT_ID });
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+		const { body } = await run();
+
+		expect(body).toMatchObject({ purchaseLookups: 0, purchaseErrors: 1, matched: 0 });
+		expect(purchaseReads()).toEqual([]);
+		expect((await entry(log.id))!.status).toBe('filed');
+	});
+
+	it('one purchase proves one entry: a second filing with the same id is not verified by it', async () => {
+		const first = await file('log_work', { minutesAgo: 5 });
+		const second = await file('log_work', { minutesAgo: 4, transactionId: first.transactionId });
+		purchases[first.transactionId] = settled(LOG_ITEM, '0.100');
+		const { body } = await run();
+		await run();
+
+		expect(body).toMatchObject({ matched: 1, verified: 1 });
+		expect((await entry(first.id))!.status).toBe('verified');
+		expect(await entry(second.id)).toMatchObject({ status: 'filed', twistId: null });
+	});
+
+	it('a verified entry is not asked about again', async () => {
+		const log = await file('log_work');
+		purchases[log.transactionId] = settled(LOG_ITEM, '0.100');
+		await run();
+		const again = await run();
+
+		expect(again.body).toMatchObject({ matched: 0, purchaseLookups: 0 });
+		expect(purchaseReads()).toEqual([log.transactionId]);
 	});
 });
