@@ -44,8 +44,14 @@ import type { Locator, Page, TestInfo } from '@playwright/test';
 import { BUILD_MILESTONE, draftReport } from '../lib/chat.ts';
 import type { E2eConfig } from '../lib/config.ts';
 import { testDocumentFile } from '../lib/files.ts';
-import { fileFromReview, type Filing } from '../lib/filing.ts';
+import { fileFromReview } from '../lib/filing.ts';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
+import {
+	expectMilestoneStatus,
+	milestoneStatus,
+	openMilestone,
+	type MilestoneStatus
+} from '../lib/milestone-page.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
 import { readRunCampaign } from '../lib/run-campaign.ts';
 
@@ -84,35 +90,21 @@ function paidRunOnly(testInfo: TestInfo, cfg: E2eConfig): void {
 	expect(testInfo.retry, 'A paid step must never be retried.').toBe(0);
 }
 
-/** The states a milestone's public page shows, in the words donors read. */
-const STATES = ['Not started', 'In progress', 'Claimed complete', 'Confirmed'] as const;
-type Seen = (typeof STATES)[number];
+/** A donor opens one milestone's own page and reads its status, with the shared reader. */
+async function milestoneAsDonorsSeeIt(page: Page, cfg: E2eConfig, title: string): Promise<string> {
+	await openMilestone(page, cfg.siteUrl, cfg.campaignId, title);
+	return milestoneStatus(page);
+}
 
-/**
- * A donor opens one milestone's own page from the campaign's list, and reads its state from
- * the badge under its title. Read from the badge alone: the list page explains "Claimed
- * complete" and "Confirmed" in words whatever the milestones' states are.
- */
-async function milestoneAsDonorsSeeIt(page: Page, cfg: E2eConfig, title: string): Promise<Seen> {
-	await page.goto(`${cfg.siteUrl}/campaigns/${cfg.campaignId}/milestones`);
-	await page
-		.getByRole('main')
-		.locator(`a[href^="/campaigns/${cfg.campaignId}/milestones/"]`)
-		.filter({ hasText: title })
-		.first()
-		.click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
-	const badges = page.locator('.tj-msstatus');
-	await expect(badges).toBeVisible();
-	const shown = await badges.innerText();
-	const seen = STATES.filter((state) => shown.includes(state));
-	if (seen.length !== 1 || !seen[0]) {
-		throw new Error(
-			`The public page of "${title}" does not show one state this check knows. Its badges read: ` +
-				`"${shown.replace(/\s+/g, ' ').trim()}". Nothing was filed by this step.`
-		);
-	}
-	return seen[0];
+/** After a filing: donors see `title` as `wanted`. */
+async function donorsNowSee(
+	page: Page,
+	cfg: E2eConfig,
+	title: string,
+	wanted: MilestoneStatus
+): Promise<void> {
+	await openMilestone(page, cfg.siteUrl, cfg.campaignId, title);
+	await expectMilestoneStatus(page, wanted);
 }
 
 /**
@@ -123,12 +115,12 @@ async function onlyWhenDonorsSee(
 	page: Page,
 	cfg: E2eConfig,
 	title: string,
-	needed: readonly Seen[],
+	needed: readonly MilestoneStatus[],
 	why: string
 ): Promise<void> {
 	const seen = await milestoneAsDonorsSeeIt(page, cfg, title);
 	test.skip(
-		!needed.includes(seen),
+		!needed.some((status) => status === seen),
 		`${NOTHING}donors see "${title}" as "${seen}", not "${needed.join('" or "')}". ${why}`
 	);
 }
@@ -246,7 +238,7 @@ test.describe('a delivery', () => {
 		await expect(page.getByRole('main')).toContainText(`${QUANTITY} ${UNIT}`);
 
 		// Donors now see the milestone as reported done, and not yet confirmed.
-		expect(await milestoneAsDonorsSeeIt(page, cfg, DELIVERY_MILESTONE)).toBe('Claimed complete');
+		await donorsNowSee(page, cfg, DELIVERY_MILESTONE, 'Claimed complete');
 		await waypoint(page, 'delivery-claimed');
 	});
 
@@ -269,7 +261,7 @@ test.describe('a delivery', () => {
 
 			await confirmMilestone(page, cfg, waypoint, DELIVERY_MILESTONE, reference('confirm2'));
 
-			expect(await milestoneAsDonorsSeeIt(page, cfg, DELIVERY_MILESTONE)).toBe('Confirmed');
+			await donorsNowSee(page, cfg, DELIVERY_MILESTONE, 'Confirmed');
 			await waypoint(page, 'delivery-confirmed');
 		});
 	});
@@ -315,19 +307,16 @@ test.describe('a report that arrives incomplete and is fixed', () => {
 		).toContainText(WORK_MILESTONE);
 		await waypoint(page, 'review-before-filing');
 
-		const filing: Filing = { what: 'milestone claim', who: 'contractor', deposit: '1.00' };
-		// The shared filing ends in an error when the entry lands incomplete, after it has found
-		// the entry on the timeline and opened its proof page. Here that ending is the one
-		// expected, and only that one: every other ending is passed on exactly as it is.
-		let landedIncomplete = false;
-		try {
-			await fileFromReview(page, cfg, waypoint, card, ref, filing);
-		} catch (error) {
-			if (!(error instanceof Error) || !/saved it as\s+INCOMPLETE/.test(error.message)) throw error;
-			landedIncomplete = true;
-		}
+		// A report that lands incomplete is the ending expected here, so the shared filing is
+		// told so: it comes back saying which it was, with the browser on the proof page.
+		const { proofPath, incomplete } = await fileFromReview(page, cfg, waypoint, card, ref, {
+			what: 'milestone claim',
+			who: 'contractor',
+			deposit: '1.00',
+			incompleteExpected: true
+		});
 		expect(
-			landedIncomplete,
+			incomplete,
 			`The milestone claim "${ref}" was filed and its deposit paid, and it is NOT marked ` +
 				'incomplete, though a service claim needs a document and this one was to carry none. ' +
 				'Either the assistant attached a file, or the rule has changed. Do not file again.'
@@ -340,11 +329,11 @@ test.describe('a report that arrives incomplete and is fixed', () => {
 			'The claim is incomplete for another reason than its missing document, so the fix page ' +
 				'may not be able to complete it. It was filed and its deposit paid. Do not file again.'
 		).toContainText(DOCUMENT_OWED);
-		filed = { ref, proofUrl: page.url() };
+		filed = { ref, proofUrl: `${cfg.siteUrl}${proofPath}` };
 		await waypoint(page, 'proof-says-incomplete');
 
 		// A claim moves its milestone to claimed whether or not it is complete.
-		expect(await milestoneAsDonorsSeeIt(page, cfg, WORK_MILESTONE)).toBe('Claimed complete');
+		await donorsNowSee(page, cfg, WORK_MILESTONE, 'Claimed complete');
 		await waypoint(page, 'service-claimed');
 	});
 
@@ -442,7 +431,7 @@ test.describe('a report that arrives incomplete and is fixed', () => {
 
 			await confirmMilestone(page, cfg, waypoint, WORK_MILESTONE, reference('confirm1'));
 
-			expect(await milestoneAsDonorsSeeIt(page, cfg, WORK_MILESTONE)).toBe('Confirmed');
+			await donorsNowSee(page, cfg, WORK_MILESTONE, 'Confirmed');
 			await waypoint(page, 'service-confirmed');
 		});
 	});
