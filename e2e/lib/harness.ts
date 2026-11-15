@@ -7,6 +7,7 @@ import { mkdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { loadE2eConfig, type E2eConfig } from './config.ts';
 import { SCREENSHOTS } from './paths.ts';
+import { readRunCampaign, withRunCampaign } from './run-campaign.ts';
 import { assertSafeToRun } from './safety.ts';
 import { describePage } from './seen-page.ts';
 
@@ -24,7 +25,8 @@ export const test = base.extend<
 			void browserName;
 			const config = loadE2eConfig();
 			assertSafeToRun(config);
-			await use(config);
+			// A paid run tells its story on a campaign it created itself (see run-campaign.ts).
+			await use(withRunCampaign(config, readRunCampaign()));
 		},
 		{ scope: 'worker' }
 	],
