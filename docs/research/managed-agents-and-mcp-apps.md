@@ -37,9 +37,9 @@ reason only.**
   step** mostly cannot: Claude's phone apps give an MCP App no camera, and our upload endpoint
   only accepts a signed-in browser on our own site. In Claude, a person would be sent to our
   upload page by a link, as the assistant already asks today.
-- A contractor can already connect Tejido's Qatom tools to Claude as themselves, and the
-  deposit still comes from their own agent wallet. They lose our assistant's rules and must
-  type their private filing code themselves.
+- Qatom's server is built and tested for a contractor to connect Tejido's Qatom tools to Claude
+  as themselves (not tried here), and the deposit still comes from their own agent wallet. They
+  lose our assistant's rules and must type their private filing code themselves.
 - Our chat page could become an MCP Apps host. It is the most work of anything here and is not
   worth it until Qatom's cards exist.
 
