@@ -2,10 +2,12 @@
  * What the campaign builder writes: a new campaign with its parties and milestones, in one
  * batch, and the count that limits how many can be created in an hour.
  *
- * Nothing here calls Qatom, and nothing here reads or changes an existing campaign.
+ * And the one change the builder makes to a campaign that exists: publishing a draft.
+ *
+ * Nothing here calls Qatom.
  */
 import type { Campaign, Milestone, Party } from '@tejido/contracts';
-import { count, gte } from 'drizzle-orm';
+import { and, count, eq, gte } from 'drizzle-orm';
 import type { Database, Executor } from './client.ts';
 import { campaigns, milestones, parties } from './schema.ts';
 
@@ -39,4 +41,23 @@ export async function countCampaignsCreatedSince(db: Executor, since: string): P
 		.from(campaigns)
 		.where(gte(campaigns.createdAt, since));
 	return row?.total ?? 0;
+}
+
+/**
+ * Publishes a draft: moves the campaign from `draft` to `funding`, the status of a campaign
+ * that has just opened, and changes nothing else about it.
+ *
+ * Only from `draft`. The condition is part of the write, so it is checked against the row as
+ * it is at that moment: a campaign in any other status, or one that does not exist, is left
+ * alone, and publishing twice changes nothing the second time. Answers whether it moved.
+ *
+ * Who may publish is not decided here: the caller checks that first.
+ */
+export async function publishDraftCampaign(db: Executor, campaignId: string): Promise<boolean> {
+	const moved = await db
+		.update(campaigns)
+		.set({ status: 'funding' })
+		.where(and(eq(campaigns.id, campaignId), eq(campaigns.status, 'draft')))
+		.returning({ id: campaigns.id });
+	return moved.length > 0;
 }

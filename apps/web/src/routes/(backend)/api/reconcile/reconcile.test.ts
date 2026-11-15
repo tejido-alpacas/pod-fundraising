@@ -15,7 +15,7 @@ import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createMerchantAccount } from '@tejido/qatom/account';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { ReconcileSummary } from '#lib/server/backend/reconciler.ts';
+import { SHARED_ITEM_COMMODITY_ID, type ReconcileSummary } from '#lib/server/backend/reconciler.ts';
 import { POST } from './+server.ts';
 
 const SECRET = 'test-checkin-secret-test-checkin-secret';
@@ -744,33 +744,47 @@ describe('POST /api/reconcile', () => {
 		expect(await allEntries()).toEqual(before);
 	});
 
-	it('skips a campaign with no commodity ids without calling Qatom', async () => {
+	it('reads a campaign with no commodity ids of its own under the two shared items', async () => {
 		await giveCampaignItems({ logWorkCommodityId: null, milestoneHitCommodityId: null });
-		const before = await allEntries();
+		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+		ledgers[HIT_HASH] = [];
 
 		const { status, body } = await run();
 
 		expect(status).toBe(200);
+		// Counted as having no ids of its own, and read all the same: its work log gets its receipt.
 		expect(body).toMatchObject({
-			campaigns: 0,
+			campaigns: 1,
 			campaignsWithoutItems: 1,
-			ledgersRead: 0,
-			matched: 0,
-			unmatched: 0
+			ledgersRead: 2,
+			verified: 1,
+			unmatched: 1
 		});
-		expect(requests).toEqual([]);
-		expect(await allEntries()).toEqual(before);
 	});
 
-	it('reads only the ledger of the item a campaign has', async () => {
+	it('reads an item a campaign stores no id for under the shared item', async () => {
 		await giveCampaignItems({ logWorkCommodityId: LOG_ID, milestoneHitCommodityId: null });
 		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+		ledgers[HIT_HASH] = [];
 
 		const { body } = await run();
 
-		expect(body).toMatchObject({ campaigns: 1, ledgersRead: 1, verified: 1, unmatched: 1 });
-		expect(requests.filter((request) => request.url.includes('/v4/commodity/'))).toHaveLength(1);
-		expect(requests.filter((request) => request.url.includes('/v4/catalog/items'))).toHaveLength(1);
+		// Not counted as "without items": it stores one. Both ledgers are read.
+		expect(body).toMatchObject({
+			campaigns: 1,
+			campaignsWithoutItems: 0,
+			ledgersRead: 2,
+			verified: 1,
+			unmatched: 1
+		});
+		expect(requests.filter((request) => request.url.includes('/v4/commodity/'))).toHaveLength(2);
+	});
+
+	it('names the two shared items the example campaign has always carried', () => {
+		expect(SHARED_ITEM_COMMODITY_ID).toEqual({
+			log_work: fixtures.campaign.logWorkCommodityId,
+			milestone_hit: fixtures.campaign.milestoneHitCommodityId
+		});
 	});
 
 	describe('when two campaigns share the same items', () => {

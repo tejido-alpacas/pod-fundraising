@@ -49,10 +49,12 @@ at the top of `reconciler.ts`.
 - A receipt on the wrong entry is worse than a missing one. When it is not exactly one each
   way (two filings a few minutes apart by one person, on one campaign or on two), nothing is
   recorded and the entries are counted as `ambiguous`. They stay at "Receipt pending".
-- A campaign is read only once an item's commodity id is stored on it (`logWorkCommodityId`,
-  `milestoneHitCommodityId`). Until then it is counted in `campaignsWithoutItems` and its
-  entries stay as they are.
-- The answer counts: `campaigns` (with an item to read), `ledgersRead` (a shared ledger counts
+- Every campaign is read. One that stores a commodity id of its own for an item
+  (`logWorkCommodityId`, `milestoneHitCommodityId`) is read under that id. One that stores none,
+  which is every campaign made with the builder, is read under the two shared items
+  (`SHARED_ITEM_COMMODITY_ID` in `reconciler.ts`: the owner's decision, 15 November). It is
+  still counted in `campaignsWithoutItems`, as information; it is not skipped.
+- The answer counts: `campaigns` (every campaign), `ledgersRead` (a shared ledger counts
   once), `matched` (`verified` + `flagged` + `stampedIncomplete`), and `unmatched` (still
   waiting, including `ambiguous` and `waitingForWallet`). `ledgerErrors` has one line for each
   ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.
