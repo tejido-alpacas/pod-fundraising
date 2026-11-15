@@ -3,6 +3,29 @@ Track C (Backend): the reconciler, deposit refunds and the cadence scheduler go 
 Everything in this folder is server-only. Reach Qatom through `event.locals.ctx.qatom.account`
 and the database through `event.locals.ctx.db`.
 
+## The timer (`worker.ts`, `reconcile-timer.ts`)
+
+On the live site the reconciler runs by itself, once a minute. Cloudflare's own timer (the
+Cron Trigger in `apps/web/wrangler.jsonc`, `triggers.crons`) calls the `scheduled` handler in
+`worker.ts`, which hands the Worker's own request handler a `POST /api/reconcile` with the
+shared-secret header. No network hop, and the same route a person's call goes through.
+
+- Reconcile only. `/api/funding` and `/api/schedule` are not on the timer; adding one is one
+  more call in `worker.ts`. `/api/refunds` moves money and must never be put there.
+- `worker.ts` is the Worker's entry (`main` in `wrangler.jsonc`). SvelteKit's adapter has no
+  option for a timer, so the entry is the Worker the build generates plus the handler. The
+  build writes the generated Worker to the path in `apps/web/wrangler.build.jsonc`.
+- Seeing it work: in the Cloudflare dashboard, the `tejido-web` Worker's Logs show, each
+  minute, `Reconcile on the timer: POST /api/reconcile answered 200.` A failed run shows
+  `Reconcile on the timer failed: ...` with the status only, and the timer event is marked
+  failed. Page requests are separate events and keep working.
+- Turning it off: change `"crons": ["* * * * *"]` to `"crons": []` in `wrangler.jsonc` and
+  merge. Deleting the line leaves the timer running.
+- Trying it locally: `npm run build`, then in `apps/web` run `npm start -- --test-scheduled`
+  and open `http://localhost:5173/__scheduled`. `npm run dev` has no timer.
+- Two passes can overlap if one takes longer than a minute. A stamped entry is never looked
+  at again, but overlapping passes have not been tried against real Qatom.
+
 ## Reconciler (`reconciler.ts`, `POST /api/reconcile`)
 
 One pass finds, for each saved entry that has no receipt yet, the Qatom transaction that paid
@@ -17,22 +40,61 @@ at the top of `reconciler.ts`.
 - A receipt on the wrong entry is worse than a missing one. When it is not exactly one each
   way (two filings a few minutes apart by one person, on one campaign or on two), nothing is
   recorded and the entries are counted as `ambiguous`. They stay at "Receipt pending".
-- A campaign is read only once an item's commodity id is stored on it (`logWorkCommodityId`,
-  `milestoneHitCommodityId`). Until then it is counted in `campaignsWithoutItems` and its
-  entries stay as they are.
-- The answer counts: `campaigns` (with an item to read), `ledgersRead` (a shared ledger counts
+- Every campaign is read. One that stores a commodity id of its own for an item
+  (`logWorkCommodityId`, `milestoneHitCommodityId`) is read under that id. One that stores none,
+  which is every campaign made with the builder, is read under the two shared items
+  (`SHARED_ITEM_COMMODITY_ID` in `reconciler.ts`: the owner's decision, 15 November). It is
+  still counted in `campaignsWithoutItems`, as information; it is not skipped.
+- The answer counts: `campaigns` (every campaign), `ledgersRead` (a shared ledger counts
   once), `matched` (`verified` + `flagged` + `stampedIncomplete`), and `unmatched` (still
   waiting, including `ambiguous` and `waitingForWallet`). `ledgerErrors` has one line for each
   ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.
 - It only reads from Qatom, with the merchant account. It never transfers. A stamped entry is
   never looked at again, so running the pass twice changes nothing.
-- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. Nothing
-  calls it on a schedule yet.
+- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. On the
+  live site the timer calls it once a minute (see "The timer" above); a person who holds the
+  secret can still call it.
 
 ## Item provisioning (`provisioning.ts`, `POST /api/provisioning`)
 
 Not to be used while campaigns share the two items: it creates a new pair of items for one
 campaign, which the owner's decision of 15 November makes unwanted.
+
+## Donations (`POST /api/donations/<amount>`)
+
+Campaigns share Tejido's donation items: one catalog item per amount on the merchant account,
+not one per campaign. After a donor pays, Qatom calls `POST /api/donations/<amount>` and we
+write one row in `donations`. Pages read the sum with `getFundingSummary` from `@tejido/db`.
+
+- Which campaign comes from the body: the item's one declared input, `campaign_id`
+  (`donationInputJsonSchema()` in `@tejido/contracts` is the schema to enter on the item).
+- How much comes from the address, never from the body: the 5 item's external endpoint is
+  `/api/donations/5`. A whole number of USD-TDN, at least 1.
+- It needs the `X-Tejido-Checkin-Secret` header, like the check-in endpoint.
+- One payment is counted once. Qatom sends `X-Qatom-Transaction-Id` with a dispatch; only its
+  SHA-256 is kept, to recognise a repeat. A call without that header is still saved, and
+  cannot be recognised if repeated.
+- No donor's name, email, wallet or transaction id is stored.
+- A campaign in `funding` with a `fundingGoal` moves to `funded` in the write that brings its
+  donations to the goal. Nothing else is triggered, and no status moves backwards.
+- It calls nothing in Qatom and moves no money. Not yet called by real Qatom.
+- A campaign with recorded donations is summed from them. One with none still reads the
+  totals of the ledger pass below, which no campaign uses now that the items are shared.
+
+### Starting a donation (`donation-items.ts`)
+
+The Give page (`/give/<campaign>`, Track A) offers amounts and sends the donor to Qatom's
+checkout page. Nothing names the donation items in our configuration or database:
+`listDonationOptions` asks Qatom for the merchant account's own items and keeps those that are
+on sale, whose external endpoint is this site's `/api/donations/<amount>` over https, and whose
+price equals that amount. This site's origin is the origin of `WEB_OIDC_REDIRECT_URI`.
+
+- `startDonation` looks the items up again, then asks Qatom for a checkout link for the chosen
+  amount with `campaign_id` as the item's input. A link is for one purchase: one is made per
+  click and none is stored.
+- Making a link moves no money and records nothing. The donation is recorded when Qatom calls
+  the endpoint above.
+- Both calls use the merchant account. Not yet run against real Qatom.
 
 ## Funding (`funding.ts`, `POST /api/funding`)
 

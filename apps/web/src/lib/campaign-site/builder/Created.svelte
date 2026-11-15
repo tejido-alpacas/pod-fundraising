@@ -1,30 +1,65 @@
 <!--
-  Created: what the organiser sees once the campaign exists. Its page, an invitation link for
-  each person, what happens next, and what is not automatic yet.
+  Created: what the organiser sees once the campaign exists. The button that publishes it, its
+  page, an invitation link for each person, what happens next, and what is not automatic yet.
 
-  <Created {created} />
+  <Created {created} {lang} {email} {publishing} />
 -->
 <script lang="ts">
 	import { Banner, Button } from '@tejido/ui';
 	import CopyButton from '#lib/campaign-site/CopyButton.svelte';
+	import type { Lang } from '#lib/campaign-site/i18n/index.ts';
+	import PublishCampaign from '#lib/campaign-site/PublishCampaign.svelte';
 	import type { CreatedCampaign } from './draft.ts';
 	import { ROLE_LABEL } from './words.ts';
 
-	let { created, heading = $bindable() }: { created: CreatedCampaign; heading?: HTMLElement } =
-		$props();
+	let {
+		created,
+		lang,
+		email,
+		publishing,
+		heading = $bindable()
+	}: {
+		created: CreatedCampaign;
+		lang: Lang;
+		/** The signed-in person's email, or null. */
+		email: string | null;
+		/** Whether the campaign is still a draft and who is looking. Null when that is not known. */
+		publishing: { draft: boolean; viewer: 'creator' | 'signed_out' | 'someone_else' } | null;
+		heading?: HTMLElement;
+	} = $props();
+
+	/** Published campaigns are on the lists; a draft, or one we know nothing about, is not said to be. */
+	const published = $derived(publishing !== null && !publishing.draft);
 </script>
 
 <div class="tj-pagehead">
 	<p class="text-eyebrow">Campaign created</p>
 	<h1 tabindex="-1" bind:this={heading}>{created.title}</h1>
-	<p class="tj-pagehead__meta">
-		Saved as a draft. It is on no public list: only someone with its link can open it.
-	</p>
+	{#if !published}
+		<p class="tj-pagehead__meta">
+			Saved as a draft. It is on no public list: only someone with its link can open it.
+		</p>
+	{/if}
 </div>
+
+{#if publishing}
+	<PublishCampaign
+		{lang}
+		campaignId={created.id}
+		draft={publishing.draft}
+		viewer={publishing.viewer}
+		{email}
+		returnTo="/campaigns/new?created={encodeURIComponent(created.id)}"
+		announce
+	/>
+{/if}
 
 <div class="tj-card">
 	<h2 class="tj-section__title">The campaign’s page</h2>
-	<p>This is the page donors will follow. Keep its link: it is the only way to reach a draft.</p>
+	<p>
+		This is the page donors will follow.
+		{#if !published}Keep its link: it is the only way to reach a draft.{/if}
+	</p>
 	<div>
 		<Button variant="primary" size="field" href={created.path}>Open the campaign’s page</Button>
 	</div>
@@ -76,9 +111,9 @@
 </section>
 
 <Banner title="Not automatic yet" role="note">
-	Three things are still set up by the Tejido team, not by this page: opening the campaign for
-	giving, creating its items in the Qatom catalog so reports can be filed, and reminders when a
-	report is due. Until then the campaign stays a draft.
+	Three things are still set up by the Tejido team, not by this page or by publishing: opening the
+	campaign for giving, creating its items in the Qatom catalog so reports can be filed, and
+	reminders when a report is due.
 </Banner>
 
 <div><Button size="field" href="/campaigns/new">Start another campaign</Button></div>

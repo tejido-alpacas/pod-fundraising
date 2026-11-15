@@ -13,6 +13,7 @@
 	import DeliveryProgress from '#lib/campaign-site/DeliveryProgress.svelte';
 	import HowProofWorks from '#lib/campaign-site/HowProofWorks.svelte';
 	import { CAMPAIGN_STATUS_LABEL } from '#lib/campaign-site/labels.ts';
+	import PublishCampaign from '#lib/campaign-site/PublishCampaign.svelte';
 	import TimelineEntry from '#lib/campaign-site/TimelineEntry.svelte';
 	import type { PageProps } from './$types';
 
@@ -124,6 +125,16 @@
 		part="trail"
 	/>
 
+	<!-- A draft says so, and its signed-in creator can publish it from here. -->
+	<PublishCampaign
+		lang={data.lang}
+		campaignId={data.campaign.id}
+		draft={data.publishing !== null}
+		viewer={data.publishing?.viewer ?? 'signed_out'}
+		email={data.donorEmail}
+		returnTo="/campaigns/{data.campaign.id}"
+	/>
+
 	<div class="tj-campaign">
 		<section class="tj-camp tj-campaign__intro">
 			<div class="tj-camp__where">
@@ -147,6 +158,14 @@
 				<!-- Funding is shown only when it is known. "Not known" is not zero, so nothing is drawn. -->
 				{#if data.funding.state === 'known'}
 					<FundingProgress funding={data.funding} />
+				{/if}
+				<!-- Giving is offered only while the campaign is raising money. It happens on /give. -->
+				{#if data.campaign.status === 'funding'}
+					<Button variant="primary" block href="/give/{data.campaign.id}">
+						Give to this campaign
+					</Button>
+				{/if}
+				{#if data.funding.state === 'known' || data.campaign.status === 'funding'}
 					<div class="tj-panel__sep"></div>
 				{/if}
 				<DeliveryProgress

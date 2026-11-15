@@ -1,4 +1,4 @@
-import { error } from '@sveltejs/kit';
+import { error, fail } from '@sveltejs/kit';
 import {
 	confirmationStrength,
 	formatAmount,
@@ -25,7 +25,12 @@ import {
 } from '#lib/campaign-site/server/delivery.ts';
 import { depositView } from '#lib/campaign-site/server/deposits.ts';
 import { notPublicAmong, sortEvidence } from '#lib/campaign-site/server/evidence.ts';
-import type { PageServerLoad } from './$types';
+import {
+	publishCampaign,
+	publishViewer,
+	type PublishRefusal
+} from '#lib/campaign-site/server/publish-campaign.ts';
+import type { Actions, PageServerLoad } from './$types';
 
 /**
  * How many entries the timeline shows at first, and how many more each "Show older entries"
@@ -94,6 +99,12 @@ export const load = (async ({ params, locals, url }) => {
 			createdAt: campaign.createdAt
 		},
 		/**
+		 * For a draft only: whether the visitor is its creator, signed in, who may publish it.
+		 * One word, never the creator's email. Null once the campaign is not a draft.
+		 */
+		publishing:
+			campaign.status === 'draft' ? { viewer: publishViewer(locals.session, campaign) } : null,
+		/**
 		 * Money given, against the goal: totals from our own database, as last read from Qatom's
 		 * ledger. `state: 'not_known'` is not zero. No donor is identified. A different fact from
 		 * delivery (`milestones` below), and never drawn in a status colour.
@@ -148,6 +159,27 @@ export const load = (async ({ params, locals, url }) => {
 		}
 	};
 }) satisfies PageServerLoad;
+
+const REFUSED_STATUS: Record<PublishRefusal, number> = {
+	no_campaign: 404,
+	signed_out: 401,
+	someone_else: 403,
+	not_draft: 409
+};
+
+export const actions = {
+	/**
+	 * Publishes this campaign: draft to funding, and nothing else. Only its creator, signed in
+	 * with Qatom, may. The check is made here whatever the page showed.
+	 */
+	publish: async ({ params, locals }) => {
+		const outcome = await publishCampaign(locals.ctx.db, locals.session, params.campaignId);
+		if (!outcome.published) {
+			return fail(REFUSED_STATUS[outcome.reason], { published: false, reason: outcome.reason });
+		}
+		return { published: true };
+	}
+} satisfies Actions;
 
 /** Reads `?show=`. Anything that is not a whole number of at least one page means one page. */
 function shownCount(value: string | null): number {

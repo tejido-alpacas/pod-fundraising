@@ -1,4 +1,5 @@
 import { fail } from '@sveltejs/kit';
+import { getCampaign } from '@tejido/db';
 import { checkDraft } from '#lib/campaign-site/builder/check.ts';
 import {
 	isStep,
@@ -9,11 +10,30 @@ import {
 	type Step
 } from '#lib/campaign-site/builder/draft.ts';
 import { CREATED_PER_HOUR, createCampaign } from '#lib/campaign-site/server/create-campaign.ts';
-import type { Actions } from './$types';
+import { publishViewer } from '#lib/campaign-site/server/publish-campaign.ts';
+import type { Actions, PageServerLoad } from './$types';
 
 // The campaign builder (screen A5). The draft lives in the organiser's browser; each
 // "Continue" posts it here to be checked, and "Create campaign" posts it one last time to be
 // checked whole and written. Nothing is stored until then, and nothing here calls Qatom.
+
+/**
+ * After "Create campaign" the address names the campaign (`?created=<its id>`), so the screen
+ * that follows can offer to publish it: whether it is still a draft, and whether the visitor is
+ * its creator, signed in. One word, never the creator's email. Null on every other screen.
+ */
+export const load = (async ({ url, locals }) => {
+	const id = url.searchParams.get('created');
+	const campaign = id ? await getCampaign(locals.ctx.db, id) : undefined;
+	if (!campaign) return { publishing: null };
+	return {
+		publishing: {
+			campaignId: campaign.id,
+			draft: campaign.status === 'draft',
+			viewer: publishViewer(locals.session, campaign)
+		}
+	};
+}) satisfies PageServerLoad;
 
 /** A whole draft is a few thousand characters. Anything far larger is not a draft. */
 const MAX_DRAFT_CHARACTERS = 200_000;
