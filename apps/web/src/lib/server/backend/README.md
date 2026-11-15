@@ -3,6 +3,37 @@ Track C (Backend): the reconciler, deposit refunds and the cadence scheduler go 
 Everything in this folder is server-only. Reach Qatom through `event.locals.ctx.qatom.account`
 and the database through `event.locals.ctx.db`.
 
+## Reconciler (`reconciler.ts`, `POST /api/reconcile`)
+
+One pass finds, for each saved entry that has no receipt yet, the Qatom transaction that paid
+its deposit, and records it on the entry. Paid from the agent wallet registered for the
+entry's party: `verified`. Paid from any other wallet: `flagged`. The rules are in the comment
+at the top of `reconciler.ts`.
+
+- **Every campaign shares the same two catalog items**, so one ledger holds the payments of
+  every campaign. Each ledger is read once in a pass, and the waiting entries of every campaign
+  that names it are matched together. An entry is given a transaction only when exactly one
+  transaction could be its, and that transaction could be no other entry's, on any campaign.
+- A receipt on the wrong entry is worse than a missing one. When it is not exactly one each
+  way (two filings a few minutes apart by one person, on one campaign or on two), nothing is
+  recorded and the entries are counted as `ambiguous`. They stay at "Receipt pending".
+- A campaign is read only once an item's commodity id is stored on it (`logWorkCommodityId`,
+  `milestoneHitCommodityId`). Until then it is counted in `campaignsWithoutItems` and its
+  entries stay as they are.
+- The answer counts: `campaigns` (with an item to read), `ledgersRead` (a shared ledger counts
+  once), `matched` (`verified` + `flagged` + `stampedIncomplete`), and `unmatched` (still
+  waiting, including `ambiguous` and `waitingForWallet`). `ledgerErrors` has one line for each
+  ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.
+- It only reads from Qatom, with the merchant account. It never transfers. A stamped entry is
+  never looked at again, so running the pass twice changes nothing.
+- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. Nothing
+  calls it on a schedule yet.
+
+## Item provisioning (`provisioning.ts`, `POST /api/provisioning`)
+
+Not to be used while campaigns share the two items: it creates a new pair of items for one
+campaign, which the owner's decision of 15 November makes unwanted.
+
 ## Funding (`funding.ts`, `POST /api/funding`)
 
 Donors give through Qatom, by paying for a campaign's donation catalog item. `refreshFunding`
