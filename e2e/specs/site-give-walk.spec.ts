@@ -20,7 +20,8 @@ import {
 	fundingInWords,
 	givePageFunding,
 	giveWords,
-	type StatedFunding
+	type StatedFunding,
+	say
 } from '../lib/give-page.ts';
 import { whole } from '../lib/site-words.ts';
 
@@ -122,20 +123,20 @@ test('from "Give now", each campaign listed leads to its own Give page and back'
 		await expect(page).toHaveURL(`${cfg.siteUrl}${address}`);
 		await expect(page.getByRole('heading', { level: 1 })).toHaveText(title);
 
-		testInfo.annotations.push({
-			type: 'found',
-			description:
-				`"${title}": Give button, Give page, and back. ` +
+		say(
+			testInfo,
+			`"${title}": Give button, Give page, and back. ` +
 				(offered.length > 0
 					? `Amounts on sale: ${offered.join(', ')}.`
 					: 'Giving is not available there now.')
-		});
+		);
 	}
 	if (listed.length > walked.length) {
-		testInfo.annotations.push({
-			type: 'not checked',
-			description: `"Give now" lists ${listed.length} campaigns; the first ${walked.length} were walked.`
-		});
+		say(
+			testInfo,
+			`"Give now" lists ${listed.length} campaigns; the first ${walked.length} were walked.`,
+			'not checked'
+		);
 	}
 });
 
@@ -164,10 +165,11 @@ test('the Give page’s totals are the ones in the Funding block on the campaign
 		}
 		const onCampaignPage = before;
 		if (!settled) {
-			testInfo.annotations.push({
-				type: 'not checked',
-				description: `${id}: its totals changed three times while being read (donations are arriving), so the two pages were not compared.`
-			});
+			say(
+				testInfo,
+				`${id}: its totals changed three times while being read (donations are arriving), so the two pages were not compared.`,
+				'not checked'
+			);
 			continue;
 		}
 
@@ -185,9 +187,9 @@ test('the Give page’s totals are the ones in the Funding block on the campaign
 				`${id}: the campaign page says ${fundingInWords(onCampaignPage)}; the Give page says ${fundingInWords(onGivePage)}.`
 			).toEqual(onCampaignPage);
 		}
-		testInfo.annotations.push({
-			type: 'found',
-			description: `${id}: the campaign page says ${fundingInWords(onCampaignPage)}; the Give page says ${fundingInWords(onGivePage)}.`
-		});
+		say(
+			testInfo,
+			`${id}: the campaign page says ${fundingInWords(onCampaignPage)}; the Give page says ${fundingInWords(onGivePage)}.`
+		);
 	}
 });

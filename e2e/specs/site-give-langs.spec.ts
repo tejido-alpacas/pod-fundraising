@@ -24,7 +24,8 @@ import {
 	giveHeading,
 	giveWords,
 	openIn,
-	unfinishedGiveWords
+	unfinishedGiveWords,
+	say
 } from '../lib/give-page.ts';
 import {
 	FRAME,
@@ -115,10 +116,7 @@ for (const lang of LANGS) {
 		// The way back leads to the campaign's own page.
 		await main.getByRole('link', { name: within(giveWords(lang, GIVE.back)) }).click();
 		await expect(page).toHaveURL(`${cfg.siteUrl}/campaigns/${id}`);
-		testInfo.annotations.push({
-			type: 'found',
-			description: `In ${lang}: "${giveHeading(lang, title)}", not raising money, no button.`
-		});
+		say(testInfo, `In ${lang}: "${giveHeading(lang, title)}", not raising money, no button.`);
 	});
 }
 
@@ -163,10 +161,10 @@ for (const lang of LANGS) {
 			await expect(main.getByText(whole(giveWords(lang, GIVE.notAvailable)))).toBeVisible();
 			await expect(main.getByRole('button')).toHaveCount(0);
 			await waypoint(page, `give-not-available-${lang}`);
-			testInfo.annotations.push({
-				type: 'found',
-				description: `In ${lang}: giving is not available (Qatom lists no donation item, or could not be asked).`
-			});
+			say(
+				testInfo,
+				`In ${lang}: giving is not available (Qatom lists no donation item, or could not be asked).`
+			);
 			expect(
 				inEnglish,
 				'A moment earlier, in English, the same page offered amounts. Qatom may have stopped answering between the two reads.'
@@ -195,15 +193,20 @@ for (const lang of LANGS) {
 		for (const note of [GIVE.payOnQatom, GIVE.afterPaying, GIVE.keptPrivate]) {
 			await expect(main.getByText(whole(giveWords(lang, note)))).toBeVisible();
 		}
+		// For after paying in the other window: a link back to the campaign.
+		await expect(
+			main.getByRole('link', { name: whole(giveWords(lang, GIVE.paid)) })
+		).toHaveAttribute('href', `/campaigns/${id}`);
+		// No problem was met, so the line about a new window that goes with one is not shown.
+		await expect(main.getByText(whole(giveWords(lang, GIVE.problemWindow)))).toHaveCount(0);
+		// The form opens Qatom's checkout in a new window, and this page stays.
+		await expect(main.locator('form')).toHaveAttribute('target', '_blank');
 		await expect(main.getByText(whole(giveWords(lang, GIVE.notAvailable)))).toHaveCount(0);
 		await waypoint(page, `give-amounts-${lang}`);
 
 		expect(offered, `The amounts in ${lang} should be the ones offered in English.`).toEqual(
 			inEnglish
 		);
-		testInfo.annotations.push({
-			type: 'found',
-			description: `In ${lang}: amounts on sale ${offered.join(', ')} ${UNIT}.`
-		});
+		say(testInfo, `In ${lang}: amounts on sale ${offered.join(', ')} ${UNIT}.`);
 	});
 }
