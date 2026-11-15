@@ -238,29 +238,6 @@ export function reconcileLogLine(summary: ReconcileSummary): string {
 	].join(', ');
 }
 
-/**
- * One plain line about a pass, for the Worker's logs: the summary's numbers and nothing else.
- * It is written for every pass, also one that found nothing, so the logs show that the timer
- * runs and what each pass saw.
- *
- * Numbers only. Each value is a count from the summary; of `ledgerErrors` only how many there
- * were. Never a wallet, a hostname, a commodity or campaign id, an email, an amount, or the
- * text of a problem.
- */
-export function reconcileLogLine(summary: ReconcileSummary): string {
-	const seen = summary.operationsSeen;
-	return [
-		`Reconcile: campaigns ${summary.campaigns} (${summary.campaignsWithoutItems} on the shared items)`,
-		`ledgers read ${summary.ledgersRead}`,
-		`ledger errors ${summary.ledgerErrors.length}`,
-		`matched ${summary.matched} (verified ${summary.verified}, flagged ${summary.flagged}, incomplete ${summary.stampedIncomplete})`,
-		`unmatched ${summary.unmatched} (ambiguous ${summary.ambiguous}, waiting for wallet ${summary.waitingForWallet}, paying wallet not comparable ${summary.payingWalletNotComparable})`,
-		`rows unreadable ${summary.unreadableTransactions}`,
-		`rows not payments ${summary.rowsNotPayments}`,
-		`operations seen: send ${seen.send}, receive ${seen.receive}, transfer ${seen.transfer}, split ${seen.split}, other ${seen.other}, none ${seen.none}.`
-	].join(', ');
-}
-
 interface Candidate {
 	transaction: LedgerTransaction;
 	atMs: number;

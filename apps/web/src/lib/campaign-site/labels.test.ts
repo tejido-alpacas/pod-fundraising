@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	CONFIRMATION_STRENGTH_LABEL,
+	ENTRY_STATUS,
 	milestoneLabel,
 	milestoneMeaning,
 	partyLabel,
@@ -65,5 +66,24 @@ describe('the words for a confirmation', () => {
 		expect(strengthSummary({ participant: 0, stakeholder: 0, independent: 0 })).toBe(
 			'no confirmations'
 		);
+	});
+});
+
+describe('the words for an entry’s receipt', () => {
+	it('say that Qatom confirms the deposit was paid, and that this does not show which wallet paid', () => {
+		expect(ENTRY_STATUS.verified.meaning).toBe(
+			'Qatom confirms the deposit for this entry was paid. It does not show which wallet paid.'
+		);
+	});
+
+	it('never claim a deposit came from a registered wallet, or from the filer’s own', () => {
+		const said = [
+			...Object.values(ENTRY_STATUS).map(({ meaning }) => meaning),
+			milestoneMeaning({ state: 'confirmed_independent', strength: 'independent' }),
+			milestoneMeaning({ state: 'confirmed_independent', strength: 'stakeholder' })
+		];
+		for (const sentence of said) {
+			expect(sentence).not.toMatch(/registered|own wallet|came from/i);
+		}
 	});
 });

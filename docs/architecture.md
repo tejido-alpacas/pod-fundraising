@@ -365,6 +365,17 @@ storage, every hash is 64 hex characters and matches the file we stored at uploa
 
 ## Corrections since this brief
 
+- **What "verified" means changed on 15 November 2026** (the owner: "yes, verified by Qatom's
+  purchase record"). Wherever this document says an entry is matched "to the registered
+  wallet", read: Qatom confirms a settled sale of the filing's item for exactly its deposit,
+  tied to the filing by the transaction id Qatom sends with it
+  (`GET /v4/catalog/purchases/{transaction_id}`). It does **not** establish which wallet paid.
+  Qatom's ledger names the payer as a 66-character address that cannot be compared with a
+  wallet hostname, so the ledger match to the registered wallet can never succeed against real
+  Qatom. It is kept only for entries filed without a transaction id. The definition is in
+  `packages/contracts/src/entry.ts`; the rule is in
+  `apps/web/src/lib/server/backend/reconciler.ts`.
+
 Found by reading Qatom's API document (`{PAYMENT_API_URL}/v4/openapi.json`) and its OIDC discovery
 document while building `packages/qatom`. The code follows these.
 
