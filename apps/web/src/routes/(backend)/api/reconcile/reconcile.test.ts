@@ -3,7 +3,14 @@
 // file only, by a stub that answers Qatom's token, catalog listing and ledger endpoints from prepared data.
 import { CHECKIN_SECRET_HEADER, DEPOSIT_AMOUNT, type Deposit, type Entry } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
-import { campaigns, getEntry, insertEntryWithDeposit, listEntries, parties } from '@tejido/db';
+import {
+	campaigns,
+	getEntry,
+	insertCampaignWithPartiesAndMilestones,
+	insertEntryWithDeposit,
+	listEntries,
+	parties
+} from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { createMerchantAccount } from '@tejido/qatom/account';
 import { eq } from 'drizzle-orm';
@@ -149,6 +156,69 @@ async function run(headers: Record<string, string> = { [CHECKIN_SECRET_HEADER]: 
 	const response = await POST({ request, locals } as unknown as Parameters<typeof POST>[0]);
 	return { status: response.status, body: (await response.json()) as ReconcileSummary };
 }
+
+/** A second campaign's own id, party and wallet. It names the same two items as the first. */
+const OTHER_CAMPAIGN = 'harbour-clinic';
+const OTHER_PARTY = 'harbour-joinery';
+const OTHER_WALLET = 'harbour-joinery-agent.wallets.tejido.example';
+
+/**
+ * Adds a second campaign that shares the first one's two items, with one party and one
+ * milestone. Pass the contractor's wallet to make its party the same person on both campaigns.
+ */
+async function addCampaignSharingItems(agentWallet: string = OTHER_WALLET) {
+	await insertCampaignWithPartiesAndMilestones(test.db, {
+		campaign: {
+			...fixtures.campaign,
+			id: OTHER_CAMPAIGN,
+			title: 'Refit the harbour clinic',
+			logWorkCommodityId: LOG_ID,
+			milestoneHitCommodityId: HIT_ID
+		},
+		parties: [
+			{
+				...contractor,
+				id: OTHER_PARTY,
+				campaignId: OTHER_CAMPAIGN,
+				name: 'Harbour Road Joinery',
+				email: 'office@harbourroadjoinery.example',
+				reporterCode: 'rc_w5e9r3t7y2u6p4a8s3d7',
+				agentWalletHostname: agentWallet as typeof contractor.agentWalletHostname,
+				primaryWalletHostname: null
+			}
+		],
+		milestones: [
+			{
+				...fixtures.milestones[1]!,
+				campaignId: OTHER_CAMPAIGN,
+				ownerPartyId: OTHER_PARTY,
+				confirmerPartyId: OTHER_PARTY
+			}
+		]
+	});
+}
+
+/** Saves a work log on the second campaign, filed at the given time. */
+async function addOtherCampaignWorkLog(id: string, filedAt: string) {
+	const entry = {
+		...workLog,
+		id,
+		campaignId: OTHER_CAMPAIGN,
+		partyId: OTHER_PARTY,
+		filedAt,
+		updatedAt: filedAt
+	} as Entry;
+	await insertEntryWithDeposit(test.db, entry, {
+		id: `dep-${id}`,
+		entryId: id,
+		amount: DEPOSIT_AMOUNT.log_work,
+		refundedAt: null
+	});
+	return entry;
+}
+
+const ledgerReads = (hash: string) =>
+	requests.filter((request) => request.url.includes(`/v4/commodity/${hash}/`)).length;
 
 const entry = async (id: string) => (await getEntry(test.db, id))!;
 const allEntries = () => listEntries(test.db, CAMPAIGN);
@@ -451,7 +521,12 @@ describe('POST /api/reconcile', () => {
 		expect(status).toBe(200);
 		expect(body).toMatchObject({ ledgersRead: 1, matched: 1, stampedIncomplete: 1, unmatched: 1 });
 		expect(body.ledgerErrors).toEqual([
-			{ campaignId: CAMPAIGN, item: 'log_work', problem: expect.stringContaining('500') }
+			{
+				commodityId: LOG_ID,
+				items: ['log_work'],
+				campaignIds: [CAMPAIGN],
+				problem: expect.stringContaining('500')
+			}
 		]);
 		expect(await entry(workLog.id)).toEqual(workLog);
 		expect((await entry(delivery.id)).twistId).toBe('41cc');
@@ -466,7 +541,10 @@ describe('POST /api/reconcile', () => {
 		const { body } = await run();
 
 		expect(body).toMatchObject({ ledgersRead: 0, matched: 0, unmatched: 2 });
-		expect(body.ledgerErrors.map((error) => error.item)).toEqual(['log_work', 'milestone_hit']);
+		expect(body.ledgerErrors.map((error) => error.items)).toEqual([
+			['log_work'],
+			['milestone_hit']
+		]);
 		expect(await allEntries()).toEqual(before);
 	});
 
@@ -484,8 +562,9 @@ describe('POST /api/reconcile', () => {
 		expect(body).toMatchObject({ ledgersRead: 1, matched: 1, stampedIncomplete: 1, unmatched: 1 });
 		expect(body.ledgerErrors).toEqual([
 			{
-				campaignId: CAMPAIGN,
-				item: 'log_work',
+				commodityId: LOG_ID,
+				items: ['log_work'],
+				campaignIds: [CAMPAIGN],
 				problem: expect.stringContaining(`no catalog item for commodity id ${LOG_ID}`)
 			}
 		]);
@@ -509,10 +588,16 @@ describe('POST /api/reconcile', () => {
 		expect(status).toBe(200);
 		expect(body).toMatchObject({ ledgersRead: 0, matched: 0, unmatched: 2 });
 		expect(body.ledgerErrors).toEqual([
-			{ campaignId: CAMPAIGN, item: 'log_work', problem: expect.stringContaining('500') },
 			{
-				campaignId: CAMPAIGN,
-				item: 'milestone_hit',
+				commodityId: LOG_ID,
+				items: ['log_work'],
+				campaignIds: [CAMPAIGN],
+				problem: expect.stringContaining('500')
+			},
+			{
+				commodityId: HIT_ID,
+				items: ['milestone_hit'],
+				campaignIds: [CAMPAIGN],
 				problem: expect.stringContaining('could not be reached')
 			}
 		]);
@@ -547,5 +632,175 @@ describe('POST /api/reconcile', () => {
 		expect(body).toMatchObject({ campaigns: 1, ledgersRead: 1, verified: 1, unmatched: 1 });
 		expect(requests.filter((request) => request.url.includes('/v4/commodity/'))).toHaveLength(1);
 		expect(requests.filter((request) => request.url.includes('/v4/catalog/items'))).toHaveLength(1);
+	});
+
+	describe('when two campaigns share the same items', () => {
+		it('reads the shared ledger once and gives each campaign’s entry its own transaction', async () => {
+			await addCampaignSharingItems();
+			// Filed 21 seconds after the first campaign's work log: both payments fit both windows.
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [
+				sale('41other', '2026-11-13T17:02:31.000Z', OTHER_WALLET),
+				sale('41own', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)
+			];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toEqual({
+				campaigns: 2,
+				campaignsWithoutItems: 0,
+				// One work-log ledger and one milestone ledger, however many campaigns name them.
+				ledgersRead: 2,
+				ledgerErrors: [],
+				matched: 2,
+				verified: 2,
+				flagged: 0,
+				stampedIncomplete: 0,
+				unmatched: 1,
+				ambiguous: 0,
+				waitingForWallet: 0,
+				unreadableTransactions: 0
+			} satisfies ReconcileSummary);
+			expect(ledgerReads(LOG_HASH)).toBe(1);
+			expect(ledgerReads(HIT_HASH)).toBe(1);
+			expect(await entry(workLog.id)).toMatchObject({ status: 'verified', twistId: '41own' });
+			expect(await entry(other.id)).toMatchObject({
+				status: 'verified',
+				twistId: '41other',
+				payingWallet: OTHER_WALLET
+			});
+		});
+
+		it('does not give one campaign’s payment to another campaign’s entry as a stranger’s', async () => {
+			await addCampaignSharingItems();
+			// The contractor filed twice a minute apart and one payment shows: which entry it paid
+			// for cannot be told. The other campaign's entry is in the same window, unpaid so far.
+			const second = await addWorkLog('ent-second', '2026-11-13T17:03:19.000Z');
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [sale('41own', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({ matched: 0, flagged: 0, unmatched: 4, ambiguous: 2 });
+			expect(await entry(other.id)).toEqual(other);
+			expect(await entry(workLog.id)).toEqual(workLog);
+			expect(await entry(second.id)).toEqual(second);
+		});
+
+		it('records nothing when one person files on both campaigns and one payment fits both', async () => {
+			// The same person, with the same agent wallet, is a party on both campaigns.
+			await addCampaignSharingItems(CONTRACTOR_WALLET);
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [sale('41own', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({ matched: 0, verified: 0, unmatched: 3, ambiguous: 2 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+			expect(await entry(other.id)).toEqual(other);
+		});
+
+		it('records nothing when one person files on both campaigns and two payments fit both', async () => {
+			await addCampaignSharingItems(CONTRACTOR_WALLET);
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [
+				sale('41one', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET),
+				sale('41two', '2026-11-13T17:02:31.000Z', CONTRACTOR_WALLET)
+			];
+			ledgers[HIT_HASH] = [];
+
+			expect((await run()).body).toMatchObject({ matched: 0, unmatched: 3, ambiguous: 2 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+			expect(await entry(other.id)).toEqual(other);
+		});
+
+		it('matches one person’s entries on both campaigns when they are far enough apart to tell', async () => {
+			await addCampaignSharingItems(CONTRACTOR_WALLET);
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:20:19.000Z');
+			ledgers[LOG_HASH] = [
+				sale('41one', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET),
+				sale('41two', '2026-11-13T17:20:10.000Z', CONTRACTOR_WALLET)
+			];
+			ledgers[HIT_HASH] = [];
+
+			expect((await run()).body).toMatchObject({ matched: 2, verified: 2, ambiguous: 0 });
+			expect((await entry(workLog.id)).twistId).toBe('41one');
+			expect((await entry(other.id)).twistId).toBe('41two');
+		});
+
+		it('flags neither entry when a stranger’s payment fits one on each campaign', async () => {
+			await addCampaignSharingItems();
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [sale('41zz', '2026-11-13T17:02:15.000Z', STRANGER)];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({ matched: 0, flagged: 0, unmatched: 3, ambiguous: 2 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+			expect(await entry(other.id)).toEqual(other);
+		});
+
+		it('keeps a transaction for an entry whose party has no wallet yet, on another campaign', async () => {
+			await addCampaignSharingItems();
+			await test.db
+				.update(parties)
+				.set({ agentWalletHostname: null })
+				.where(eq(parties.id, OTHER_PARTY));
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			// It may be the payment of the party who has not linked a wallet: not the contractor's.
+			ledgers[LOG_HASH] = [sale('41zz', '2026-11-13T17:02:15.000Z', STRANGER)];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({ matched: 0, flagged: 0, unmatched: 3, waitingForWallet: 1 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+			expect(await entry(other.id)).toEqual(other);
+		});
+
+		it('reports a shared ledger Qatom would not give once, naming both campaigns', async () => {
+			await addCampaignSharingItems();
+			const other = await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = { status: 500 };
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({ campaigns: 2, ledgersRead: 1, matched: 0, unmatched: 3 });
+			expect(body.ledgerErrors).toEqual([
+				{
+					commodityId: LOG_ID,
+					items: ['log_work'],
+					campaignIds: [CAMPAIGN, OTHER_CAMPAIGN],
+					problem: expect.stringContaining('500')
+				}
+			]);
+			expect(ledgerReads(LOG_HASH)).toBe(1);
+			expect(await entry(other.id)).toEqual(other);
+		});
+
+		it('changes nothing on a second run', async () => {
+			await addCampaignSharingItems();
+			await addOtherCampaignWorkLog('ent-other', '2026-11-13T17:02:40.000Z');
+			ledgers[LOG_HASH] = [
+				sale('41other', '2026-11-13T17:02:31.000Z', OTHER_WALLET),
+				sale('41own', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)
+			];
+			ledgers[HIT_HASH] = [];
+
+			const first = await run();
+			const after = [...(await allEntries()), ...(await listEntries(test.db, OTHER_CAMPAIGN))];
+			const second = await run();
+
+			expect(first.body).toMatchObject({ matched: 2, verified: 2, unmatched: 1 });
+			expect(second.body).toMatchObject({ matched: 0, verified: 0, unmatched: 1 });
+			expect([...(await allEntries()), ...(await listEntries(test.db, OTHER_CAMPAIGN))]).toEqual(
+				after
+			);
+		});
 	});
 });

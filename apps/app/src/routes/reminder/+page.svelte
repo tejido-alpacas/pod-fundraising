@@ -8,7 +8,7 @@
 	import { Banner, Button, Icon, StatusBadge } from '@tejido/ui';
 	import { shortDay } from '#lib/dates.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
-	import { CADENCE, roleName } from '#lib/roles.ts';
+	import { cadencePhrase, roleName } from '#lib/roles.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -132,14 +132,14 @@
 		{:else if due.kind === 'work_log'}
 			<h1>Your work log is due</h1>
 			<p class="tj-fieldpage__lede">
-				You log your work {CADENCE[campaign.cadence]}. It is a short note on what was done, with
-				photos if you have them.
+				You log your work {cadencePhrase(campaign.cadence)}. It is a short note on what was done,
+				with photos if you have them.
 			</p>
 			<div class="tj-card">
 				<div class="tj-mscard__row">
 					<Icon name="clock" size={18} />
 					<div>
-						<strong>Work log, {CADENCE[campaign.cadence]}</strong>
+						<strong>Work log, {cadencePhrase(campaign.cadence)}</strong>
 						<span>Due now.</span>
 					</div>
 				</div>
