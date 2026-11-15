@@ -64,6 +64,7 @@ test('files one work log for a real deposit and finds it on the timeline', async
 
 	const log = page.getByLabel('Conversation');
 	let outcome: 'submitted' | 'problem' | 'unknown' | 'not_sent';
+	let stopped = 'the reply stopped while the filing was being sent';
 	try {
 		outcome = await until('the filing to be answered', FILING_MS, async () => {
 			if (await log.getByText('know if this was filed').isVisible()) return 'unknown';
@@ -84,33 +85,51 @@ test('files one work log for a real deposit and finds it on the timeline', async
 		});
 	} catch (error) {
 		// Whatever went wrong while waiting (no answer in time, or the page itself failing), the
-		// filing may already have been sent.
-		await waypoint(page, 'filing-timed-out').catch(() => undefined);
-		const why = error instanceof Error ? error.message : String(error);
-		throw new Error(
-			`The page gave no answer to the filing. ${UNKNOWN}\nWhat stopped the wait: ${why}`,
-			{ cause: error }
-		);
+		// filing may already have been sent: that is "not known", with the reason kept.
+		outcome = 'unknown';
+		stopped = error instanceof Error ? error.message : String(error);
 	}
-	await waypoint(page, `filing-${outcome.replace('_', '-')}`);
+	await waypoint(page, `filing-${outcome.replace('_', '-')}`).catch(() => undefined);
 
-	if (outcome === 'unknown')
-		throw new Error(`The reply stopped while the filing was being sent. ${UNKNOWN}`);
-
-	// In every other case the assistant's reply is ending or has ended. Let it finish, and keep
-	// its last words for the log: they are what says why, when something below is not as hoped.
-	await expect(
-		page.getByRole('button', { name: 'Send', exact: true }),
-		`The assistant's reply after the filing did not finish. ${outcome === 'not_sent' ? 'No filing was sent.' : UNKNOWN}`
-	).toBeVisible({ timeout: 120_000 });
-	await waypoint(page, 'filing-reply');
+	// Whatever the outcome, let the assistant's reply end (it may already have), then keep for
+	// the log what the conversation shows about the filing and the assistant's last message.
+	// The run's log has to be enough on its own to say why. The chat page shows whether the
+	// filing tool answered, never the tool's own answer: the assistant's words are the only
+	// account of that. `tidy` takes out the reporter code and anything token-like.
+	const replyEnded = await page
+		.getByRole('button', { name: 'Send', exact: true })
+		.waitFor({ state: 'visible', timeout: outcome === 'unknown' ? 30_000 : 120_000 })
+		.then(
+			() => true,
+			() => false
+		);
+	await waypoint(page, 'filing-reply').catch(() => undefined);
+	const shown: string[] = [];
+	for (const notice of await log.locator('[role="status"], [role="alert"]').all()) {
+		const text = tidy(await notice.innerText().catch(() => ''), 300);
+		if (text) shown.push(`"${text}"`);
+	}
 	const said = tidy(
-		await page.locator('.log .tj-msg--assistant .tj-msg__bubble').last().innerText(),
-		700
+		await page
+			.locator('.log .tj-msg--assistant .tj-msg__bubble')
+			.last()
+			.innerText()
+			.catch(() => ''),
+		1200
 	);
-	const words = `The assistant’s last words: "${said}"`;
+	const words =
+		`\nWhat the conversation shows about the filing: ${shown.length > 0 ? shown.join(' | ') : 'nothing'}.` +
+		`\nThe assistant’s last message${replyEnded ? '' : ' (its reply had not ended)'}: "${said}"`;
 	// The assistant is told to say so when Qatom wants the person to approve a payment.
 	const approval = /approv/i.test(said);
+
+	if (outcome === 'unknown')
+		throw new Error(`${UNKNOWN}\nWhy it is not known: ${stopped}.${words}`);
+	if (!replyEnded) {
+		throw new Error(
+			`The assistant’s reply after the filing did not finish. ${outcome === 'not_sent' ? 'No filing was sent.' : UNKNOWN}${words}`
+		);
+	}
 
 	if (outcome === 'not_sent') {
 		throw new Error(
