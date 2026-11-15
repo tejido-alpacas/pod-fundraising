@@ -12,6 +12,7 @@ import type { PrimaryWalletHostname } from '@tejido/contracts';
 import { z } from 'zod';
 import { QatomHttpError, QatomResponseError, QatomUnknownCommodityError } from '../errors.ts';
 import { apiUrl, DEFAULT_TIMEOUT_MS, send, SLOW_TIMEOUT_MS } from '../http.ts';
+import { fromQatomAmount, toQatomAmount } from './amounts.ts';
 
 export interface MerchantAccountConfig {
 	/** PAYMENT_API_URL */
@@ -29,15 +30,23 @@ export interface LedgerTransaction {
 	/** When the sale was recorded, as an ISO 8601 string. */
 	timestamp: string;
 	/**
-	 * As the ledger reports it. Qatom's document does not state this field's unit. Prices and
-	 * transfers are "in the smallest unit" of the digital quantity; confirm on staging that
-	 * this is too before comparing it with a deposit.
+	 * In TEJIDO'S unit, whole thousandths of USD-TDN: a 0.10 sale is `100`. Qatom reports the
+	 * decimal (`0.1`); it is converted in amounts.ts, so compare this with a deposit as it is.
 	 */
 	amount: number;
-	/** `fromAddress`: the paying twin. Compare it with a party's agent wallet using `sameTwin`. */
+	/**
+	 * `fromAddress`: the paying twin. NOT SETTLED which form Qatom uses: the one real row seen
+	 * carries a 66-character hexadecimal address, not a hostname. Only a hostname or a twin URL
+	 * can be compared with a party's agent wallet (`sameTwin`).
+	 */
 	payingAddress: string;
-	/** `destinationAddress`: the receiving twin. */
-	receivingAddress: string;
+	/** `destinationAddress`: the receiving twin, or null when the row does not carry it. */
+	receivingAddress: string | null;
+	/**
+	 * `operation`, as the row gives it, or null when the row carries none. Qatom's ledger lists
+	 * `send`, `receive`, `transfer` and `split`.
+	 */
+	operation: string | null;
 	/**
 	 * `commodityHash`: the commodity the row itself names, or null when the row names none.
 	 * Qatom's document lists the field without describing it. A row that names a commodity
@@ -61,8 +70,9 @@ export interface CommodityLedger {
 	twinHostname: string | null;
 	transactions: LedgerTransaction[];
 	/**
-	 * Rows Qatom returned without one of the five fields above. They are left out of
-	 * `transactions` and counted here, because the API document marks none of them required.
+	 * Rows Qatom returned without a `twistId`, `timestamp`, `amount` or `fromAddress`, or with
+	 * an amount that does not convert to our unit. They are left out of `transactions` and
+	 * counted here, because the API document marks none of them required.
 	 */
 	incompleteTransactions: number;
 }
@@ -77,7 +87,10 @@ export interface TransferRequest {
 	to: TransferDestination;
 	/** The digital quantity to send: `dq` from the ledger of the commodity being refunded. */
 	dq: string;
-	/** A positive whole number of the digital quantity's smallest unit. */
+	/**
+	 * A positive whole number in TEJIDO'S unit, thousandths of USD-TDN: `1000` sends 1.00.
+	 * It goes to Qatom as the decimal (`1`), converted in amounts.ts.
+	 */
 	amount: number;
 	/** Shown to the recipient. Qatom cuts it to 280 characters. */
 	note?: string;
@@ -95,6 +108,7 @@ export interface TwinCommodity {
 	hash: string;
 	/** Null when the listing left the field out. */
 	descriptor: string | null;
+	/** The price in Tejido's unit (thousandths of USD-TDN), or null when the listing left it out. */
 	cost: number | null;
 	dq: string | null;
 }
@@ -104,7 +118,10 @@ export interface NewCommodity {
 	twinId: number;
 	/** The line on the receipt. 1 to 255 characters. */
 	descriptor: string;
-	/** The price, a positive whole number of the digital quantity's smallest unit. */
+	/**
+	 * The price, a positive whole number in TEJIDO'S unit, thousandths of USD-TDN: `100` is a
+	 * price of 0.10. It goes to Qatom as the decimal (`0.1`), converted in amounts.ts.
+	 */
 	cost: number;
 	/** The digital quantity the price is in. */
 	dq: string;
@@ -150,13 +167,15 @@ export interface MerchantAccount {
 	listCommodityTransactions(commodityHash: string): Promise<CommodityLedger>;
 
 	/**
-	 * Sends an amount from the account's main wallet. POST /v4/transfer.
+	 * Sends an amount from the account's own wallet (its main account wallet first, not the
+	 * wallets its items are sold from). POST /v4/transfer.
 	 *
 	 * Resolves once Qatom has accepted the transfer. Qatom returns no transaction id.
-	 * It is never retried here, apart from once after a 401, where nothing has moved.
-	 * If it throws QatomTimeoutError or QatomNetworkError the outcome is unknown: the money
-	 * may have moved, so check before sending again. A 402 means the account's wallet could
-	 * not cover the amount and nothing moved.
+	 * It is sent ONCE and never again, whatever the answer: there is no retry after a 401
+	 * either (see `transfer` below for why). If it throws QatomTimeoutError or
+	 * QatomNetworkError the outcome is unknown: the money may have moved, so check before
+	 * sending again. A 402 means the account's wallet could not cover the amount and nothing
+	 * moved.
 	 */
 	transfer(request: TransferRequest): Promise<void>;
 
@@ -223,13 +242,28 @@ export interface MerchantAccount {
 // minute means the answer is always a new one.
 const REFRESH_WHEN_LEFT_MS = 60_000;
 
-const tokenResponseSchema = z.object({ access_token: z.string().min(1), expires_at: z.number() });
+// Qatom's document shows `expires_at` as a number. The server sends a string of digits (it
+// comes straight from a 64-bit database column). Either is read; anything else is refused.
+const tokenResponseSchema = z.object({
+	access_token: z.string().min(1),
+	expires_at: z.union([z.number(), z.string().regex(/^[0-9]{1,15}$/)])
+});
 
 const catalogListingSchema = z.object({ items: z.array(z.unknown()) });
 
 const catalogItemSchema = z.object({ commodity_id: z.number(), commodity_hash: z.string() });
 
+/** A digital quantity's hash: letters and digits only. */
 const HASH = /^[0-9a-zA-Z]+$/;
+
+/**
+ * A commodity's hash. On the server it is a UUID with hyphens, for example
+ * `3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12`; Qatom's document does not say so. Letters and digits
+ * alone are still accepted. Nothing else is: the hash goes into a URL path.
+ */
+const COMMODITY_HASH =
+	/^(?:[0-9a-zA-Z]+|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$/;
+const NOT_A_COMMODITY_HASH = 'commodityHash must be a UUID, or letters and digits only';
 
 const ledgerResponseSchema = z.object({
 	commodity: z.object({ dq: z.string().optional(), hostname: z.string().optional() }).optional(),
@@ -239,9 +273,12 @@ const ledgerResponseSchema = z.object({
 const ledgerTransactionSchema = z.object({
 	twistId: z.string().min(1),
 	timestamp: z.string().min(1),
+	// Decimal USD-TDN. Converted to our unit where the row is read.
 	amount: z.number(),
 	fromAddress: z.string().min(1),
-	destinationAddress: z.string().min(1),
+	// Real rows may not carry it, and only funding reads it.
+	destinationAddress: z.string().min(1).optional(),
+	operation: z.string().min(1).optional(),
 	commodityHash: z.string().min(1).optional()
 });
 
@@ -297,7 +334,11 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 			throw new QatomResponseError(operation, 'access_token or expires_at is missing');
 		}
 		// "Unix time" in the document. Accept milliseconds too rather than misread an expiry.
-		const { access_token, expires_at } = parsed.data;
+		const { access_token } = parsed.data;
+		const expires_at = Number(parsed.data.expires_at);
+		if (!Number.isSafeInteger(expires_at) || expires_at <= 0) {
+			throw new QatomResponseError(operation, 'expires_at is not a time');
+		}
 		cached = {
 			token: access_token,
 			expiresAtMs: expires_at > 1e11 ? expires_at : expires_at * 1000
@@ -358,8 +399,11 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 			}
 			// Trust the filter only as far as the answer shows it was applied.
 			if (item.data.commodity_id !== commodityId) continue;
-			if (!HASH.test(item.data.commodity_hash)) {
-				throw new QatomResponseError(operation, 'commodity_hash is not letters and digits');
+			if (!COMMODITY_HASH.test(item.data.commodity_hash)) {
+				throw new QatomResponseError(
+					operation,
+					'commodity_hash is not a UUID or letters and digits'
+				);
 			}
 			hashes.add(item.data.commodity_hash);
 		}
@@ -389,9 +433,7 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 
 		async listCommodityTransactions(commodityHash) {
 			const operation = 'account.ledger';
-			if (!HASH.test(commodityHash)) {
-				throw new TypeError('commodityHash must be letters and digits only');
-			}
+			if (!COMMODITY_HASH.test(commodityHash)) throw new TypeError(NOT_A_COMMODITY_HASH);
 			const body = await authorized((authorization) =>
 				send({
 					operation,
@@ -410,16 +452,18 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 			let incompleteTransactions = 0;
 			for (const raw of parsed.data.calculation.transactions) {
 				const row = ledgerTransactionSchema.safeParse(raw);
-				if (!row.success) {
+				const amount = row.success ? fromQatomAmount(row.data.amount) : null;
+				if (!row.success || amount === null) {
 					incompleteTransactions += 1;
 					continue;
 				}
 				transactions.push({
 					twistId: row.data.twistId,
 					timestamp: row.data.timestamp,
-					amount: row.data.amount,
+					amount,
 					payingAddress: row.data.fromAddress,
-					receivingAddress: row.data.destinationAddress,
+					receivingAddress: row.data.destinationAddress ?? null,
+					operation: row.data.operation ?? null,
 					commodityHash: row.data.commodityHash ?? null
 				});
 			}
@@ -433,26 +477,38 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 		},
 
 		async transfer({ to, dq, amount, note }) {
-			if (!Number.isSafeInteger(amount) || amount <= 0) {
-				throw new RangeError('amount must be a positive whole number of the smallest unit');
-			}
-			if (!/^[0-9a-zA-Z]+$/.test(dq)) throw new TypeError('dq must be a digital quantity hash');
+			// Our thousandths become Qatom's decimal here: 1000 goes out as 1, 100 as 0.1. Qatom
+			// would send whatever number it is given, so this throws before anything is sent.
+			const decimalAmount = toQatomAmount(amount);
+			if (!HASH.test(dq)) throw new TypeError('dq must be a digital quantity hash');
 
 			// Qatom takes a twin URL (https:// and the hostname, nothing after) or an email address.
 			const address =
 				'primaryWalletHostname' in to ? `https://${to.primaryWalletHostname}` : to.email.trim();
 			if (address === '' || /\s/.test(address)) throw new TypeError('the destination is empty');
 
-			await authorized((authorization) =>
-				send({
+			// SENT ONCE. This call does not go through `authorized`, which repeats a request after
+			// a 401. On this route Qatom's server answers 403, not 401, for a bad or expired token;
+			// a 401 here can only be the wallet's own refusal passed through, so repeating after
+			// it would be sending a transfer twice. A transfer is never sent again for any reason.
+			const used = await token();
+			try {
+				await send({
 					operation: 'account.transfer',
 					method: 'POST',
 					url: apiUrl(config.paymentApiUrl, '/v4/transfer'),
-					headers: { authorization },
-					json: { address, type: dq, amount, ...(note ? { note } : {}) },
+					headers: { authorization: `Bearer ${used}` },
+					json: { address, type: dq, amount: decimalAmount, ...(note ? { note } : {}) },
 					timeoutMs: SLOW_TIMEOUT_MS
-				})
-			);
+				});
+			} catch (error) {
+				// A 403 may mean the token was refused. Forget it, so the NEXT call asks for a new
+				// one. This transfer is not repeated.
+				if (error instanceof QatomHttpError && error.status === 403 && cached?.token === used) {
+					cached = null;
+				}
+				throw error;
+			}
 		},
 
 		async createProviderTwin({ dq }) {
@@ -488,23 +544,32 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 				})
 			);
 			const parsed = z.array(twinCommoditySchema).safeParse(body);
-			if (!parsed.success || parsed.data.some((commodity) => !HASH.test(commodity.hash))) {
+			if (
+				!parsed.success ||
+				parsed.data.some((commodity) => !COMMODITY_HASH.test(commodity.hash))
+			) {
 				throw new QatomResponseError(operation, 'not a list of commodities with a hash each');
 			}
-			return parsed.data.map((commodity) => ({
-				hash: commodity.hash,
-				descriptor: commodity.descriptor ?? null,
-				cost: commodity.cost ?? null,
-				dq: commodity.dq ?? null
-			}));
+			return parsed.data.map((commodity) => {
+				// Qatom lists the price in decimal USD-TDN. Callers get our unit.
+				const cost = commodity.cost === undefined ? null : fromQatomAmount(commodity.cost);
+				if (commodity.cost !== undefined && cost === null) {
+					throw new QatomResponseError(operation, 'a cost is not an amount');
+				}
+				return {
+					hash: commodity.hash,
+					descriptor: commodity.descriptor ?? null,
+					cost,
+					dq: commodity.dq ?? null
+				};
+			});
 		},
 
 		async createCommodity({ twinId, descriptor, cost, dq }) {
 			const operation = 'account.create-commodity';
 			if (!isId(twinId)) throw new RangeError('twinId must be a positive whole number');
-			if (!Number.isSafeInteger(cost) || cost <= 0) {
-				throw new RangeError('cost must be a positive whole number of the smallest unit');
-			}
+			// Our thousandths become Qatom's decimal here: a cost of 100 is stored as 0.1.
+			const decimalCost = toQatomAmount(cost);
 			if (!HASH.test(dq)) throw new TypeError('dq must be a digital quantity hash');
 			if (descriptor.length < 1 || descriptor.length > 255) {
 				throw new RangeError('descriptor must be 1 to 255 characters');
@@ -515,12 +580,12 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 					method: 'POST',
 					url: apiUrl(config.paymentApiUrl, '/v4/commodity'),
 					headers: { authorization },
-					json: { descriptor, cost, dq, twin_id: twinId },
+					json: { descriptor, cost: decimalCost, dq, twin_id: twinId },
 					timeoutMs: SLOW_TIMEOUT_MS
 				})
 			);
 			const parsed = createdCommoditySchema.safeParse(body);
-			if (!parsed.success || !HASH.test(parsed.data.hash)) {
+			if (!parsed.success || !COMMODITY_HASH.test(parsed.data.hash)) {
 				throw new QatomResponseError(operation, 'hash is missing');
 			}
 			return { commodityHash: parsed.data.hash };
@@ -528,9 +593,7 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 
 		async describeCommodity(commodityHash, { name, description }) {
 			const operation = 'account.describe-commodity';
-			if (!HASH.test(commodityHash)) {
-				throw new TypeError('commodityHash must be letters and digits only');
-			}
+			if (!COMMODITY_HASH.test(commodityHash)) throw new TypeError(NOT_A_COMMODITY_HASH);
 			if (name.trim() === '' || description.trim() === '') {
 				throw new RangeError('name and description must not be empty');
 			}

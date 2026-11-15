@@ -34,9 +34,13 @@ function answer(...next: Answer[]) {
 	answers.push(...next);
 }
 
+// `expires_at` is a string of digits, as Qatom's server sends it.
 const tokenAnswer = (token = 'token-1', secondsLeft = 3600): Answer => ({
-	json: { access_token: token, expires_at: Math.floor(NOW / 1000) + secondsLeft }
+	json: { access_token: token, expires_at: String(Math.floor(NOW / 1000) + secondsLeft) }
 });
+
+/** A commodity hash as Qatom's server gives it: a UUID with hyphens. */
+const UUID_HASH = '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12';
 
 beforeEach(() => {
 	requests = [];
@@ -73,31 +77,30 @@ const ledgerAnswer: Answer = {
 		commodity: {
 			hash: 'abc123',
 			descriptor: 'Library wing log work',
-			cost: 100,
+			cost: 0.1,
 			dq: '41dq',
 			hostname: 'item.micro.biz.todaq.net'
 		},
 		calculation: {
-			totalAmount: 200,
+			totalAmount: 0.2,
 			transactionCount: 3,
 			transactions: [
 				{
 					timestamp: '2026-11-13T17:02:10.000Z',
 					twistId: '41aa',
-					operation: 'transfer',
-					amount: 100,
+					operation: 'receive',
+					amount: 0.1,
 					fromAddress: 'payer.micro.biz.todaq.net',
 					destinationAddress: 'item.micro.biz.todaq.net',
 					fileType: 'dq',
 					commodityHash: 'abc123'
 				},
-				{ timestamp: '2026-11-12T10:00:00.000Z', twistId: '41bb', amount: 100 },
+				{ timestamp: '2026-11-12T10:00:00.000Z', twistId: '41bb', amount: 0.1 },
 				{
 					timestamp: '2026-11-06T16:20:03.000Z',
 					twistId: '41cc',
-					amount: 100,
-					fromAddress: 'https://other.micro.biz.todaq.net',
-					destinationAddress: 'item.micro.biz.todaq.net'
+					amount: 1,
+					fromAddress: 'https://other.micro.biz.todaq.net'
 				}
 			]
 		}
@@ -216,6 +219,43 @@ describe('the account token', () => {
 			QatomResponseError
 		);
 	});
+
+	it('reads expires_at as a string of digits, which is what the server sends, and caches by it', async () => {
+		const merchant = account();
+		answer(
+			{ json: { access_token: 'token-1', expires_at: String(Math.floor(NOW / 1000) + 3600) } },
+			ledgerAnswer,
+			ledgerAnswer
+		);
+		await merchant.listCommodityTransactions('abc123');
+		await merchant.listCommodityTransactions('abc123');
+		expect(requests.filter((request) => request.url.endsWith('/oauth/token'))).toHaveLength(1);
+
+		// And it is replaced when that time comes.
+		vi.setSystemTime(NOW + 3600_000 - 30_000);
+		answer(tokenAnswer('token-2', 7200), ledgerAnswer);
+		await merchant.listCommodityTransactions('abc123');
+		expect(requests.at(-1)?.headers.authorization).toBe('Bearer token-2');
+	});
+
+	it('still reads expires_at as a number, as the document shows it', async () => {
+		answer(
+			{ json: { access_token: 'token-1', expires_at: Math.floor(NOW / 1000) + 3600 } },
+			ledgerAnswer
+		);
+		await expect(account().listCommodityTransactions('abc123')).resolves.toBeDefined();
+	});
+
+	it.each(['', 'soon', '12.5', '-5', '1e9', ' 1794571200', '0', null, true, 0, -1, 1.5, {}])(
+		'refuses the expires_at %j',
+		async (expires_at) => {
+			answer({ json: { access_token: 'token-1', expires_at } });
+			await expect(account().listCommodityTransactions('abc123')).rejects.toBeInstanceOf(
+				QatomResponseError
+			);
+			expect(requests).toHaveLength(1);
+		}
+	);
 });
 
 describe('the ledger', () => {
@@ -231,7 +271,7 @@ describe('the ledger', () => {
 		});
 	});
 
-	it('returns twistId, timestamp, amount, both addresses and any commodity named, for each sale', async () => {
+	it('returns twistId, timestamp, the amount in our thousandths, the addresses, the operation and any commodity named, for each sale', async () => {
 		answer(tokenAnswer(), ledgerAnswer);
 		const ledger = await account().listCommodityTransactions('abc123');
 
@@ -244,17 +284,21 @@ describe('the ledger', () => {
 				{
 					twistId: '41aa',
 					timestamp: '2026-11-13T17:02:10.000Z',
+					// Qatom said 0.1.
 					amount: 100,
 					payingAddress: 'payer.micro.biz.todaq.net',
 					receivingAddress: 'item.micro.biz.todaq.net',
+					operation: 'receive',
 					commodityHash: 'abc123'
 				},
 				{
 					twistId: '41cc',
 					timestamp: '2026-11-06T16:20:03.000Z',
-					amount: 100,
+					// Qatom said 1. The row has no destinationAddress and no operation: still a row.
+					amount: 1000,
 					payingAddress: 'https://other.micro.biz.todaq.net',
-					receivingAddress: 'item.micro.biz.todaq.net',
+					receivingAddress: null,
+					operation: null,
 					commodityHash: null
 				}
 			]
@@ -289,9 +333,79 @@ describe('the ledger', () => {
 		);
 	});
 
-	it('refuses a hash that could change the request path, before any request', async () => {
-		await expect(account().listCommodityTransactions('../user')).rejects.toBeInstanceOf(TypeError);
+	it.each([
+		'../user',
+		'abc/def',
+		'abc?x=1',
+		'abc#x',
+		'abc def',
+		'%2e%2e',
+		'',
+		'-',
+		'3f2b8c1e-5d47-4a9b-8e21',
+		'3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12-',
+		'3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12/..',
+		'3f2b8c1e_5d47_4a9b_8e21_0c6d9f4a7b12'
+	])('refuses the hash %j, which is not a commodity hash, before any request', async (hash) => {
+		await expect(account().listCommodityTransactions(hash)).rejects.toBeInstanceOf(TypeError);
 		expect(requests).toHaveLength(0);
+	});
+
+	it('reads the ledger of a commodity whose hash is a UUID with hyphens', async () => {
+		answer(tokenAnswer(), ledgerAnswer);
+		const ledger = await account().listCommodityTransactions(UUID_HASH);
+
+		expect(requests[1]?.url).toBe(`${API}/v4/commodity/${UUID_HASH}/transactions`);
+		expect(ledger.commodityHash).toBe(UUID_HASH);
+	});
+
+	it.each([
+		[0.1, 100],
+		[1, 1000],
+		[1.1, 1100],
+		[0.30000000000000004, 300],
+		[0.1234, 123]
+	])('reads a row amount of %s USD-TDN as %s of our thousandths', async (decimal, units) => {
+		answer(tokenAnswer(), {
+			json: {
+				calculation: {
+					transactions: [{ twistId: '41aa', timestamp: 't', amount: decimal, fromAddress: 'a.b' }]
+				}
+			}
+		});
+		const ledger = await account().listCommodityTransactions(UUID_HASH);
+
+		expect(ledger.transactions.map((row) => row.amount)).toEqual([units]);
+	});
+
+	it.each(['0.1', null, 1e300, [0.1]])(
+		'counts a row whose amount is %j as unusable, and does not return it',
+		async (amount) => {
+			answer(tokenAnswer(), {
+				text: JSON.stringify({
+					calculation: {
+						transactions: [{ twistId: '41aa', timestamp: 't', amount, fromAddress: 'a.b' }]
+					}
+				})
+			});
+			const ledger = await account().listCommodityTransactions(UUID_HASH);
+
+			expect(ledger).toMatchObject({ transactions: [], incompleteTransactions: 1 });
+		}
+	);
+
+	it('keeps a paying address in whatever form the ledger gives it, such as a hexadecimal address', async () => {
+		const hex = `41${'0123456789abcdef'.repeat(4)}`;
+		answer(tokenAnswer(), {
+			json: {
+				calculation: {
+					transactions: [{ twistId: '41aa', timestamp: 't', amount: 0.1, fromAddress: hex }]
+				}
+			}
+		});
+		const ledger = await account().listCommodityTransactions(UUID_HASH);
+
+		expect(ledger.transactions[0]?.payingAddress).toBe(hex);
 	});
 });
 
@@ -402,6 +516,25 @@ describe('a commodity id', () => {
 		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
 	});
 
+	it('is turned into a hash that is a UUID with hyphens, which is what the server gives', async () => {
+		const merchant = account();
+		answer(tokenAnswer(), listing(item(3152, UUID_HASH)), ledgerAnswer);
+
+		const hash = await merchant.resolveCommodityHash(3152);
+		expect(hash).toBe(UUID_HASH);
+		// And that hash reads the ledger.
+		await merchant.listCommodityTransactions(hash);
+		expect(requests[2]?.url).toBe(`${API}/v4/commodity/${UUID_HASH}/transactions`);
+	});
+
+	it.each(['3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12/x', 'a-b', 'abc def', '..', ''])(
+		'refuses the listed hash %j',
+		async (hash) => {
+			answer(tokenAnswer(), listing(item(3152, hash)));
+			await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
+		}
+	);
+
 	it('refuses a hash that could change a request path, and two hashes for one id', async () => {
 		answer(tokenAnswer(), listing(item(3152, '../user')));
 		await expect(account().resolveCommodityHash(3152)).rejects.toBeInstanceOf(QatomResponseError);
@@ -420,7 +553,7 @@ describe('a transfer', () => {
 	const primary = primaryWalletHostnameSchema.parse('0f6d2b9e.micro.biz.todaq.net');
 	const accepted: Answer = { status: 202, json: {} };
 
-	it('goes to a primary wallet as a twin URL, in the smallest unit', async () => {
+	it('goes to a primary wallet as a twin URL, in decimal USD-TDN: our 1200 is sent as 1.2', async () => {
 		answer(tokenAnswer('token-1'), accepted);
 		await account().transfer({
 			to: { primaryWalletHostname: primary },
@@ -440,7 +573,7 @@ describe('a transfer', () => {
 			body: JSON.stringify({
 				address: 'https://0f6d2b9e.micro.biz.todaq.net',
 				type: '41dq',
-				amount: 1200,
+				amount: 1.2,
 				note: 'Deposits returned: Foundation and floor slab'
 			})
 		});
@@ -453,11 +586,27 @@ describe('a transfer', () => {
 		expect(JSON.parse(requests[1]?.body ?? '{}')).toEqual({
 			address: 'ada@example.com',
 			type: '41dq',
-			amount: 100
+			amount: 0.1
 		});
 	});
 
-	it.each([0, -100, 0.1, Number.NaN])(
+	// Qatom does no scaling and no checking of the amount: whatever number arrives is sent.
+	it.each([
+		[100, '0.1'],
+		[1000, '1'],
+		[1100, '1.1'],
+		[1, '0.001'],
+		[1234, '1.234'],
+		[300, '0.3'],
+		[2500000, '2500']
+	])('sends our %s as %s on the wire', async (units, wire) => {
+		answer(tokenAnswer(), accepted);
+		await account().transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: units });
+
+		expect(/"amount":([^,}]+)/.exec(requests[1]?.body ?? '')?.[1]).toBe(wire);
+	});
+
+	it.each([0, -100, 0.1, 100.5, Number.NaN, Number.POSITIVE_INFINITY, 2 ** 53])(
 		'refuses the amount %s before any request',
 		async (amount) => {
 			await expect(
@@ -511,11 +660,63 @@ describe('a transfer', () => {
 		expect(requests.filter((request) => request.url.endsWith('/v4/transfer'))).toHaveLength(1);
 	});
 
-	it('is sent once more after a 401, where nothing has moved', async () => {
-		answer(tokenAnswer('token-1'), { status: 401, json: {} }, tokenAnswer('token-2'), accepted);
-		await account().transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 });
+	it('is NOT sent again after a 401: on this route that is the wallet refusing, not an expired token', async () => {
+		answer(
+			tokenAnswer('token-1'),
+			{ status: 401, json: { error: 'Unauthorized', status: 401 } },
+			// Were the client to try again, these would let a second transfer through.
+			tokenAnswer('token-2'),
+			accepted
+		);
 
+		await expect(
+			account().transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 })
+		).rejects.toMatchObject({ name: 'QatomHttpError', operation: 'account.transfer', status: 401 });
+		expect(requests.filter((request) => request.url.endsWith('/v4/transfer'))).toHaveLength(1);
+		expect(requests).toHaveLength(2);
+	});
+
+	it.each([400, 401, 402, 403, 404, 409, 422, 429, 500, 502, 503])(
+		'is sent exactly once when Qatom answers %s',
+		async (status) => {
+			answer(tokenAnswer('token-1'), { status, json: {} }, tokenAnswer('token-2'), accepted);
+
+			await expect(
+				account().transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 })
+			).rejects.toMatchObject({ status });
+			expect(requests.filter((request) => request.url.endsWith('/v4/transfer'))).toHaveLength(1);
+		}
+	);
+
+	it('is not sent again when Qatom cannot be reached', async () => {
+		answer(tokenAnswer(), new TypeError('fetch failed'), accepted);
+
+		await expect(
+			account().transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 })
+		).rejects.toBeInstanceOf(QatomNetworkError);
+		expect(requests.filter((request) => request.url.endsWith('/v4/transfer'))).toHaveLength(1);
+	});
+
+	it('asks for a new token for the NEXT call after a 403, which is how this route refuses a token', async () => {
+		const merchant = account();
+		answer(tokenAnswer('token-1'), { status: 403, json: { error: 'Forbidden', status: 403 } });
+		await expect(
+			merchant.transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 })
+		).rejects.toMatchObject({ status: 403 });
+		expect(requests).toHaveLength(2);
+
+		// A separate, later transfer, asked for by the caller: it starts with a new token.
+		answer(tokenAnswer('token-2'), accepted);
+		await merchant.transfer({ to: { primaryWalletHostname: primary }, dq: '41dq', amount: 100 });
+		expect(requests[3]?.headers.authorization).toBe('Bearer token-2');
 		expect(requests.filter((request) => request.url.endsWith('/v4/transfer'))).toHaveLength(2);
+	});
+
+	it('still repeats a READ once after a 401, with a new token', async () => {
+		answer(tokenAnswer('token-1'), { status: 401, json: {} }, tokenAnswer('token-2'), ledgerAnswer);
+		await account().listCommodityTransactions('abc123');
+
+		expect(requests.filter((request) => request.url.endsWith('/transactions'))).toHaveLength(2);
 	});
 });
 
@@ -528,7 +729,7 @@ describe('every call', () => {
 				new Response(
 					JSON.stringify(
 						seen.length === 1
-							? { access_token: 't', expires_at: NOW / 1000 + 3600 }
+							? { access_token: 't', expires_at: String(NOW / 1000 + 3600) }
 							: { calculation: { transactions: [] } }
 					)
 				)
@@ -601,13 +802,14 @@ describe('creating a catalog item', () => {
 	it('lists what a twin sells', async () => {
 		answer(tokenAnswer(), {
 			json: [
-				{ hash: '41b0', descriptor: 'Log work', dq: '41dq', cost: 100, hostname: 'h' },
+				// Qatom lists the price in decimal USD-TDN, and its hashes are UUIDs with hyphens.
+				{ hash: UUID_HASH, descriptor: 'Log work', dq: '41dq', cost: 0.1, hostname: 'h' },
 				{ hash: '41b1' }
 			]
 		});
 
 		expect(await account().listTwinCommodities('0f6d2b9e.micro.biz.todaq.net')).toEqual([
-			{ hash: '41b0', descriptor: 'Log work', dq: '41dq', cost: 100 },
+			{ hash: UUID_HASH, descriptor: 'Log work', dq: '41dq', cost: 100 },
 			{ hash: '41b1', descriptor: null, dq: null, cost: null }
 		]);
 		expect(requests[1]).toMatchObject({
@@ -620,7 +822,7 @@ describe('creating a catalog item', () => {
 	it('creates a commodity on a twin and answers its hash', async () => {
 		answer(tokenAnswer(), {
 			status: 201,
-			json: { hash: '41b0', descriptor: 'Log work', cost: 100 }
+			json: { hash: UUID_HASH, descriptor: 'Log work', cost: 0.1 }
 		});
 
 		const created = await account().createCommodity({
@@ -630,12 +832,13 @@ describe('creating a catalog item', () => {
 			dq: '41dq'
 		});
 
-		expect(created).toEqual({ commodityHash: '41b0' });
+		expect(created).toEqual({ commodityHash: UUID_HASH });
 		expect(requests[1]).toEqual({
 			method: 'POST',
 			url: `${API}/v4/commodity`,
 			headers: json,
-			body: JSON.stringify({ descriptor: 'Log work', cost: 100, dq: '41dq', twin_id: 3601 })
+			// Our price of 100 thousandths is stored by Qatom as 0.1 USD-TDN.
+			body: JSON.stringify({ descriptor: 'Log work', cost: 0.1, dq: '41dq', twin_id: 3601 })
 		});
 	});
 

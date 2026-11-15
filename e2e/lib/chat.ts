@@ -80,7 +80,11 @@ export async function draftWorkLog(
 
 	await say(
 		page,
-		'I want to file a work log on the first milestone I owe. This is an automated test of the ' +
+		// Named on purpose. The test campaign's first milestone is a service, which takes documents
+		// only: a work log with a photo on it is saved as incomplete. The third is a build, which
+		// takes photos and needs the percent complete given here.
+		'I want to file a work log on the milestone called "Test milestone 3: a build". This is an ' +
+			'automated test of the ' +
 			`app, not real work. Status: on track. Percent complete: 10. Use this note word for word: ` +
 			`"Automated end-to-end check ${reference}. A test entry, not real work." ` +
 			'I will attach one photo next. Do not file anything yet.',

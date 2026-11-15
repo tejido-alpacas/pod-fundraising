@@ -260,12 +260,12 @@ not the payer's identity, so each party gets a private `reporter_code` to includ
 
 **The schemas are defined once, in `packages/contracts/src/items.ts`.** Do not copy them
 elsewhere. The JSON Schema to enter in Qatom is generated from them by
-`itemInputJsonSchema(item, milestoneIds)`.
+`itemInputJsonSchema(item)`. It is the same for every campaign.
 
 | Input              | Log work | Milestone hit | Notes                                              |
 | ------------------ | -------- | ------------- | -------------------------------------------------- |
 | `reporter_code`    | required | required      | Resolves to one party on one campaign              |
-| `milestone_id`     | required | required      | An enum of that campaign's own milestones          |
+| `milestone_id`     | required | required      | Plain text. Our endpoint checks it is the filer's  |
 | `summary`          | required | required      |                                                    |
 | `claim`            | —        | required      | `completed`, `delivered`, `funds_spent`, `confirm` |
 | `status`           | optional | —             | `on_track`, `delayed`, `blocked`                   |
@@ -283,7 +283,7 @@ Anything the reporter could lie about by typing a different value is not a param
 | Variation                         | How it is handled                                                                                                                                            | Lives in                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------- |
 | Which third party or confirmer    | Not declared by the filer. The `reporter_code` resolves to one party and its role on our side.                                                               | Platform, keyed by a parameter      |
-| Which milestone                   | `milestone_id`, an enum of this campaign's milestones.                                                                                                       | Parameter                           |
+| Which milestone                   | `milestone_id`, plain text. Our endpoint refuses one the filer's campaign does not have.                                                                     | Parameter                           |
 | Type of milestone                 | Set by the creator: construction, goods delivery, funds handover, service. It decides which check-in types are allowed and what evidence each needs.         | Platform                            |
 | Routine update or milestone claim | Which tool is called. On Milestone hit, `claim` says what kind. The claim-specific fields are optional in the schema and enforced per claim by our endpoint. | Choice of item, checked by platform |
 | Number and cadence of work logs   | Campaign configuration. A work log fills the earliest open slot for that party and milestone, or names one with `period`.                                    | Platform                            |
@@ -384,4 +384,10 @@ document while building `packages/qatom`. The code follows these.
   discovery document is served under `/v4/oidc`; the client takes the issuer from it.
 - **Both items share one endpoint and are told apart by `claim`.** A milestone hit always carries
   it; a work log never does.
+- **Every campaign shares the same two catalog items** (the owner's decision, 15 November):
+  one Log work and one Milestone hit on Tejido's merchant account, not a pair per campaign as
+  this brief says above. The check-in endpoint finds the campaign from the filer's reporter
+  code, not from the item. So nothing entered on an item names one campaign: `milestone_id` is
+  plain text, not a list of one campaign's milestones, and our endpoint refuses a milestone the
+  filer's campaign does not have.
 - **Dispatch header names cannot start with `X-Qatom-` or `X-Forwarded-`.**

@@ -26,6 +26,38 @@ shared-secret header. No network hop, and the same route a person's call goes th
 - Two passes can overlap if one takes longer than a minute. A stamped entry is never looked
   at again, but overlapping passes have not been tried against real Qatom.
 
+## Reconciler (`reconciler.ts`, `POST /api/reconcile`)
+
+One pass finds, for each saved entry that has no receipt yet, the Qatom transaction that paid
+its deposit, and records it on the entry. Paid from the agent wallet registered for the
+entry's party: `verified`. Paid from any other wallet: `flagged`. The rules are in the comment
+at the top of `reconciler.ts`.
+
+- **Every campaign shares the same two catalog items**, so one ledger holds the payments of
+  every campaign. Each ledger is read once in a pass, and the waiting entries of every campaign
+  that names it are matched together. An entry is given a transaction only when exactly one
+  transaction could be its, and that transaction could be no other entry's, on any campaign.
+- A receipt on the wrong entry is worse than a missing one. When it is not exactly one each
+  way (two filings a few minutes apart by one person, on one campaign or on two), nothing is
+  recorded and the entries are counted as `ambiguous`. They stay at "Receipt pending".
+- A campaign is read only once an item's commodity id is stored on it (`logWorkCommodityId`,
+  `milestoneHitCommodityId`). Until then it is counted in `campaignsWithoutItems` and its
+  entries stay as they are.
+- The answer counts: `campaigns` (with an item to read), `ledgersRead` (a shared ledger counts
+  once), `matched` (`verified` + `flagged` + `stampedIncomplete`), and `unmatched` (still
+  waiting, including `ambiguous` and `waitingForWallet`). `ledgerErrors` has one line for each
+  ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.
+- It only reads from Qatom, with the merchant account. It never transfers. A stamped entry is
+  never looked at again, so running the pass twice changes nothing.
+- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. On the
+  live site the timer calls it once a minute (see "The timer" above); a person who holds the
+  secret can still call it.
+
+## Item provisioning (`provisioning.ts`, `POST /api/provisioning`)
+
+Not to be used while campaigns share the two items: it creates a new pair of items for one
+campaign, which the owner's decision of 15 November makes unwanted.
+
 ## Funding (`funding.ts`, `POST /api/funding`)
 
 Donors give through Qatom, by paying for a campaign's donation catalog item. `refreshFunding`
@@ -41,7 +73,8 @@ from `@tejido/db`; they never call Qatom. No donor's wallet or transaction id is
   says why. What was stored before stays.
 - `POST /api/funding` runs one pass. It needs the `X-Tejido-Checkin-Secret` header, like
   `POST /api/reconcile`. Nothing calls it on a schedule yet.
-- Not yet run against real Qatom. The ledger's amount unit is assumed, as in the reconciler.
+- Not yet run against real Qatom. Qatom reports amounts in decimal USD-TDN; `@tejido/qatom`
+  converts them to our thousandths, so nothing here scales an amount.
 
 ## Cadence scheduler (`schedule.ts`, `POST /api/schedule`)
 

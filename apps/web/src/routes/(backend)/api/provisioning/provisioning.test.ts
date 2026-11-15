@@ -22,7 +22,6 @@ const SITE = 'https://tejido.net';
 const DQ = '41dq';
 const TWIN_KEY = '00000000-0000-4000-8000-000000000000';
 const CAMPAIGN = fixtures.campaign.id;
-const MILESTONES = fixtures.milestones.map((milestone) => milestone.id) as [string, ...string[]];
 
 interface Recorded {
 	method: string;
@@ -84,7 +83,8 @@ beforeEach(async () => {
 		if (path === '/v4/account/oauth/token') {
 			return answer({
 				access_token: 'account-token',
-				expires_at: Math.floor(Date.now() / 1000) + 3600
+				// A string of digits, as Qatom's server sends it.
+				expires_at: String(Math.floor(Date.now() / 1000) + 3600)
 			});
 		}
 
@@ -118,7 +118,8 @@ beforeEach(async () => {
 			const id = 118 + qatom.commodities.length;
 			const commodity = {
 				id,
-				hash: `41hash${id}`,
+				// A UUID with hyphens, as Qatom's server gives a commodity hash.
+				hash: `3f2b8c1e-5d47-4a9b-8e21-000000000${id}`,
 				twinId: fields.twin_id as number,
 				cost: fields.cost as number,
 				dq: fields.dq as string
@@ -128,7 +129,7 @@ beforeEach(async () => {
 				? fail()
 				: answer({ hash: commodity.hash, descriptor: fields.descriptor, dq: DQ }, 201);
 		}
-		const commodityHash = /^\/v4\/commodity\/(\w+)$/.exec(path)?.[1];
+		const commodityHash = /^\/v4\/commodity\/([\w-]+)$/.exec(path)?.[1];
 		if (method === 'PUT' && commodityHash !== undefined) {
 			const commodity = qatom.commodities.find((candidate) => candidate.hash === commodityHash);
 			if (!commodity) return answer({ error: 'Not Found', status: 404 }, 404);
@@ -298,7 +299,7 @@ describe('POST /api/provisioning', () => {
 			body: {
 				commodity_id: commodityId,
 				service_method: 'POST',
-				service_schema: itemInputJsonSchema(kind, MILESTONES),
+				service_schema: itemInputJsonSchema(kind),
 				external_endpoint: 'https://tejido.net/api/checkins',
 				active: true,
 				featured: true,
@@ -315,9 +316,10 @@ describe('POST /api/provisioning', () => {
 			{
 				method: 'POST',
 				path: '/v4/commodity',
-				body: { descriptor: 'Rebuild the library wing log work', cost: 100, dq: DQ, twin_id: 3601 }
+				// Our 100 thousandths go to Qatom as 0.1 USD-TDN, and our 1000 as 1.
+				body: { descriptor: 'Rebuild the library wing log work', cost: 0.1, dq: DQ, twin_id: 3601 }
 			},
-			{ method: 'PUT', path: '/v4/commodity/41hash118', body: logWork },
+			{ method: 'PUT', path: '/v4/commodity/3f2b8c1e-5d47-4a9b-8e21-000000000118', body: logWork },
 			{
 				method: 'GET',
 				path: '/v4/catalog/items?commodity_id=118&mine=true&active=all',
@@ -332,12 +334,16 @@ describe('POST /api/provisioning', () => {
 				path: '/v4/commodity',
 				body: {
 					descriptor: 'Rebuild the library wing milestone hit',
-					cost: 1000,
+					cost: 1,
 					dq: DQ,
 					twin_id: 3602
 				}
 			},
-			{ method: 'PUT', path: '/v4/commodity/41hash119', body: milestoneHit },
+			{
+				method: 'PUT',
+				path: '/v4/commodity/3f2b8c1e-5d47-4a9b-8e21-000000000119',
+				body: milestoneHit
+			},
 			{
 				method: 'GET',
 				path: '/v4/catalog/items?commodity_id=119&mine=true&active=all',
@@ -366,7 +372,7 @@ describe('POST /api/provisioning', () => {
 				item: 'log_work',
 				twinId: 3601,
 				twinHostname: 'twin3601.micro.biz.todaq.net',
-				commodityHash: '41hash118',
+				commodityHash: '3f2b8c1e-5d47-4a9b-8e21-000000000118',
 				commodityId: 118,
 				catalogItemId: 42,
 				lockedUntil: null,
@@ -424,7 +430,7 @@ describe('POST /api/provisioning', () => {
 		expect(qatom.items).toHaveLength(1);
 		expect(writes().find((request) => request.path === '/v4/commodity')!.body).toMatchObject({
 			descriptor: 'Rebuild the library wing milestone hit',
-			cost: 1000
+			cost: 1
 		});
 	});
 

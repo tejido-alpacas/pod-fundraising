@@ -2,8 +2,16 @@
  * The builder's fixed words: the contracts' values as an organiser reads them. One list per
  * enum, so a value added to a contract fails typecheck here until it has words.
  */
-import type { Cadence, MilestoneKind, PartyRelationship, PartyRole } from '@tejido/contracts';
-import type { Step } from './draft.ts';
+import {
+	cadencePhrase,
+	cadenceRule,
+	FIXED_CADENCES,
+	type Cadence,
+	type MilestoneKind,
+	type PartyRelationship,
+	type PartyRole
+} from '@tejido/contracts';
+import { isChosenDays, type Step } from './draft.ts';
 
 export const STEP_NAME: Record<Step, string> = {
 	project: 'Project',
@@ -28,15 +36,50 @@ export const KIND_HELP: Record<MilestoneKind, string> = {
 	service: 'A service is carried out, such as training or a clinic day.'
 };
 
-export const CADENCE_LABEL: Record<Cadence, string> = {
+/**
+ * The choices on the schedule step, in the order shown. The first three are cadences as they
+ * are; `custom` is chosen days of the week, picked in the group of day toggles under it.
+ */
+export const CADENCE_CHOICES = [...FIXED_CADENCES, 'custom'] as const;
+export type CadenceChoice = (typeof CADENCE_CHOICES)[number];
+
+export const CADENCE_CHOICE_LABEL: Record<CadenceChoice, string> = {
 	weekly: 'Every week',
-	fortnightly: 'Every two weeks'
+	fortnightly: 'Every two weeks',
+	daily: 'Every day',
+	custom: 'On chosen days of the week'
 };
 
-export const CADENCE_HELP: Record<Cadence, string> = {
+export const CADENCE_CHOICE_HELP: Record<CadenceChoice, string> = {
 	weekly: 'Each contractor and supplier files a short work report once a week.',
-	fortnightly: 'Each contractor and supplier files a short work report once every two weeks.'
+	fortnightly: 'Each contractor and supplier files a short work report once every two weeks.',
+	daily: 'Each contractor and supplier files a short work report once a day.',
+	custom:
+		'Pick the days a work report is due, such as every Monday and Thursday, the way a repeating calendar invitation does.'
 };
+
+/** Which choice a draft's cadence is: chosen days, however many are picked so far, are `custom`. */
+export function cadenceChoice(cadence: Cadence | ''): CadenceChoice | '' {
+	if (cadence === '') return '';
+	return isChosenDays(cadence) ? 'custom' : cadence;
+}
+
+/**
+ * The cadence in a sentence, under its name on the review step. The name itself ("Every
+ * week", "Every Monday and Tuesday") is the contracts' `cadenceLabel`, the same words the
+ * App and the reminder use.
+ */
+export function cadenceHelp(cadence: Cadence): string {
+	const rule = cadenceRule(cadence);
+	switch (rule.kind) {
+		case 'weekly':
+		case 'fortnightly':
+		case 'daily':
+			return CADENCE_CHOICE_HELP[rule.kind];
+		case 'days':
+			return `Each contractor and supplier files a short work report ${cadencePhrase(cadence)}.`;
+	}
+}
 
 export const ROLE_LABEL: Record<PartyRole, string> = {
 	third_party: 'Does the work',
