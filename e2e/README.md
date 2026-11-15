@@ -15,6 +15,7 @@ checks must never need: the network, a mailbox, and three real Qatom accounts.
 ## What it does
 
 <<<<<<< HEAD
+
 | Spec                     | What it does                                                                                                                                                                                                                                                                                                | Runs                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | `sign-in`                | Opens each test person's invite, presses Sign in with Qatom, types their email on Qatom's page, reads the emailed code from the inbox, and lands back in the App signed in. Saves that signed-in browser for the other specs.                                                                               | Once per person per run   |
@@ -31,6 +32,7 @@ checks must never need: the network, a mailbox, and three real Qatom accounts.
 
 The five signed-out specs type nothing into Qatom, call no model and write nothing, so they
 =======
+
 | Spec               | What it does                                                                                                                                                                                                                             | Runs                      |
 | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | `sign-in`          | Opens each test person's invite, presses Sign in with Qatom, types their email on Qatom's page, reads the emailed code from the inbox, and lands back in the App signed in. Saves that signed-in browser for the other specs.            | Once per person per run   |
@@ -43,8 +45,9 @@ The five signed-out specs type nothing into Qatom, call no model and write nothi
 | `campaign-builder` | Signed out. The builder's first step: what is missing, then on to the second step and back. The campaign API's check. Never creates a campaign.                                                                                          | Phone and desktop         |
 
 The four signed-out specs type nothing into Qatom, call no model and write nothing, so they
->>>>>>> origin/main
-run on every run.
+
+> > > > > > > origin/main
+> > > > > > > run on every run.
 
 The contractor signs in on the phone-sized screen and the confirmer on the desktop-sized one, so
 Qatom's pages are photographed at both sizes with one code each. The visitor signs in on the
@@ -346,7 +349,7 @@ appear in a screenshot of Qatom's own page; it is worthless once used.
    using the note word for word: the spec looks for its own reference (`ref-…`) in the public
    timeline's text. If the model rewrites the note, the entry is filed but the spec fails at
    the last step, saying so.
-<<<<<<< HEAD
+   <<<<<<< HEAD
 4. **The visitor's sign-in on the Campaign Site.** It has never run against the live site: it
    could only be built against a local copy, where Qatom's pages cannot be reached. Nothing is
    set up for it in the database: the visitor is no party, and their Qatom account is made by
@@ -372,7 +375,7 @@ appear in a screenshot of Qatom's own page; it is worthless once used.
 | `lib/stuck-page.ts`    | Wording those lines, and taking out what must not be in a log                              |
 | `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network                               |
 | `specs/*.spec.ts`      | The eleven specs above. Only `npm run e2e` runs them                                       |
-=======
+| =======                |
 
 ## Where things are
 
@@ -390,4 +393,5 @@ appear in a screenshot of Qatom's own page; it is worthless once used.
 | `lib/stuck-page.ts`    | Wording those lines, and taking out what must not be in a log           |
 | `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network            |
 | `specs/*.spec.ts`      | The eight specs above. Only `npm run e2e` runs them                     |
->>>>>>> origin/main
+
+> > > > > > > origin/main
