@@ -199,7 +199,7 @@ describe('who may see a file is not part of a check-in', () => {
 
 	it('leaves the photos input of both Qatom items as it was entered in Qatom', () => {
 		for (const item of ['log_work', 'milestone_hit'] as const) {
-			const schema = itemInputJsonSchema(item, ['m1']) as {
+			const schema = itemInputJsonSchema(item) as {
 				properties: { photos: unknown };
 			};
 			expect(schema.properties.photos).toEqual({
