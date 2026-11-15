@@ -440,6 +440,8 @@ export interface UnreconciledEntry {
 	party: Party;
 	/** The deposit paid on the entry. */
 	depositAmount: Amount;
+	/** The purchase Qatom named when it called us with this filing, or null when it named none. */
+	purchase: FiledPurchase | null;
 }
 
 /** A campaign's entries that have no ledger transaction yet, oldest first. */
@@ -448,13 +450,28 @@ export async function listUnreconciledEntries(
 	campaignId: string
 ): Promise<UnreconciledEntry[]> {
 	const rows = await db
-		.select({ entry: entries, party: parties, depositAmount: deposits.amount })
+		.select({
+			entry: entries,
+			party: parties,
+			depositAmount: deposits.amount,
+			transactionId: entryPurchases.transactionId,
+			catalogItemId: entryPurchases.catalogItemId
+		})
 		.from(entries)
 		.innerJoin(parties, eq(parties.id, entries.partyId))
 		.innerJoin(deposits, eq(deposits.entryId, entries.id))
+		.leftJoin(entryPurchases, eq(entryPurchases.entryId, entries.id))
 		.where(and(eq(entries.campaignId, campaignId), isNull(entries.twistId)))
 		.orderBy(asc(entries.filedAt), asc(entries.id));
-	return rows.map((row) => ({ ...row, entry: toEntry(row.entry) }));
+	return rows.map((row) => ({
+		entry: toEntry(row.entry),
+		party: row.party,
+		depositAmount: row.depositAmount,
+		purchase:
+			row.transactionId === null
+				? null
+				: { transactionId: row.transactionId, catalogItemId: row.catalogItemId }
+	}));
 }
 
 // D1 allows 100 bound values in one statement.
@@ -477,9 +494,12 @@ export async function listUsedTwistIds(db: Executor, twistIds: string[]): Promis
 export interface EntryStamp {
 	entryId: string;
 	twistId: string;
-	/** The paying address exactly as the ledger reports it. */
-	payingWallet: string;
-	/** The ledger's own timestamp for the deposit. */
+	/**
+	 * The paying address exactly as the ledger reports it. Null when the entry is matched by
+	 * Qatom's purchase record, which names no payer.
+	 */
+	payingWallet: string | null;
+	/** The ledger's own timestamp for the deposit, or the time Qatom says the sale settled. */
 	stampedAt: Timestamp;
 	status: EntryStatus;
 	statusReason: string | null;

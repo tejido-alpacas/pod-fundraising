@@ -18,6 +18,7 @@ import {
 	campaigns,
 	deposits,
 	entries,
+	entryPurchases,
 	listDeposits,
 	listRefunds,
 	milestones,
@@ -31,7 +32,7 @@ import { createMerchantAccount } from '@tejido/qatom/account';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RefundReport } from '#lib/server/backend/refunds.ts';
-import { SHARED_ITEM_COMMODITY_ID } from '#lib/server/backend/reconciler.ts';
+import { reconcile, SHARED_ITEM_COMMODITY_ID } from '#lib/server/backend/reconciler.ts';
 import {
 	isDueForRefund,
 	PASS_LIMIT,
@@ -80,6 +81,8 @@ let balances: Record<string, number>;
 let answerTwinTransfer: () => Response | Promise<Response>;
 /** What Qatom "answers" to GET /v4/twins in this test. */
 let answerTwins: () => Response;
+/** The settled purchases Qatom "knows" in this test, by transaction id. */
+let settledPurchases: Record<string, Record<string, unknown>>;
 
 const twinOf = (hostname: string) => `https://${hostname}`;
 const twinTransfers = () =>
@@ -94,6 +97,7 @@ beforeEach(async () => {
 	entryNumber = 0;
 	balances = { [LOG_TWIN]: 50, [HIT_TWIN]: 50 };
 	answerTwinTransfer = () => Response.json({ ok: true });
+	settledPurchases = {};
 	answerTwins = () =>
 		Response.json({
 			twins: [
@@ -135,6 +139,13 @@ beforeEach(async () => {
 				});
 			}
 			if (method === 'GET' && url.pathname === '/v4/twins') return answerTwins();
+			const sale = /^\/v4\/catalog\/purchases\/([0-9a-f-]+)$/.exec(url.pathname);
+			if (method === 'GET' && sale) {
+				const purchase = settledPurchases[sale[1]!];
+				return purchase === undefined
+					? Response.json({ error: 'Not found', status: 404 }, { status: 404 })
+					: Response.json({ purchase: { transaction_id: sale[1], ...purchase } });
+			}
 			// The product's refund, to a primary wallet. Never used for a test person.
 			if (method === 'POST' && url.pathname === '/v4/transfer') {
 				return Response.json({}, { status: 202 });
@@ -664,6 +675,47 @@ describe('a run that failed: the milestone is never confirmed', () => {
 		expect(lines).toEqual([
 			'Test-account refunds: 1 sent, 1 skipped (entry_flagged 1), a person needs to look: YES.'
 		]);
+	});
+});
+
+describe('an entry verified by Qatom’s purchase record', () => {
+	it('is picked up by the refund pass like any other verified entry', async () => {
+		const TRANSACTION = '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12';
+		await testPeople();
+		await addMilestone(MILESTONE, 'confirmed_independent');
+		// Filed, with the purchase Qatom named, and not yet looked at by the reconciler.
+		const depositId = await addEntry(TEST_CONTRACTOR, 'log_work', {
+			status: 'filed',
+			filedMinutesAgo: 3
+		});
+		const entryId = depositId.replace('dep-', 'ent-');
+		await test.db
+			.insert(entryPurchases)
+			.values({ entryId, transactionId: TRANSACTION, catalogItemId: 42 });
+
+		// Before the reconciler has run, the refund pass leaves it alone.
+		const before = await pass();
+		expect(skippedReasons(before.report)).toEqual(['entry_not_verified']);
+		expect(twinTransfers()).toEqual([]);
+
+		settledPurchases[TRANSACTION] = {
+			catalog_item_id: 42,
+			amount: '0.100',
+			settled_at: new Date().toISOString()
+		};
+		const account = createMerchantAccount({
+			paymentApiUrl: QATOM,
+			clientId: 'test-account-client',
+			clientSecret: 'test-account-secret'
+		});
+		expect(await reconcile(test.db, account)).toMatchObject({ verified: 1 });
+
+		const after = await pass();
+		expect(after.report.sent.map(({ deposit_ids }) => deposit_ids)).toEqual([[depositId]]);
+		expect(twinTransfers().map(({ body }) => body)).toEqual([
+			{ amount: 0.1, destination: `https://${CONTRACTOR_AGENT}` }
+		]);
+		expect(await refundedAt(depositId)).not.toBeNull();
 	});
 });
 
