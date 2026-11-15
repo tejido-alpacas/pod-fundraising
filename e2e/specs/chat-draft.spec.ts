@@ -3,8 +3,10 @@
  * no money moves. This calls the real model, once per run: it runs on the phone only, and is
  * left to `paid-filing` on a paid run, which holds the same conversation and then files.
  */
-import { expect, test } from '../lib/harness.ts';
+import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { draftWorkLog } from '../lib/chat.ts';
+
+needsSignIn();
 
 // The model's answers vary. One second try, never more.
 test.describe.configure({ retries: 1 });

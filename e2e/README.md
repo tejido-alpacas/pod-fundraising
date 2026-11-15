@@ -106,6 +106,40 @@ spends a deposit.
 
    This changes the two ids and nothing else.
 
+## Before the first paid run
+
+The paid filing has never run. Only a person starts it. Before ticking "paid":
+
+1. **Funds and a limit on the contractor's agent wallet.** In Qatom, as the test contractor:
+   funds in the **agent** wallet, not the primary one, and an auto-approve limit of at least
+   0.10. Qatom's limit is empty by default, and then every payment waits for the person to
+   approve it: the spec stops with "THE FILING IS WAITING FOR AN APPROVAL IN QATOM".
+2. **No catalog items are made for the test campaign.** The assistant files with the Qatom
+   tools whose names end in `log_work` and `milestone_hit` (the example campaign's), and Tejido
+   finds the test campaign from the contractor's reporter code. Because the test campaign has
+   no item ids, the reconciler skips it: its entries stay at "Receipt pending", and the spec
+   does not wait for a verified receipt. Steps 5 and 6 of the setup above describe the other
+   way (items of its own), which is not being used.
+3. **A green unpaid run just before.** The paid spec holds the same conversation as
+   `chat-draft`; if that is failing, do not spend a deposit finding out.
+4. **One paid run, started by hand on `main`, left to finish.** Never a second while one is
+   running, or after one ended in any way but "nothing was filed" or a pass.
+
+What a good paid run shows: `paid-filing` passes on the phone; the screenshots
+`review-before-filing`, `filing-submitted`, `filing-reply`, `timeline-entry` and
+`proof-of-the-entry`; one new entry on `tejido.net/campaigns/e2e-smoke`; and 0.10 less in the
+contractor's agent wallet. From then on the `site-walk` proof page check runs instead of being
+skipped.
+
+If it fails, the failure says which of these happened, with the assistant's last words:
+
+| The failure says                                  | What it means                                                                                                         | Safe to run paid again?                                                    |
+| ------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
+| "NOTHING WAS FILED"                               | The assistant did not use a filing tool. No deposit was paid.                                                         | Yes, once the cause is dealt with                                          |
+| "THE FILING IS WAITING FOR AN APPROVAL IN QATOM"  | A payment is waiting for the contractor's approval. Not paid, but approving it later would pay it and file the entry. | After raising the auto-approve limit. Leave the waiting payment unapproved |
+| "THE DEPOSIT MAY HAVE BEEN PAID"                  | The filing was sent, and the entry is not on the public timeline.                                                     | Not until a person has looked at the public page and the wallet            |
+| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH" | The page lost touch mid-filing.                                                                                       | Not until a person has looked                                              |
+
 ## What donors see
 
 The test campaign is a **draft**, and the Campaign Site's home page leaves drafts out, so it is
@@ -132,12 +166,18 @@ trusts no other branch). Tick "paid" only when you mean to spend a deposit.
 | `E2E_CONTRACTOR_PARTY_ID` | `e2e-contractor`                                                  |
 | `E2E_CONFIRMER_PARTY_ID`  | `e2e-confirmer`                                                   |
 | `E2E_PAID`                | Leave unset. Exactly `true` spends a deposit                      |
+| `E2E_SKIP_SIGN_IN`        | Leave unset. Exactly `true` asks Qatom for no code: see below     |
 
 `E2E_APP_URL` and `E2E_SITE_URL` default to the live site. Any other address is refused unless
 `E2E_ALLOW_OTHER_HOSTS=true`, and a paid run is refused anywhere but the live site. If a value
 is missing the suite stops before opening a page and names it.
 
 `npm run e2e:list` lists the tests without running anything, and needs nothing set.
+
+**A run that does not sign in.** With `E2E_SKIP_SIGN_IN=true` the suite asks Qatom for no
+sign-in code. The sign-in and every check that needs a signed-in person are skipped, each
+saying why, and the signed-out checks (the Campaign Site as a donor) run as usual. It is for
+when runs come closer together than Qatom's limit on codes allows. A paid run refuses it.
 
 **Do not run it in a loop.** Qatom sends at most 5 sign-in codes per address and 10 per network
 address in 15 minutes, in production too. Each run asks for one code per person. Three runs in a
@@ -171,15 +211,15 @@ Qatom's step name.
 
 Common failures, and what they mean:
 
-| The message says                                        | What happened                                                                                                                                              |
-| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "No sign-in code arrived at …"                          | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.               |
-| "Qatom did not send a code: …"                          | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                         |
-| "Waited 90 seconds for Qatom to send the browser back…" | Qatom showed a step the suite does not know. The lines at the end of the failure name the page's step, headings and buttons; `…-qatom-stuck.png` shows it. |
-| "The App did not sign … in: …"                          | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match).          |
-| "The assistant did not show its review card."           | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                         |
-| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"       | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.                 |
-| "The assistant replied without filing"                  | Nothing was sent. Usually the wallet is empty or the auto-approve limit is too low; the screenshot shows what the assistant asked for.                     |
+| The message says                                                                 | What happened                                                                                                                                              |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "No sign-in code arrived at …"                                                   | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.               |
+| "Qatom did not send a code: …"                                                   | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                         |
+| "Waited 90 seconds for Qatom to send the browser back…"                          | Qatom showed a step the suite does not know. The lines at the end of the failure name the page's step, headings and buttons; `…-qatom-stuck.png` shows it. |
+| "The App did not sign … in: …"                                                   | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match).          |
+| "The assistant did not show its review card."                                    | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                         |
+| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"                                | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.                 |
+| "NOTHING WAS FILED", "WAITING FOR AN APPROVAL", "THE DEPOSIT MAY HAVE BEEN PAID" | A paid run that did not end with the entry on the timeline. See the table under "Before the first paid run".                                               |
 
 `sign-in` and `paid-filing` are never retried: a retry would ask for another code or pay
 another deposit. `chat-draft` is retried once, because the model's answers vary. If `sign-in`

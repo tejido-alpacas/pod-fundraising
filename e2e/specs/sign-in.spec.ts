@@ -7,12 +7,13 @@
  */
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
-import { test } from '../lib/harness.ts';
+import { needsSignIn, test } from '../lib/harness.ts';
 import { sqsInboxQueue } from '../lib/inbox.ts';
 import { CONFIRMER_STATE, CONTRACTOR_STATE } from '../lib/paths.ts';
 import { signInFromInvite } from '../lib/sign-in.ts';
 import { DESKTOP, PHONE } from '../lib/viewports.ts';
 
+needsSignIn();
 test.describe.configure({ mode: 'serial', retries: 0 });
 // Reading the inbox can take two minutes on top of the pages themselves.
 test.setTimeout(300_000);

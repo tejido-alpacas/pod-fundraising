@@ -29,13 +29,14 @@ const LONGEST_ALERT = 240;
 const LONGEST_OPENING = 320;
 
 /**
- * Takes out what must never reach a log: email addresses, six or more digits together or as two
+ * Takes out what must never reach a log: a person's reporter code (`rc_…`), email addresses, six or more digits together or as two
  * threes (a sign-in code is six), and unbroken runs of 24 or more letters, digits and token
  * punctuation that hold a digit or mixed case (a token, a cookie or a signed value). Ordinary
  * words and sentences are left as they are.
  */
 export function scrub(text: string): string {
 	return text
+		.replace(/\brc_[0-9a-z]{6,}/gi, '(a reporter code)')
 		.replace(/[^\s@"'<>()]+@[^\s@"'<>()]+\.[^\s@"'<>().,;:!?]+/g, '(an email address)')
 		.replace(/[A-Za-z0-9_\-+/=.~%]{24,}/g, (run) =>
 			/\d/.test(run) || /[a-z][A-Z]/.test(run) ? '(a long value)' : run

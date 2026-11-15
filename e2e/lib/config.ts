@@ -41,7 +41,8 @@ const schema = z.object({
 	E2E_CAMPAIGN_ID: id,
 	E2E_CONTRACTOR_PARTY_ID: id,
 	E2E_CONFIRMER_PARTY_ID: id,
-	E2E_PAID: switchedOn
+	E2E_PAID: switchedOn,
+	E2E_SKIP_SIGN_IN: switchedOn
 });
 
 export const E2E_CONFIG_NAMES = Object.keys(schema.shape) as (keyof typeof schema.shape)[];
@@ -66,6 +67,12 @@ export interface E2eConfig {
 	confirmer: TestPerson;
 	/** True only when `E2E_PAID` is exactly `true`: the paid spec then spends a real deposit. */
 	paid: boolean;
+	/**
+	 * False only when `E2E_SKIP_SIGN_IN` is exactly `true`: the run then asks Qatom for no sign-in
+	 * code, and every check that needs a signed-in person is skipped, saying why. The workflow
+	 * sets it when enough recent runs have signed in already (Qatom limits codes per address).
+	 */
+	signIn: boolean;
 }
 
 /** Thrown when the suite's configuration is missing or malformed. Never contains a value. */
@@ -125,7 +132,8 @@ export function parseE2eConfig(env: Readonly<Record<string, string | undefined>>
 		campaignId: values.E2E_CAMPAIGN_ID,
 		contractor: person(values.E2E_CONTRACTOR_PARTY_ID, 'e2e-contractor'),
 		confirmer: person(values.E2E_CONFIRMER_PARTY_ID, 'e2e-confirmer'),
-		paid: values.E2E_PAID
+		paid: values.E2E_PAID,
+		signIn: !values.E2E_SKIP_SIGN_IN
 	};
 }
 

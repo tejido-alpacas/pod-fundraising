@@ -112,6 +112,10 @@ describe('scrub', () => {
 			'Signed in with the Qatom account (an email address).'
 		);
 		expect(scrub('Code 482913 sent')).toBe('Code (digits) sent');
+		expect(scrub('reporter_code: rc_kzmbqtxvwpnfbhtgvczj.')).toBe(
+			'reporter_code: (a reporter code).'
+		);
+		expect(scrub('RC_K7M2Q9X4W8N5B3T6V2ZJ')).toBe('(a reporter code)');
 		expect(scrub('Code 482-913 sent')).toBe('Code (digits) sent');
 		expect(scrub('sha 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08')).toBe(
 			'sha (a long value)'
