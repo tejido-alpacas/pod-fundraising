@@ -7,7 +7,7 @@
  *
  * Nothing here pays, presses an amount or calls an address that needs a secret.
  */
-import { expect, type Locator, type Page } from '@playwright/test';
+import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
 import { AT, escaped, whole, type Lang, type Row } from './site-words.ts';
 
 export const UNIT = 'USD-TDN';
@@ -28,17 +28,32 @@ export const GIVE = {
 		'Donner {amount} {unit}',
 		'Doar {amount} {unit}'
 	],
+	/** Where the paying happens: in a new window, on Qatom's page. */
 	payOnQatom: [
-		'Pagas en la página de pago de Qatom. Aquí no se cobra nada.',
-		'You pay on Qatom’s checkout page. Nothing is charged here.',
-		'Vous payez sur la page de paiement de Qatom. Rien n’est débité ici.',
-		'Você paga na página de pagamento do Qatom. Nada é cobrado aqui.'
+		'El pago se abre en una ventana nueva, en la página de pago de Qatom. Aquí no se cobra nada.',
+		'Payment opens in a new window, on Qatom’s checkout page. Nothing is charged here.',
+		'Le paiement s’ouvre dans une nouvelle fenêtre, sur la page de paiement de Qatom. Rien n’est débité ici.',
+		'O pagamento abre em uma nova janela, na página de pagamento do Qatom. Nada é cobrado aqui.'
 	],
 	afterPaying: [
-		'Después de pagar, vuelve a la página de la campaña y recárgala para ver el nuevo total.',
-		'After you pay, come back to the campaign’s page and reload it to see the new total.',
-		'Après le paiement, revenez sur la page de la campagne et rechargez-la pour voir le nouveau total.',
-		'Depois de pagar, volte à página da campanha e recarregue-a para ver o novo total.'
+		'Esta página se queda abierta. Después de pagar, cierra la ventana de Qatom y vuelve aquí.',
+		'This page stays open. After you pay, close Qatom’s window and come back here.',
+		'Cette page reste ouverte. Après le paiement, fermez la fenêtre de Qatom et revenez ici.',
+		'Esta página fica aberta. Depois de pagar, feche a janela do Qatom e volte aqui.'
+	],
+	/** The link back to the campaign for a donor who has paid in the other window. */
+	paid: [
+		'Ya pagué: ver la campaña',
+		'I have paid: show the campaign',
+		'J’ai payé : voir la campagne',
+		'Já paguei: ver a campanha'
+	],
+	/** Under a refusal: it may have been drawn in a new window, which can be closed. */
+	problemWindow: [
+		'Si esto se abrió en una ventana nueva, puedes cerrarla y volver a la anterior, o seguir aquí.',
+		'If this opened in a new window, you can close it and go back to the first one, or carry on here.',
+		'Si ceci s’est ouvert dans une nouvelle fenêtre, vous pouvez la fermer et revenir à la première, ou continuer ici.',
+		'Se isto abriu em uma nova janela, você pode fechá-la e voltar à anterior, ou continuar aqui.'
 	],
 	keptPrivate: [
 		'Tejido no guarda tu nombre, tu correo ni tu billetera con el aporte.',
@@ -267,4 +282,17 @@ export async function whereTheAnswerShows(page: Page, press: () => Promise<void>
 		context.off('page', note);
 		page.off('framenavigated', navigated);
 	}
+}
+
+/**
+ * Says what a check found on the live site: kept with the test in the report, and printed in
+ * the run's log, where it is read first. Never give it an address that could be paid.
+ */
+export function say(
+	testInfo: TestInfo,
+	description: string,
+	type: 'found' | 'not checked' = 'found'
+): void {
+	testInfo.annotations.push({ type, description });
+	console.log(`[${type}] ${testInfo.project.name}: ${description}`);
 }
