@@ -12,7 +12,7 @@
  */
 import type { Page } from '@playwright/test';
 import { expect, test, until } from '../lib/harness.ts';
-import { assertQatomPage, onOrigin } from '../lib/safety.ts';
+import { assertQatomCheckoutPage, onOrigin } from '../lib/safety.ts';
 
 // No picture is taken when a check here fails: one of them ends on Qatom's checkout page, which
 // anyone holding it could pay. The failure's words in the log still say what the page showed.
@@ -146,7 +146,7 @@ test('pressing an amount arrives at Qatom’s checkout page, and nothing is paid
 		}
 		return null;
 	});
-	assertQatomPage(page.url(), cfg);
+	assertQatomCheckoutPage(page.url());
 	// Arriving is the whole check. Nothing on Qatom's page is pressed, so nothing is paid. No
 	// picture is kept of it either: the page is a checkout anyone holding it could pay.
 });

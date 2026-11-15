@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { parseE2eConfig } from './config.ts';
-import { assertQatomPage, assertSafeToRun, onOrigin, SafetyError } from './safety.ts';
+import {
+	assertQatomCheckoutPage,
+	assertQatomPage,
+	assertSafeToRun,
+	onOrigin,
+	SafetyError
+} from './safety.ts';
 
 const base = {
 	E2E_QATOM_HOST: 'pay.m.todaq.net',
@@ -89,5 +95,33 @@ describe('onOrigin', () => {
 		);
 		expect(onOrigin('https://tejido.net/', 'https://app.tejido.net')).toBe(false);
 		expect(onOrigin('about:blank', 'https://app.tejido.net')).toBe(false);
+	});
+});
+
+describe('assertQatomCheckoutPage', () => {
+	it('allows one of Qatom’s checkout pages over HTTPS', () => {
+		expect(() =>
+			assertQatomCheckoutPage('https://checkout.m.todaq.net/checkout/abc123')
+		).not.toThrow();
+	});
+
+	it('refuses any other host, path or scheme, naming the host and never the rest', () => {
+		for (const url of [
+			'https://pay.m.todaq.net/checkout/payable-part-9f86d081',
+			'https://checkout.m.todaq.net/elsewhere/payable-part-9f86d081',
+			'http://checkout.m.todaq.net/checkout/payable-part-9f86d081',
+			'https://checkout.m.todaq.net.example.org/checkout/payable-part-9f86d081',
+			'not an address'
+		]) {
+			let message = '';
+			try {
+				assertQatomCheckoutPage(url);
+			} catch (error) {
+				expect(error).toBeInstanceOf(SafetyError);
+				message = (error as Error).message;
+			}
+			expect(message).toContain('not on one of Qatom');
+			expect(message).not.toContain('payable-part');
+		}
 	});
 });
