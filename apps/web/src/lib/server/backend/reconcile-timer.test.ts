@@ -3,6 +3,7 @@
 import { CHECKIN_SECRET_HEADER } from '@tejido/contracts';
 import { describe, expect, it } from 'vitest';
 import {
+	cleanUpTestCampaignsOnTimer,
 	reconcileOnTimer,
 	refundTestAccountsOnTimer,
 	undoTestDonationsOnTimer
@@ -144,6 +145,51 @@ describe('undoTestDonationsOnTimer', () => {
 			);
 			expect(message).toBe(
 				`Test-donation undos on the timer failed: POST /api/test-donation-undos answered ${status}.`
+			);
+			expect(message).not.toContain(SECRET);
+		}
+	});
+});
+
+describe('cleanUpTestCampaignsOnTimer', () => {
+	async function cleanupPass(answer: () => Promise<Response>) {
+		const requests: Request[] = [];
+		const result = cleanUpTestCampaignsOnTimer({
+			respond: (request) => {
+				requests.push(request);
+				return answer();
+			},
+			origin: ORIGIN,
+			secret: SECRET
+		});
+		return { requests, result };
+	}
+
+	it('asks for POST /api/test-campaign-cleanup once, with the shared secret and no body', async () => {
+		const { requests, result } = await cleanupPass(() =>
+			Promise.resolve(Response.json({ deleted: [] }))
+		);
+
+		expect(await result).toBe(200);
+		expect(requests).toHaveLength(1);
+		const request = requests[0]!;
+		expect(request.method).toBe('POST');
+		expect(request.url).toBe(`${ORIGIN}/api/test-campaign-cleanup`);
+		expect(request.headers.get(CHECKIN_SECRET_HEADER)).toBe(SECRET);
+		expect(request.headers.get('origin')).toBe(ORIGIN);
+		// It names nothing: which campaigns are deleted is not the caller's to say.
+		expect(await request.text()).toBe('');
+	});
+
+	it('fails with the status only when the route refuses or breaks', async () => {
+		for (const status of [401, 403, 500]) {
+			const { result } = await cleanupPass(() =>
+				Promise.resolve(new Response(`body that names ${SECRET} and a campaign`, { status }))
+			);
+
+			const message = await failure(result);
+			expect(message).toBe(
+				`Test-campaign cleanup on the timer failed: POST /api/test-campaign-cleanup answered ${status}.`
 			);
 			expect(message).not.toContain(SECRET);
 		}
