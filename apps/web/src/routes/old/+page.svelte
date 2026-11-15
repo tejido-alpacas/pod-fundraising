@@ -7,7 +7,7 @@
 
 	let { data }: PageProps = $props();
 
-	const START = '/old/campaigns/new';
+	const START = '/campaigns/new';
 </script>
 
 <svelte:head>
