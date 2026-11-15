@@ -23,7 +23,7 @@ Site (tejido.net) has. The rules:
    `/campaigns/library-wing`: same fonts, same blues, same page colour, same corners.
 6. **The App's header is the first site's header**: a rounded bar floating just under the top of
    the screen, frosted white, with the logo at the first site's sizes, outlined buttons and
-   rounded page links. The phone's tab bar is the first site's too: a rounded dock floating above
+   rounded page links, which sit inside the bar on a wide screen. The phone's tab bar is the first site's too: a rounded dock floating above
    the bottom of the screen, the current tab a soft blue pill. Their rules are in `first-site.css`.
 7. **Otherwise the App stays calm.** It takes the first site's page colour, not its drifting
    gradient, and its cards are not glass: it is used on phones in the field.

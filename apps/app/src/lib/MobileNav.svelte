@@ -1,6 +1,6 @@
 <!--
   MobileNav: the App's tab bar on a phone. The design keeps it off task flows (filing, evidence,
-  fixing), which is why only the home page shows it. From 900px the links under the home page's
+  fixing), which is why only the home page shows it. From 900px the links in the home page's
   header do this job (see FieldPage).
 -->
 <script lang="ts">
