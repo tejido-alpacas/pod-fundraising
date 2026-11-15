@@ -26,6 +26,7 @@ import {
 	campaignIdOf,
 	campaignsRaisingMoney,
 	giveWords,
+	say,
 	whereTheAnswerShows
 } from '../lib/give-page.ts';
 import { onOrigin } from '../lib/safety.ts';
@@ -77,23 +78,32 @@ async function guarded(page: Page, siteUrl: string): Promise<Posts> {
 /**
  * Posts the Give page's form with `amount`, as a browser that still showed the page from when
  * the campaign was raising money would: the same form (a POST to the page's own address, or
- * to `action`), with one button named "amount".
+ * to `action`, opening in a new window as the page's own form does), with a field named
+ * "amount". Answers the page the site's answer shows in.
+ *
+ * The form is made and sent in one step inside the page, outside the part the site draws, so
+ * nothing the page does while it settles can take it away before it is sent.
  */
-async function postGiveForm(page: Page, amount: string, action?: string): Promise<void> {
-	// Written as text: the suite's own code is not checked against a browser's page types.
-	await page.evaluate(`(() => {
-		const form = document.createElement('form');
-		form.method = 'POST';
-		const action = ${JSON.stringify(action ?? '')};
-		if (action) form.action = action;
-		const button = document.createElement('button');
-		button.name = 'amount';
-		button.value = ${JSON.stringify(amount)};
-		button.textContent = 'Posted by the end-to-end check';
-		form.append(button);
-		document.querySelector('main').append(form);
-	})()`);
-	await page.getByRole('button', { name: 'Posted by the end-to-end check' }).click();
+async function postGiveForm(page: Page, amount: string, action?: string): Promise<Page> {
+	return whereTheAnswerShows(page, async () => {
+		// Written as text: the suite's own code is not checked against a browser's page types.
+		await page.evaluate(`(() => {
+			const form = document.createElement('form');
+			form.method = 'POST';
+			form.target = '_blank';
+			form.rel = 'noopener';
+			const action = ${JSON.stringify(action ?? '')};
+			if (action) form.action = action;
+			const field = document.createElement('input');
+			field.type = 'hidden';
+			field.name = 'amount';
+			field.value = ${JSON.stringify(amount)};
+			form.append(field);
+			document.body.append(form);
+			form.submit();
+			form.remove();
+		})()`);
+	});
 }
 
 function expectNoCheckout(posts: Posts, statuses: number[]): void {
@@ -108,7 +118,7 @@ test('a campaign that is not raising money refuses the Give form, and nothing is
 	page,
 	cfg,
 	waypoint
-}) => {
+}, testInfo) => {
 	const posts = await guarded(page, cfg.siteUrl);
 	// The test campaign is a draft: it is not raising money, and its Give page has no form.
 	const path = `/give/${cfg.campaignId}`;
@@ -117,23 +127,42 @@ test('a campaign that is not raising money refuses the Give form, and nothing is
 	await expect(main.getByText(whole(giveWords('en', GIVE.notRaising)))).toBeVisible();
 	await expect(main.locator('form')).toHaveCount(0);
 
+	/** The refusal, wherever it is shown, and the first tab left as it was. */
+	const expectRefused = async (shown: Page, picture: string | null) => {
+		const answer = shown.getByRole('main');
+		await expect(answer.getByRole('alert')).toHaveText(
+			whole(giveWords('en', GIVE.noLongerRaising))
+		);
+		// It may have been drawn in a new window: the page says that window can be closed.
+		await expect(answer.getByText(whole(giveWords('en', GIVE.problemWindow)))).toBeVisible();
+		// Still the campaign's Give page, which still offers nothing to press.
+		await expect(shown).toHaveURL(`${cfg.siteUrl}${path}`);
+		await expect(shown.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
+		await expect(answer.getByText(whole(giveWords('en', GIVE.notRaising)))).toBeVisible();
+		await expect(amountButtons(shown)).toHaveCount(0);
+		await expect(answer.getByRole('button')).toHaveCount(0);
+		if (picture !== null) await waypoint(shown, picture);
+		if (shown !== page) {
+			await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
+			await expect(main.getByRole('alert')).toHaveCount(0);
+			await shown.close();
+		}
+	};
+
 	// 1.00 USD-TDN, an amount a donation item may well sell: the campaign's state alone refuses it.
-	await postGiveForm(page, '1000');
-	const problem = main.getByRole('alert');
-	await expect(problem).toHaveText(whole(giveWords('en', GIVE.noLongerRaising)));
+	const first = await postGiveForm(page, '1000');
 	expectNoCheckout(posts, [409]);
-	// Still on the campaign's Give page, which still offers nothing to press.
-	await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
-	await expect(main.getByText(whole(giveWords('en', GIVE.notRaising)))).toBeVisible();
-	await expect(amountButtons(page)).toHaveCount(0);
-	await expect(main.getByRole('button')).toHaveCount(0);
-	await waypoint(page, 'give-form-refused-not-raising');
+	await expectRefused(first, 'give-form-refused-not-raising');
 
 	// The same answer whatever is posted: the amount is not even read.
-	await postGiveForm(page, 'not a number');
-	await expect(problem).toHaveText(whole(giveWords('en', GIVE.noLongerRaising)));
+	const second = await postGiveForm(page, 'not a number');
 	expectNoCheckout(posts, [409, 409]);
+	const where = second === page ? 'in the same tab' : 'in a new window';
+	await expectRefused(second, null);
+	say(
+		testInfo,
+		`The form posted for a campaign not raising money answered 409 twice, shown ${where}: "${giveWords('en', GIVE.noLongerRaising)}"`
+	);
 });
 
 test('the Give form posted for a campaign that does not exist is "not found"', async ({
@@ -141,13 +170,18 @@ test('the Give form posted for a campaign that does not exist is "not found"', a
 	cfg
 }) => {
 	const posts = await guarded(page, cfg.siteUrl);
-	await page.goto(`${cfg.siteUrl}/give/${cfg.campaignId}`);
+	const path = `/give/${cfg.campaignId}`;
+	await page.goto(`${cfg.siteUrl}${path}`);
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
 
-	await postGiveForm(page, '1000', '/give/no-such-campaign-e2e');
-	await expect(page).toHaveURL(`${cfg.siteUrl}/give/no-such-campaign-e2e`);
+	const shown = await postGiveForm(page, '1000', '/give/no-such-campaign-e2e');
 	expectNoCheckout(posts, [404]);
-	await expect(amountButtons(page)).toHaveCount(0);
+	await expect(shown).toHaveURL(`${cfg.siteUrl}/give/no-such-campaign-e2e`);
+	await expect(amountButtons(shown)).toHaveCount(0);
+	if (shown !== page) {
+		await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
+		await shown.close();
+	}
 });
 
 test('an amount that is not on sale is refused in plain words, and no checkout is started', async ({
@@ -192,8 +226,14 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 		expect(real, 'The page’s own buttons must not post the value this check posts.').not.toContain(
 			value
 		);
-		await button.evaluate((each, posted) => each.setAttribute('value', posted), value);
-		return whereTheAnswerShows(page, () => button.click());
+		// Changed and pressed in one step inside the page, so nothing the page does while it
+		// settles can put the real value back, or take the button away, in between.
+		return whereTheAnswerShows(page, () =>
+			button.evaluate((each, posted) => {
+				each.setAttribute('value', posted);
+				each.click();
+			}, value)
+		);
 	};
 
 	/** The answer: the notice in plain words, on the Give page, with the real amounts still offered. */
@@ -201,6 +241,9 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 		await expect(shown.getByRole('main').getByRole('alert')).toHaveText(
 			whole(giveWords('en', GIVE.amountGone))
 		);
+		await expect(
+			shown.getByRole('main').getByText(whole(giveWords('en', GIVE.problemWindow)))
+		).toBeVisible();
 		await expect(shown).toHaveURL(`${cfg.siteUrl}${path}`);
 		await expect(
 			shown.getByRole('main').getByRole('heading', { name: 'Choose an amount' })
@@ -232,8 +275,8 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
 	await expect(problem).toHaveCount(0);
 
-	testInfo.annotations.push({
-		type: 'found',
-		description: `With ${offered.join(', ')} on sale: 0.001 answered 409 and "not a number" answered 400, both with "${giveWords('en', GIVE.amountGone)}", shown ${inNewWindow ? 'in a new window' : 'in the same tab'}. No checkout was started.`
-	});
+	say(
+		testInfo,
+		`With ${offered.join(', ')} on sale: 0.001 answered 409 and "not a number" answered 400, both with "${giveWords('en', GIVE.amountGone)}", shown ${inNewWindow ? 'in a new window' : 'in the same tab'}. No checkout was started.`
+	);
 });

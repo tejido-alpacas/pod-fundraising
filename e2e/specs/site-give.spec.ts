@@ -12,7 +12,7 @@
  */
 import type { Page } from '@playwright/test';
 import { describeCheckoutPage } from '../lib/checkout-page.ts';
-import { amountShown } from '../lib/give-page.ts';
+import { amountShown, say } from '../lib/give-page.ts';
 import { expect, test, until } from '../lib/harness.ts';
 import { assertQatomCheckoutPage, onOrigin } from '../lib/safety.ts';
 
@@ -92,10 +92,7 @@ test('a campaign that is raising money leads to its Give page, which lists amoun
 	if (amounts === 0) {
 		await expect(page.getByText(NOT_AVAILABLE)).toBeVisible();
 		await waypoint(page, 'give-not-available');
-		testInfo.annotations.push({
-			type: 'found',
-			description: 'Giving is not available: Qatom lists no donation item (or could not be asked).'
-		});
+		say(testInfo, 'Giving is not available: Qatom lists no donation item (or could not be asked).');
 		return;
 	}
 	await expect(page.getByRole('heading', { name: 'Choose an amount' })).toBeVisible();
@@ -103,6 +100,9 @@ test('a campaign that is raising money leads to its Give page, which lists amoun
 		page.getByText(
 			'Payment opens in a new window, on Qatom’s checkout page. Nothing is charged here.'
 		)
+	).toBeVisible();
+	await expect(
+		page.getByText('This page stays open. After you pay, close Qatom’s window and come back here.')
 	).toBeVisible();
 	await expect(
 		page.getByText('Tejido keeps no name, email or wallet of yours with the gift.')
@@ -116,10 +116,7 @@ test('a campaign that is raising money leads to its Give page, which lists amoun
 		[...shown].sort((a, b) => a - b)
 	);
 	await waypoint(page, 'give-amounts');
-	testInfo.annotations.push({
-		type: 'found',
-		description: `Amounts on sale: ${shown.join(', ')}.`
-	});
+	say(testInfo, `Amounts on sale: ${shown.join(', ')}.`);
 });
 
 test('pressing an amount arrives at Qatom’s checkout page, and nothing is paid', async ({
@@ -180,17 +177,14 @@ test('pressing an amount arrives at Qatom’s checkout page, and nothing is paid
 		// "found" in the report.
 		const found = await describeCheckoutPage(checkout, pressed, offered);
 		if (checkout === page) {
-			testInfo.annotations.push({ type: 'found', description: `In the same tab. ${found}` });
+			say(testInfo, `In the same tab. ${found}`);
 		} else {
 			// The Give page is still there in the first tab, as it was, for the donor to come back to.
 			expect(page.url(), 'The first tab should still be on the Give page.').toBe(givePage);
 			await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
 			await expect(amountButtons(page).first()).toBeVisible();
 			await expect(page.getByRole('alert')).toHaveCount(0);
-			testInfo.annotations.push({
-				type: 'found',
-				description: `In a new window; the Give page stayed in the first tab. ${found}`
-			});
+			say(testInfo, `In a new window; the Give page stayed in the first tab. ${found}`);
 		}
 	} finally {
 		page.context().off('page', note);
