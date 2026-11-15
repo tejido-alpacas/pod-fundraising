@@ -2,10 +2,19 @@
  * THE ONE EXCEPTION to "refunds go to the primary wallet only" (CLAUDE.md, "Qatom"; the
  * owner's decision of 15 November 2026). FOR THE END-TO-END TEST PEOPLE ONLY.
  *
+ * This file sends two kinds of money back to a test person, and nothing else:
+ *   - their DEPOSITS, to the AGENT wallet they were paid from (`refundTestPersonFromItemTwin`);
+ *   - a DONATION the paid tests made, to the wallet it was paid from
+ *     (`returnTestDonationFromItemTwin`, described further down).
+ *
  * The automatic paid tests pay their deposits from each test person's AGENT wallet. So that
- * those wallets stay funded with nobody topping them up, a test person's deposits on a
- * confirmed milestone go back to that same agent wallet. Qatom's `POST /v4/transfer` cannot
- * pay out of the twin an item is sold from, so the refund is sent by that twin's OWN API:
+ * those wallets stay funded with nobody topping them up, a test person's deposits go back to
+ * that same agent wallet: a confirmed milestone's deposits at once, and any other deposit of
+ * theirs once it is 20 minutes old, because a test run that fails leaves its milestone
+ * unconfirmed. WHEN a deposit is due back is decided by the caller (test-account-refunds.ts
+ * in the backend), not here: this file is told an amount and a test person, and sends it.
+ * Qatom's `POST /v4/transfer` cannot pay out of the twin an item is sold from, so the refund
+ * is sent by that twin's OWN API:
  *
  *   1. the item's ledger (GET /v4/commodity/{hash}/transactions) names the item's twin and the
  *      digital quantity;
