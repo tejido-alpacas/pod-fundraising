@@ -32,7 +32,12 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RefundReport } from '#lib/server/backend/refunds.ts';
 import { SHARED_ITEM_COMMODITY_ID } from '#lib/server/backend/reconciler.ts';
-import { PASS_LIMIT, type TestRefundReport } from '#lib/server/backend/test-account-refunds.ts';
+import {
+	isDueForRefund,
+	PASS_LIMIT,
+	UNCONFIRMED_REFUND_AGE_MINUTES,
+	type TestRefundReport
+} from '#lib/server/backend/test-account-refunds.ts';
 import { POST as postProductRefunds } from '../refunds/+server.ts';
 import { POST } from './+server.ts';
 
@@ -185,7 +190,13 @@ let entryNumber = 0;
 async function addEntry(
 	partyId: string,
 	item: 'log_work' | 'milestone_hit',
-	options: { status?: EntryStatus; milestoneId?: string; amount?: number } = {}
+	options: {
+		status?: EntryStatus;
+		milestoneId?: string;
+		amount?: number;
+		/** How long ago the entry was filed. About an hour when not said, each a second apart. */
+		filedMinutesAgo?: number;
+	} = {}
 ) {
 	entryNumber += 1;
 	const { status = 'verified', milestoneId = MILESTONE } = options;
@@ -202,7 +213,11 @@ async function addEntry(
 		statusReason: null,
 		payingWallet: stamped ? 'some-agent.micro.biz.todaq.net' : null,
 		twistId: stamped ? `41twist${String(entryNumber).padStart(4, '0')}` : null,
-		filedAt: `2026-11-14T10:${String(entryNumber).padStart(2, '0')}:00.000Z`,
+		filedAt: new Date(
+			options.filedMinutesAgo === undefined
+				? Date.now() - 60 * 60_000 + entryNumber * 1000
+				: Date.now() - options.filedMinutesAgo * 60_000
+		).toISOString(),
 		stampedAt: stamped ? '2026-11-14T11:00:05.000Z' : null,
 		updatedAt: '2026-11-14T11:00:05.000Z'
 	});
@@ -419,10 +434,10 @@ describe('a test person on a confirmed milestone', () => {
 		expect((await roofRefunds()).filter((row) => row.status === 'sent')).toHaveLength(3);
 	});
 
-	it('waits while the milestone is not confirmed', async () => {
+	it('waits while the milestone is not confirmed and the deposit is still young', async () => {
 		await testPeople();
 		await addMilestone(MILESTONE, 'claimed');
-		await addEntry(TEST_CONTRACTOR, 'milestone_hit');
+		await addEntry(TEST_CONTRACTOR, 'milestone_hit', { filedMinutesAgo: 1 });
 		const { report } = await pass();
 
 		expect(report).toMatchObject({ sent: [], skipped: [] });
@@ -484,6 +499,171 @@ describe('a test person on a confirmed milestone', () => {
 		expect(skippedReasons(report)).toEqual(['unexpected_deposit_amount']);
 		expect(report.needs_a_person).toBe(true);
 		expect(requests).toEqual([]);
+	});
+});
+
+describe('a run that failed: the milestone is never confirmed', () => {
+	it('the age is one constant, 20 minutes, counted from when the entry was filed', () => {
+		expect(UNCONFIRMED_REFUND_AGE_MINUTES).toBe(20);
+		const now = new Date('2026-11-15T12:00:00.000Z');
+		const filed = (filedAt: string, milestoneConfirmed = false) => ({
+			filedAt,
+			milestoneConfirmed
+		});
+
+		expect(isDueForRefund(filed('2026-11-15T11:40:00.001Z'), now)).toBe(false);
+		expect(isDueForRefund(filed('2026-11-15T11:40:00.000Z'), now)).toBe(true);
+		expect(isDueForRefund(filed('2026-11-15T11:39:59.999Z'), now)).toBe(true);
+		// Not filed yet by this clock, or a time that cannot be read: never old enough.
+		expect(isDueForRefund(filed('2026-11-15T12:05:00.000Z'), now)).toBe(false);
+		expect(isDueForRefund(filed('not a time'), now)).toBe(false);
+		// A confirmed milestone's deposit is due at once, whatever its age.
+		expect(isDueForRefund(filed('2026-11-15T11:59:59.000Z', true), now)).toBe(true);
+		expect(isDueForRefund(filed('not a time', true), now)).toBe(true);
+	});
+
+	it('leaves a deposit alone at 19 minutes: not sent, not skipped, not logged', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		const log = await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 19 });
+		const claim = await addEntry(TEST_CONTRACTOR, 'milestone_hit', { filedMinutesAgo: 19 });
+		const { report } = await pass();
+
+		expect(report).toMatchObject({ sent: [], skipped: [], asked_total: 0 });
+		expect(requests).toEqual([]);
+		expect(await roofRefunds()).toEqual([]);
+		expect(await refundedAt(log)).toBeNull();
+		expect(await refundedAt(claim)).toBeNull();
+		expect(logged).not.toContain('Test-account refunds');
+	});
+
+	it('refunds it at 20 minutes, to the agent wallet, out of the item’s twin', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		// What the first real failed run left: a work log and a claim, no confirmation.
+		const log = await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 20 });
+		const claim = await addEntry(TEST_CONTRACTOR, 'milestone_hit', { filedMinutesAgo: 20 });
+		const { report } = await pass();
+
+		expect(report.skipped).toEqual([]);
+		expect(report.asked_total).toBe(1100);
+		expect(twinTransfers().map(({ origin, body }) => ({ from: origin, body }))).toEqual([
+			{ from: twinOf(LOG_TWIN), body: { amount: 0.1, destination: `https://${CONTRACTOR_AGENT}` } },
+			{ from: twinOf(HIT_TWIN), body: { amount: 1, destination: `https://${CONTRACTOR_AGENT}` } }
+		]);
+		expect(productTransfers()).toEqual([]);
+		expect(await refundedAt(log)).not.toBeNull();
+		expect(await refundedAt(claim)).not.toBeNull();
+		const rows = await roofRefunds();
+		expect(
+			rows.map((row) => [row.status, row.agentWalletHostname, row.primaryWalletHostname])
+		).toEqual([
+			['sent', CONTRACTOR_AGENT, null],
+			['sent', CONTRACTOR_AGENT, null]
+		]);
+	});
+
+	it('takes only the deposits that are old enough; the young ones wait their turn', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		const old = await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 25 });
+		const young = await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 5 });
+		const { report } = await pass();
+
+		expect(report.sent.map(({ deposit_ids }) => deposit_ids)).toEqual([[old]]);
+		expect(twinTransfers().map(({ body }) => body)).toEqual([
+			{ amount: 0.1, destination: `https://${CONTRACTOR_AGENT}` }
+		]);
+		expect(await refundedAt(young)).toBeNull();
+	});
+
+	it('is not sent again when the milestone is confirmed later', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 30 });
+		await addEntry(TEST_CONTRACTOR, 'milestone_hit', { filedMinutesAgo: 30 });
+		await pass();
+		expect(twinTransfers()).toHaveLength(2);
+
+		await test.db
+			.update(milestones)
+			.set({ state: 'confirmed_independent', confirmedAt: new Date().toISOString() })
+			.where(eq(milestones.id, MILESTONE));
+		// The confirmation itself is new, and is refunded once, at once.
+		const confirmation = await addEntry(TEST_CONFIRMER, 'milestone_hit', { filedMinutesAgo: 0 });
+		const after = await pass();
+		await pass();
+
+		expect(after.report.sent.map(({ deposit_ids }) => deposit_ids)).toEqual([[confirmation]]);
+		expect(twinTransfers()).toHaveLength(3);
+		expect((await roofRefunds()).map((row) => row.status)).toEqual(['sent', 'sent', 'sent']);
+	});
+
+	it('keeps every other rule: the payment must be matched, and never a flagged one', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		await addEntry(TEST_CONTRACTOR, 'log_work', { status: 'filed', filedMinutesAgo: 40 });
+		await addEntry(TEST_CONTRACTOR, 'milestone_hit', { status: 'flagged', filedMinutesAgo: 40 });
+		await addEntry(TEST_CONFIRMER, 'log_work', { amount: 100_000, filedMinutesAgo: 40 });
+		const { report } = await pass();
+
+		expect(report.sent).toEqual([]);
+		expect(skippedReasons(report).sort()).toEqual([
+			'entry_flagged',
+			'entry_not_verified',
+			'unexpected_deposit_amount'
+		]);
+		expect(requests).toEqual([]);
+	});
+
+	it('is tried once only: a refusal is not tried again', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		await addEntry(TEST_CONTRACTOR, 'milestone_hit', { filedMinutesAgo: 30 });
+		answerTwinTransfer = () => Response.json({ error: 'no' }, { status: 500 });
+		await pass();
+		answerTwinTransfer = () => Response.json({ ok: true });
+		const second = await pass();
+
+		expect(skippedReasons(second.report)).toEqual(['refund_tried_before']);
+		expect(twinTransfers()).toHaveLength(1);
+	});
+
+	it('never touches a real party’s deposit on an unconfirmed milestone, however old', async () => {
+		await addMilestone(MILESTONE, 'claimed');
+		const supplierLog = await addEntry(supplier.id, 'log_work', { filedMinutesAgo: 60 * 24 * 30 });
+		const contractorClaim = await addEntry(templateParty.id, 'milestone_hit', {
+			filedMinutesAgo: 600
+		});
+		await addParty('lookalike-z', 'someone@sub.e2e.m.todaq.net', {
+			agent: CONTRACTOR_AGENT,
+			primary: CONTRACTOR_PRIMARY
+		});
+		const lookalike = await addEntry('lookalike-z', 'log_work', { filedMinutesAgo: 600 });
+		const { report } = await pass();
+
+		// The fixtures' own real deposits on open and claimed milestones are older still.
+		expect(report).toMatchObject({ sent: [], skipped: [], asked_total: 0 });
+		expect(requests).toEqual([]);
+		expect(await test.db.select().from(refunds)).toEqual([]);
+		for (const id of [supplierLog, contractorClaim, lookalike, 'dep-m2-log-1', 'dep-m3-delivery']) {
+			expect(await refundedAt(id), id).toBeNull();
+		}
+		expect(logged).not.toContain('Test-account refunds');
+	});
+
+	it('the log line still names only counts and reasons', async () => {
+		await testPeople();
+		await addMilestone(MILESTONE, 'claimed');
+		await addEntry(TEST_CONTRACTOR, 'log_work', { filedMinutesAgo: 21 });
+		await addEntry(TEST_CONTRACTOR, 'milestone_hit', { status: 'flagged', filedMinutesAgo: 21 });
+		await addEntry(TEST_CONFIRMER, 'log_work', { filedMinutesAgo: 3 });
+		await pass();
+
+		const lines = logged.split('\n').filter((line) => line.startsWith('Test-account refunds:'));
+		expect(lines).toEqual([
+			'Test-account refunds: 1 sent, 1 skipped (entry_flagged 1), a person needs to look: YES.'
+		]);
 	});
 });
 
