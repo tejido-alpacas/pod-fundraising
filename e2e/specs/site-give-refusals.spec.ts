@@ -85,9 +85,12 @@ async function guarded(page: Page, siteUrl: string): Promise<Posts> {
  * nothing the page does while it settles can take it away before it is sent.
  */
 async function postGiveForm(page: Page, amount: string, action?: string): Promise<Page> {
-	return whereTheAnswerShows(page, async () => {
-		// Written as text: the suite's own code is not checked against a browser's page types.
-		await page.evaluate(`(() => {
+	// The form made here opens a new window, so its answer is that window and nothing else.
+	return whereTheAnswerShows(
+		page,
+		async () => {
+			// Written as text: the suite's own code is not checked against a browser's page types.
+			await page.evaluate(`(() => {
 			const form = document.createElement('form');
 			form.method = 'POST';
 			form.target = '_blank';
@@ -103,7 +106,9 @@ async function postGiveForm(page: Page, amount: string, action?: string): Promis
 			form.submit();
 			form.remove();
 		})()`);
-	});
+		},
+		{ newWindow: true }
+	);
 }
 
 /**
@@ -260,11 +265,16 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 		);
 		// Changed and pressed in one step inside the page, so nothing the page does while it
 		// settles can put the real value back, or take the button away, in between.
-		return whereTheAnswerShows(page, () =>
-			button.evaluate((each, posted) => {
-				each.setAttribute('value', posted);
-				each.click();
-			}, value)
+		// Where the page's own form sends its answer, as the form says it, read now.
+		const newWindow = (await main.locator('form').getAttribute('target')) === '_blank';
+		return whereTheAnswerShows(
+			page,
+			() =>
+				button.evaluate((each, posted) => {
+					each.setAttribute('value', posted);
+					each.click();
+				}, value),
+			{ newWindow }
 		);
 	};
 
