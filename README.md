@@ -90,18 +90,19 @@ Configuration is parsed once at startup against one zod schema in `packages/conf
 values are required. Locally they come from `.env`; deployed, they are Worker secrets. Nothing
 else in the repository reads the environment.
 
-| Name                          | What it is                                                                                                                     |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `SESSION_SECRET`              | Encrypts session cookies. At least 32 characters                                                                               |
-| `CHECKIN_SHARED_SECRET`       | Qatom sends it in the `X-Tejido-Checkin-Secret` header. 32+ printable characters, no spaces                                    |
-| `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`                                           |
-| `QATOM_MCP_URL`               | Tejido's managed MCP server on Qatom                                                                                           |
-| `OIDC_CLIENT_ID`              | **Identity 1.** The sign-in client registration                                                                                |
-| `OIDC_CLIENT_SECRET`          | **Identity 1.** The sign-in client's own secret, issued with its ID. Server-side only                                          |
-| `OIDC_REDIRECT_URI`           | **Identity 1.** The callback is in the App: locally `http://localhost:5174/auth/callback`. Must match the registration exactly |
-| `QATOM_ACCOUNT_CLIENT_ID`     | **Identity 2.** Tejido's merchant account                                                                                      |
-| `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                                               |
-| `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                                                                                           |
+| Name                          | What it is                                                                                                                                       |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `SESSION_SECRET`              | Encrypts session cookies. At least 32 characters                                                                                                 |
+| `CHECKIN_SHARED_SECRET`       | Qatom sends it in the `X-Tejido-Checkin-Secret` header. 32+ printable characters, no spaces                                                      |
+| `PAYMENT_API_URL`             | Origin of the Qatom payment API, no path. Staging is `https://pay.stage.m.todaq.net`                                                             |
+| `QATOM_MCP_URL`               | Tejido's managed MCP server on Qatom                                                                                                             |
+| `OIDC_CLIENT_ID`              | **Identity 1.** The sign-in client registration                                                                                                  |
+| `OIDC_CLIENT_SECRET`          | **Identity 1.** The sign-in client's own secret, issued with its ID. Server-side only                                                            |
+| `OIDC_REDIRECT_URI`           | **Identity 1.** The callback is in the App: locally `http://localhost:5174/auth/callback`. Must match the registration exactly                   |
+| `WEB_OIDC_REDIRECT_URI`       | **Identity 1.** The Campaign Site's own callback, for donors: locally `http://localhost:5173/auth/callback`. Must match the registration exactly |
+| `QATOM_ACCOUNT_CLIENT_ID`     | **Identity 2.** Tejido's merchant account                                                                                                        |
+| `QATOM_ACCOUNT_CLIENT_SECRET` | **Identity 2.** Server-side only                                                                                                                 |
+| `ANTHROPIC_API_KEY`           | Runs the model behind the agent chat                                                                                                             |
 
 The database and the evidence store are not configuration values. They are Cloudflare
 bindings, declared in each app's `wrangler.jsonc`: `DB` is our D1 database and `EVIDENCE` is the
@@ -152,7 +153,7 @@ layout and index page, and the root configuration files.
 
 Both apps are SvelteKit 3 with Svelte 5 and the Cloudflare adapter. Each is deployed as its own
 Worker, and they share everything underneath: the same packages, the same D1 database and the
-same ten configuration values.
+same eleven configuration values.
 
 |       | Campaign Site (`apps/web`)                             | App (`apps/app`)                                    |
 | ----- | ------------------------------------------------------ | --------------------------------------------------- |
@@ -161,8 +162,8 @@ same ten configuration values.
 | Holds | Campaign pages, `POST /api/checkins`, the backend jobs | Invite, chat, upload, sign-in, `POST /api/evidence` |
 
 - **Sign-in lives in the App.** `OIDC_REDIRECT_URI` points at it, and so does the session cookie.
-  The Campaign Site has no sign-in yet; creators will need one, and a cookie set on one host is
-  not sent to the other.
+  Donors sign in on the Campaign Site separately, through `WEB_OIDC_REDIRECT_URI` and its own
+  cookie, because a cookie set on one host is not sent to the other.
 - **Evidence lives in the App.** Photo URLs are on the App's origin, and only the App is bound to
   the R2 bucket behind them.
 - **Code runs in a Worker, not in Node.** `node:crypto` and `Buffer` work (the `nodejs_compat`
@@ -179,7 +180,7 @@ are both called client IDs. Mixing them is the easiest mistake to make here, so 
 apart in configuration, in code and in naming.
 
 **1. A person, signed in with Qatom.** `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
-`OIDC_REDIRECT_URI`. Code:
+`OIDC_REDIRECT_URI` (the App's callback), `WEB_OIDC_REDIRECT_URI` (the Campaign Site's). Code:
 `@tejido/qatom/person`.
 Creators, third parties and confirmers sign in through Qatom's OpenID Connect provider. A sign-in
 returns two wallet hostnames:
