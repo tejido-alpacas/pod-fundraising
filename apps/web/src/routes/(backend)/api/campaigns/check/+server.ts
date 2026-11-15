@@ -3,11 +3,11 @@
  * nothing. Track C owns this file. The request and the answer are in docs/campaign-api.md.
  *
  * `?step=project|funding|milestones|people|schedule` answers that step's problems only, so a
- * form can check one screen at a time. The check itself is #lib/old/builder/check.ts,
+ * form can check one screen at a time. The check itself is #lib/campaign-site/builder/check.ts,
  * unchanged. Nothing here touches the database or calls Qatom.
  */
-import { checkDraft } from '#lib/old/builder/check.ts';
-import { isStep, reviveDraft, stepOf, type FieldErrors } from '#lib/old/builder/draft.ts';
+import { checkDraft } from '#lib/campaign-site/builder/check.ts';
+import { isStep, reviveDraft, stepOf, type FieldErrors } from '#lib/campaign-site/builder/draft.ts';
 import { answer, readJsonObject, refuse } from '#lib/server/backend/campaign-api.ts';
 import type { RequestHandler } from './$types';
 
