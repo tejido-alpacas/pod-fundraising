@@ -9,6 +9,7 @@ import {
 	entrySchema,
 	fundingSummary,
 	fundingTotalsSchema,
+	isGoalMet,
 	partySchema,
 	totalDeposits,
 	type AgentWalletHostname,
@@ -48,6 +49,7 @@ import {
 } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
 import type { Database, Executor } from './client.ts';
+import { getDonationTotals } from './donations.ts';
 import {
 	campaignFunding,
 	campaigns,
@@ -86,14 +88,27 @@ export async function getCampaign(db: Executor, id: string): Promise<Campaign | 
 // --- Funding ---
 
 /**
- * What a page may show of a campaign's funding: its goal, and the totals of the last read of
- * its donation ledger, or "not known" with the reason. Totals only; nothing here, and nothing
- * stored, identifies a donor. This reads our database and never calls Qatom.
+ * What a page may show of a campaign's funding: its goal and what has been given, or "not
+ * known" with the reason. Totals only; nothing here, and nothing stored, identifies a donor.
+ * This reads our database and never calls Qatom.
+ *
+ * A campaign with recorded donations (donations.ts) is summed from them: campaigns share
+ * Tejido's donation items, and each recorded donation names its campaign. A campaign with
+ * none falls back to the totals of the last read of its own donation ledger, as before.
  */
 export async function getFundingSummary(
 	db: Executor,
 	campaign: Pick<Campaign, 'id' | 'fundingGoal' | 'donationCommodityId'>
 ): Promise<FundingSummary> {
+	const recorded = await getDonationTotals(db, campaign.id);
+	if (recorded) {
+		return {
+			state: 'known',
+			goal: campaign.fundingGoal,
+			...recorded,
+			goalMet: isGoalMet(campaign.fundingGoal, recorded.raised)
+		};
+	}
 	const [row] = await db
 		.select({
 			raised: campaignFunding.raised,

@@ -189,6 +189,36 @@ export const campaignFunding = sqliteTable('campaign_funding', {
 });
 
 // ---------------------------------------------------------------------------
+// Donations (one row per paid donation Qatom told us about; not a contract record)
+// ---------------------------------------------------------------------------
+
+/**
+ * One donation, written when Qatom calls POST /api/donations/<amount> after a donor has paid
+ * for one of Tejido's shared donation items. A campaign's funding is the sum of its rows.
+ *
+ * Nothing here can identify a donor: no name, no email, no wallet address, and no Qatom
+ * transaction id. `paymentDigest` is the SHA-256 of the transaction id Qatom sent with the
+ * call, kept only so the same payment is never counted twice; the id itself cannot be read
+ * back from it. It is null when Qatom sent no transaction id.
+ */
+export const donations = sqliteTable(
+	'donations',
+	{
+		id: text('id').primaryKey(),
+		campaignId: text('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		// A whole number of Qatom's smallest unit. See money.ts in @tejido/contracts.
+		amount: integer('amount').notNull(),
+		/** One payment is one donation: a second call with the same digest writes nothing. */
+		paymentDigest: text('payment_digest').unique(),
+		/** When Qatom's call reached us. Not when the donor paid. */
+		receivedAt: text('received_at').notNull()
+	},
+	(table) => [index('donations_campaign_idx').on(table.campaignId)]
+);
+
+// ---------------------------------------------------------------------------
 // Deposit refunds (bookkeeping for transfers; not contract records)
 // ---------------------------------------------------------------------------
 

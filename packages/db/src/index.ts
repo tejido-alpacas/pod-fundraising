@@ -14,6 +14,7 @@ export {
 	campaignFunding,
 	campaigns,
 	deposits,
+	donations,
 	entries,
 	evidenceFiles,
 	itemProvisioning,
@@ -29,6 +30,8 @@ export {
 } from './schema.ts';
 export * from './records.ts';
 export * from './campaign-builder.ts';
+// Paid donations Qatom told us about, and what they add up to per campaign.
+export * from './donations.ts';
 // The rules of a check-in. Here, not in an app, because both apps apply them.
 export * from './checkin-rules.ts';
 // What is due and overdue, and the reminders recorded for it. Used by the cadence scheduler.
