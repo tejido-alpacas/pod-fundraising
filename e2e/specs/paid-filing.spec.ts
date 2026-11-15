@@ -39,6 +39,7 @@ import type { Page } from '@playwright/test';
 import { BUILD_MILESTONE, draftReport, draftWorkLog } from '../lib/chat.ts';
 import { fileFromReview } from '../lib/filing.ts';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
+import { expectMilestoneStatus, milestoneStatus, openMilestone } from '../lib/milestone-page.ts';
 import {
 	DEPOSIT_REFUNDED,
 	readPaidEntries,
@@ -72,17 +73,9 @@ function paidStoryOnly(project: string, paid: boolean, retry: number): void {
 	expect(retry, 'A paid step must never be retried.').toBe(0);
 }
 
-/** A donor opens the milestone's own page from the campaign's list of milestones. */
-async function openBuildMilestone(page: Page, siteUrl: string, campaignId: string): Promise<void> {
-	await page.goto(`${siteUrl}/campaigns/${campaignId}/milestones`);
-	await page
-		.getByRole('main')
-		.locator(`a[href^="/campaigns/${campaignId}/milestones/"]`)
-		.filter({ hasText: BUILD_MILESTONE })
-		.first()
-		.click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(BUILD_MILESTONE);
-}
+/** A donor opens the build milestone's own page from the campaign's list of milestones. */
+const openBuildMilestone = (page: Page, siteUrl: string, campaignId: string): Promise<void> =>
+	openMilestone(page, siteUrl, campaignId, BUILD_MILESTONE);
 
 /** How long each of the two waits after the filings may last. */
 const WAIT_MS = 240_000;
@@ -194,7 +187,7 @@ test.describe('the three filings', () => {
 
 		// Donors now see the milestone as reported done, and not yet confirmed.
 		await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
-		await expect(page.getByText('Claimed complete', { exact: true }).first()).toBeVisible();
+		await expectMilestoneStatus(page, 'Claimed complete');
 		await waypoint(page, 'milestone-claimed');
 	});
 
@@ -211,13 +204,14 @@ test.describe('the three filings', () => {
 			// Never confirm a milestone nobody claimed: the claim may have been left out (a wallet
 			// that is short). Look at the public page first, before anything can be paid.
 			await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
-			const claimed = await page.getByText('Claimed complete', { exact: true }).count();
+			const status = await milestoneStatus(page);
+			const claimed = status === 'Claimed complete';
 			test.skip(
-				claimed === 0 ||
+				!claimed ||
 					!readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'milestone claim'),
 				'Not filed, and nothing was paid: ' +
-					(claimed === 0
-						? 'the milestone’s public page does not say "Claimed complete"'
+					(!claimed
+						? `the milestone’s public page says "${status}", not "Claimed complete"`
 						: 'this run did not see its own claim on the public timeline') +
 					', so there is nothing to confirm.'
 			);
@@ -246,8 +240,7 @@ test.describe('the three filings', () => {
 
 			// Donors now see the milestone as confirmed.
 			await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
-			await expect(page.getByText('Confirmed', { exact: true }).first()).toBeVisible();
-			await expect(page.getByText('Claimed complete', { exact: true })).toHaveCount(0);
+			await expectMilestoneStatus(page, 'Confirmed');
 			await waypoint(page, 'milestone-confirmed');
 		});
 	});
