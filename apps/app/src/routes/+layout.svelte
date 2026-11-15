@@ -16,15 +16,17 @@
 	const links = $derived.by(() => {
 		const party = data.nav?.party;
 		if (!party) return [];
-		const list = [
+		// "Fix reports" is always here; the count shows only when there is something to fix.
+		return [
 			{ href: '/', label: 'Home' },
 			{ href: '/chat', label: 'File a report' },
-			{ href: '/upload', label: 'Upload' }
+			{ href: '/upload', label: 'Upload' },
+			{
+				href: '/fix',
+				label:
+					party.incompleteReports > 0 ? `Fix reports (${party.incompleteReports})` : 'Fix reports'
+			}
 		];
-		if (party.incompleteReports > 0) {
-			list.push({ href: '/fix', label: `Fix reports (${party.incompleteReports})` });
-		}
-		return list;
 	});
 </script>
 

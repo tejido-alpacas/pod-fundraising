@@ -149,3 +149,46 @@
 		padding-inline: 18px;
 	}
 }
+
+/*
+	The phone's tab bar, drawn as the first site's: a rounded dock floating just above the bottom
+	of the screen, nearly solid white so page text never shows through, with a soft deep shadow.
+	The current tab is a soft blue pill with darker blue text, not a line along the top.
+	Sizes and colours are the first site's own (.tabbar in the Campaign Site's tejido.css).
+*/
+.tj-tabbar {
+	gap: 4px;
+	margin: 0 10px calc(8px + env(safe-area-inset-bottom, 0px));
+	padding: 6px;
+	border: 1px solid rgba(255, 255, 255, 0.75);
+	border-radius: 16px;
+	background: rgba(255, 255, 255, 0.97);
+	-webkit-backdrop-filter: blur(20px) saturate(1.6);
+	backdrop-filter: blur(20px) saturate(1.6);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.9),
+		0 14px 40px -10px rgba(11, 40, 90, 0.35);
+}
+.tj-tabbar a {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+	gap: 3px;
+	min-height: 54px;
+	padding: 6px 2px;
+	border-radius: 12px;
+	font: 500 11.5px/1.2 var(--font-sans);
+}
+.tj-tabbar a span {
+	max-width: 100%;
+	overflow: hidden;
+	white-space: nowrap;
+	text-overflow: ellipsis;
+}
+.tj-tabbar a[aria-current='page'] {
+	color: var(--link);
+	font-weight: 600;
+	background: rgba(1, 115, 230, 0.12);
+	box-shadow: none;
+}
