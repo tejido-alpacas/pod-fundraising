@@ -10,7 +10,7 @@ Cron Trigger in `apps/web/wrangler.jsonc`, `triggers.crons`) calls the `schedule
 `worker.ts`, which hands the Worker's own request handler a `POST /api/reconcile` with the
 shared-secret header. No network hop, and the same route a person's call goes through.
 
-- Reconcile, and then two more things. `/api/funding` and `/api/schedule` are not on the timer;
+- Reconcile, and then three more things. `/api/funding` and `/api/schedule` are not on the timer;
   adding one is one more call in `worker.ts`. `/api/refunds` moves money and must never be put
   there: the product's refunds go to primary wallets and only when a person asks.
 - The one more thing is for the end-to-end test accounts only (`CLAUDE.md`, "Qatom": the one
@@ -24,6 +24,18 @@ shared-secret header. No network hop, and the same route a person's call goes th
   the `refundTestAccountsOnTimer` call in `worker.ts`. A pass that had something to consider
   writes one line to the Worker's logs, such as `Test-account refunds: 0 sent, 3 skipped
 (item_twin_balance_too_low 3), a person needs to look: no.` Counts and reason names only.
+- And one more, under the same exception: a donation the paid tests make is undone. After the
+  refunds the timer asks for `POST /api/test-donation-undos`. A donation to a campaign whose
+  creator's email is at the test inbox domain, recorded in the last hour, is tied to its
+  payment on the donation item's ledger; if that payment came from a wallet our own database
+  has registered to a test person (and to nobody else), the amount is sent back to that
+  wallet out of the donation item's own twin, once, and the donation stops counting in the
+  campaign's total (its row stays; `donation_undos` records the undo). Exactly one payment
+  must fit, and it must fit no other donation on any campaign; otherwise nothing is sent. At
+  most 10.00 a pass, so only the 1 and 10 items can be undone. A campaign the donation moved
+  to `funded` stays `funded`. The rules are in `test-donation-undos.ts`. To turn it off, remove
+  the `undoTestDonationsOnTimer` call in `worker.ts`. Its log line reads, for example,
+  `Test-donation undos: 1 sent back, 0 skipped, a person needs to look: no.`
 - Last, the timer cleans up after the automatic tests: `POST /api/test-campaign-cleanup`
   **deletes** the campaigns the paid end-to-end tests created and are finished with (the
   owner, 15 November 2026). See "Test-campaign cleanup" below. To turn it off, remove the
@@ -55,7 +67,8 @@ tests creates a campaign of its own; this removes them. The rule is the function
   listed, is refused by the rule, and the delete itself throws on its id.
 - **It is at least 2 hours old** (`MIN_AGE_MS`).
 - **Its money is finished**: no deposit waits for a refund, no refund is `started` or
-  `unknown`, and it has no donation. Otherwise it is left alone and counted with a reason
+  `unknown`, and every donation on it has been undone (an undo that is `started` or
+  `unknown` is not finished). Otherwise it is left alone and counted with a reason
   name. At 24 hours (`FORCE_AGE_MS`) it is deleted anyway and what was left is counted.
 
 At most 5 are deleted in a pass (`PASS_LIMIT`), oldest first.
@@ -126,7 +139,8 @@ write one row in `donations`. Pages read the sum with `getFundingSummary` from `
 - One payment is counted once. Qatom sends `X-Qatom-Transaction-Id` with a dispatch; only its
   SHA-256 is kept, to recognise a repeat. A call without that header is still saved, and
   cannot be recognised if repeated.
-- No donor's name, email, wallet or transaction id is stored.
+- No donor's name, email, wallet or transaction id is stored. (For a test donation that was
+  undone, `donation_undos` keeps the ledger payment's id and the undo's state; no wallet.)
 - A campaign in `funding` with a `fundingGoal` moves to `funded` in the write that brings its
   donations to the goal. Nothing else is triggered, and no status moves backwards.
 - It calls nothing in Qatom and moves no money. Not yet called by real Qatom.
@@ -135,8 +149,8 @@ write one row in `donations`. Pages read the sum with `getFundingSummary` from `
 
 ### Starting a donation (`donation-items.ts`)
 
-The Give page (`/give/<campaign>`, Track A) offers amounts and sends the donor to Qatom's
-checkout page. Nothing names the donation items in our configuration or database:
+The Give page (`/give/<campaign>`, Track A) offers amounts and opens Qatom's checkout page
+for the chosen one in a new window, because Qatom's page does not bring the donor back. Nothing names the donation items in our configuration or database:
 `listDonationOptions` asks Qatom for the merchant account's own items and keeps those that are
 on sale, whose external endpoint is this site's `/api/donations/<amount>` over https, and whose
 price equals that amount. This site's origin is the origin of `WEB_OIDC_REDIRECT_URI`.

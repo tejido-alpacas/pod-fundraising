@@ -5,7 +5,8 @@ import { describe, expect, it } from 'vitest';
 import {
 	cleanUpTestCampaignsOnTimer,
 	reconcileOnTimer,
-	refundTestAccountsOnTimer
+	refundTestAccountsOnTimer,
+	undoTestDonationsOnTimer
 } from './reconcile-timer.ts';
 
 const SECRET = 'test-checkin-secret-test-checkin-secret';
@@ -105,6 +106,45 @@ describe('refundTestAccountsOnTimer', () => {
 			const message = await failure(result);
 			expect(message).toBe(
 				`Test-account refunds on the timer failed: POST /api/test-account-refunds answered ${status}.`
+			);
+			expect(message).not.toContain(SECRET);
+		}
+	});
+});
+
+describe('undoTestDonationsOnTimer', () => {
+	it('asks for POST /api/test-donation-undos once, from the site itself, with the shared secret', async () => {
+		const requests: Request[] = [];
+		const status = await undoTestDonationsOnTimer({
+			respond: (request) => {
+				requests.push(request);
+				return Promise.resolve(Response.json({ undone: [] }));
+			},
+			origin: ORIGIN,
+			secret: SECRET
+		});
+
+		expect(status).toBe(200);
+		expect(requests).toHaveLength(1);
+		const request = requests[0]!;
+		expect(request.method).toBe('POST');
+		expect(request.url).toBe(`${ORIGIN}/api/test-donation-undos`);
+		expect(request.headers.get(CHECKIN_SECRET_HEADER)).toBe(SECRET);
+		expect(request.headers.get('origin')).toBe(ORIGIN);
+		expect(request.body).toBeNull();
+	});
+
+	it('fails with the status only when the route refuses or breaks', async () => {
+		for (const status of [401, 500]) {
+			const message = await failure(
+				undoTestDonationsOnTimer({
+					respond: () => Promise.resolve(new Response(`body that names ${SECRET}`, { status })),
+					origin: ORIGIN,
+					secret: SECRET
+				})
+			);
+			expect(message).toBe(
+				`Test-donation undos on the timer failed: POST /api/test-donation-undos answered ${status}.`
 			);
 			expect(message).not.toContain(SECRET);
 		}

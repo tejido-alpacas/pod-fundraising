@@ -47,6 +47,7 @@ import {
 	campaigns,
 	deposits,
 	donations,
+	donationUndos,
 	entries,
 	evidenceFiles,
 	itemProvisioning,
@@ -74,6 +75,8 @@ const partiesOf = (campaignId: string) =>
 	sql`(select ${parties.id} from ${parties} where ${parties.campaignId} = ${campaignId})`;
 const entriesOf = (campaignId: string) =>
 	sql`(select ${entries.id} from ${entries} where ${entries.campaignId} = ${campaignId})`;
+const donationsOf = (campaignId: string) =>
+	sql`(select ${donations.id} from ${donations} where ${donations.campaignId} = ${campaignId})`;
 const refundsOf = (campaignId: string) =>
 	sql`(select ${refunds.id} from ${refunds} where ${refunds.campaignId} = ${campaignId})`;
 
@@ -110,6 +113,10 @@ export const CAMPAIGN_OWNED_TABLES: readonly OwnedTable[] = [
 	{ table: milestones, ownedBy: (id) => eq(milestones.campaignId, id) },
 	{ table: parties, ownedBy: (id) => eq(parties.campaignId, id) },
 	{ table: campaignFunding, ownedBy: (id) => eq(campaignFunding.campaignId, id) },
+	{
+		table: donationUndos,
+		ownedBy: (id) => sql`${donationUndos.donationId} in ${donationsOf(id)}`
+	},
 	{ table: donations, ownedBy: (id) => eq(donations.campaignId, id) },
 	{ table: itemProvisioning, ownedBy: (id) => eq(itemProvisioning.campaignId, id) },
 	{ table: workLogSchedules, ownedBy: (id) => eq(workLogSchedules.campaignId, id) },
@@ -131,8 +138,12 @@ export interface CleanupCandidate {
 	refundsInProgress: number;
 	/** Refunds whose transfer got no answer: the money may or may not have moved. */
 	refundsOutcomeUnknown: number;
-	/** Donations recorded for the campaign. */
-	donations: number;
+	/** Donations whose money has not been sent back: never tried, or tried and refused. */
+	donationsNotUndone: number;
+	/** Donations whose undo was started and has no recorded outcome. */
+	donationUndosInProgress: number;
+	/** Donations whose undo got no answer: the money may or may not have moved. */
+	donationUndosOutcomeUnknown: number;
 }
 
 /**
@@ -187,11 +198,17 @@ export async function listCleanupCandidates(
 			.where(and(listed, inArray(refunds.status, ['started', 'unknown'])))
 			.groupBy(refunds.campaignId, refunds.status),
 		db
-			.select({ campaignId: donations.campaignId, n: sql<number>`count(*)` })
+			.select({
+				campaignId: donations.campaignId,
+				// No undo on record reads as null: not undone.
+				undo: donationUndos.status,
+				n: sql<number>`count(*)`
+			})
 			.from(donations)
 			.innerJoin(campaigns, eq(campaigns.id, donations.campaignId))
+			.leftJoin(donationUndos, eq(donationUndos.donationId, donations.id))
 			.where(listed)
-			.groupBy(donations.campaignId)
+			.groupBy(donations.campaignId, donationUndos.status)
 	]);
 
 	const candidates = new Map<string, CleanupCandidate>(
@@ -203,7 +220,9 @@ export async function listCleanupCandidates(
 				depositsNotRefunded: 0,
 				refundsInProgress: 0,
 				refundsOutcomeUnknown: 0,
-				donations: 0
+				donationsNotUndone: 0,
+				donationUndosInProgress: 0,
+				donationUndosOutcomeUnknown: 0
 			}
 		])
 	);
@@ -220,9 +239,14 @@ export async function listCleanupCandidates(
 		if (status === 'unknown') candidate.refundsOutcomeUnknown = n;
 		else candidate.refundsInProgress = n;
 	}
-	for (const { campaignId, n } of given) {
+	for (const { campaignId, undo, n } of given) {
 		const candidate = candidates.get(campaignId);
-		if (candidate) candidate.donations = n;
+		if (!candidate) continue;
+		// Only an undo recorded as `sent` is finished. Anything else is counted.
+		if (undo === 'sent') continue;
+		if (undo === 'started') candidate.donationUndosInProgress += n;
+		else if (undo === 'unknown') candidate.donationUndosOutcomeUnknown += n;
+		else candidate.donationsNotUndone += n;
 	}
 	return [...candidates.values()];
 }

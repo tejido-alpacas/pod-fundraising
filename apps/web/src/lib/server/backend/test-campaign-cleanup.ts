@@ -19,7 +19,8 @@
  *   3. IT IS OLD ENOUGH: created at least MIN_AGE_MS ago, so the run that made it and the
  *      refunds of its deposits are over.
  *   4. ITS MONEY IS FINISHED: no deposit waits for a refund, no refund is `started` or
- *      `unknown`, and it has no donation. If not, the campaign is LEFT ALONE and counted
+ *      `unknown`, and every donation on it has been undone (its undo is `sent`; one that is
+ *      `started` or `unknown` is not finished, like a refund). If not, the campaign is LEFT ALONE and counted
  *      with the reason, so the refund passes can still do their work and a person can look.
  *      Once it is FORCE_AGE_MS old it is deleted anyway, and what was left unrefunded is
  *      counted.
@@ -72,6 +73,10 @@ export type CleanupLeftReason =
 	| 'refund_in_progress'
 	/** A deposit has not been refunded. Waits until FORCE_AGE_MS. */
 	| 'deposit_not_refunded'
+	/** The undoing of a donation got no answer. Waits until FORCE_AGE_MS. */
+	| 'donation_undo_outcome_unknown'
+	/** The undoing of a donation was started and has no recorded outcome. Waits until FORCE_AGE_MS. */
+	| 'donation_undo_in_progress'
 	/** It has a donation that has not been undone. Waits until FORCE_AGE_MS. */
 	| 'donation_not_undone'
 	/** This pass has deleted as many as one pass may. Waits for the next pass. */
@@ -115,16 +120,15 @@ export function decide(campaign: CleanupCandidate, now: Date): CleanupDecision {
 	if (!(age >= MIN_AGE_MS)) return leave('not_old_enough');
 
 	// 4. Its money is finished, or it is so old that it goes anyway.
-	const waitingFor: CleanupLeftReason | null =
-		campaign.refundsOutcomeUnknown > 0
-			? 'refund_outcome_unknown'
-			: campaign.refundsInProgress > 0
-				? 'refund_in_progress'
-				: campaign.depositsNotRefunded > 0
-					? 'deposit_not_refunded'
-					: campaign.donations > 0
-						? 'donation_not_undone'
-						: null;
+	const unfinished: [number, CleanupLeftReason][] = [
+		[campaign.refundsOutcomeUnknown, 'refund_outcome_unknown'],
+		[campaign.donationUndosOutcomeUnknown, 'donation_undo_outcome_unknown'],
+		[campaign.refundsInProgress, 'refund_in_progress'],
+		[campaign.donationUndosInProgress, 'donation_undo_in_progress'],
+		[campaign.depositsNotRefunded, 'deposit_not_refunded'],
+		[campaign.donationsNotUndone, 'donation_not_undone']
+	];
+	const waitingFor = unfinished.find(([count]) => count > 0)?.[1] ?? null;
 	if (waitingFor === null) return { delete: true, moneyNotFinished: false };
 	if (age >= FORCE_AGE_MS) return { delete: true, moneyNotFinished: true };
 	return leave(waitingFor);
@@ -136,7 +140,7 @@ export interface CleanupDeleted {
 	money_not_finished: boolean;
 	/** Deposits that had not been refunded when it was deleted. */
 	deposits_not_refunded: number;
-	/** Donations that had not been undone when it was deleted. */
+	/** Donations not recorded as sent back when it was deleted, whatever was tried. */
 	donations_not_undone: number;
 	/** Files whose bytes are still in the evidence store, named by nothing any more. */
 	evidence_files_left_in_store: number;
@@ -219,7 +223,10 @@ export async function cleanUpTestCampaigns(
 			campaign_id: campaign.id,
 			money_not_finished: decision.moneyNotFinished,
 			deposits_not_refunded: campaign.depositsNotRefunded,
-			donations_not_undone: campaign.donations,
+			donations_not_undone:
+				campaign.donationsNotUndone +
+				campaign.donationUndosInProgress +
+				campaign.donationUndosOutcomeUnknown,
 			evidence_files_left_in_store: outcome.evidenceRowsDeleted,
 			evidence_files_handed_over: outcome.evidenceRowsHandedOver
 		});

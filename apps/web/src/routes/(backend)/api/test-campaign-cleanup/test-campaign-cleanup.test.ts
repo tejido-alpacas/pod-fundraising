@@ -13,6 +13,7 @@ import {
 	campaigns,
 	deposits,
 	donations,
+	donationUndos,
 	E2E_CAMPAIGN_ID,
 	entries,
 	evidenceFiles,
@@ -94,8 +95,8 @@ interface Made {
 	refunded?: boolean;
 	/** The status of the refund on record, when `refunded` is true. */
 	refundStatus?: 'sent' | 'started' | 'unknown';
-	/** Adds one donation. */
-	donation?: boolean;
+	/** Adds one donation: with no undo on record, or with an undo in this status. */
+	donation?: 'not_undone' | 'sent' | 'started' | 'unknown' | 'failed';
 	/** False: the contractor uploads no picture of their own. */
 	ownPicture?: boolean;
 	/** True: this campaign's contractor is the first uploader of the public picture. */
@@ -271,6 +272,17 @@ async function makeCampaign(id: string, made: Made) {
 			paymentDigest: null,
 			receivedAt: createdAt
 		});
+		if (made.donation !== 'not_undone') {
+			await db.insert(donationUndos).values({
+				donationId: `${id}-don`,
+				twistId: `41undo-${id}`,
+				amount: 1000,
+				status: made.donation,
+				statusReason: null,
+				startedAt: createdAt,
+				settledAt: made.donation === 'sent' ? createdAt : null
+			});
+		}
 	}
 }
 
@@ -338,11 +350,9 @@ describe('POST /api/test-campaign-cleanup', () => {
 	it('deletes a settled test campaign that is old enough, with everything of its own and nothing else', async () => {
 		await fixedCampaign(30 * 24 * HOUR, { ownsPublicPicture: true });
 		const before = await snapshot();
-		await makeCampaign('run-1', { age: 3 * HOUR });
-		// It really did have a row in every table. (All but `donations`: a campaign with a
-		// donation is not settled. The 24-hour test below deletes one that has.)
+		await makeCampaign('run-1', { age: 3 * HOUR, donation: 'sent' });
+		// It really did have a row in every table, an undone donation among them.
 		for (const [name, rows] of Object.entries(await snapshot())) {
-			if (name === 'donations') continue;
 			expect(rows.length, name).toBeGreaterThan(before[name]!.length);
 		}
 
@@ -451,7 +461,10 @@ describe('POST /api/test-campaign-cleanup', () => {
 		await makeCampaign('unrefunded', { age: 3 * HOUR, refunded: false });
 		await makeCampaign('started', { age: 3 * HOUR, refundStatus: 'started' });
 		await makeCampaign('unknown', { age: 3 * HOUR, refundStatus: 'unknown' });
-		await makeCampaign('donated', { age: 3 * HOUR, donation: true });
+		await makeCampaign('donated', { age: 3 * HOUR, donation: 'not_undone' });
+		await makeCampaign('undo-refused', { age: 3 * HOUR, donation: 'failed' });
+		await makeCampaign('undo-started', { age: 3 * HOUR, donation: 'started' });
+		await makeCampaign('undo-unknown', { age: 3 * HOUR, donation: 'unknown' });
 		const before = await snapshot();
 
 		const { report } = await pass();
@@ -461,19 +474,22 @@ describe('POST /api/test-campaign-cleanup', () => {
 			unrefunded: 'deposit_not_refunded',
 			started: 'refund_in_progress',
 			unknown: 'refund_outcome_unknown',
-			donated: 'donation_not_undone'
+			donated: 'donation_not_undone',
+			'undo-refused': 'donation_not_undone',
+			'undo-started': 'donation_undo_in_progress',
+			'undo-unknown': 'donation_undo_outcome_unknown'
 		});
 		// These clear by themselves, or at 24 hours: nobody is asked to look.
 		expect(report.needs_a_person).toBe(false);
 		expect(await snapshot()).toEqual(before);
 		expect(logged).toBe(
-			'Test-campaign cleanup: 0 deleted, 0 of them with money not finished (0 deposits not refunded, 0 donations not undone), 4 left (deposit_not_refunded 1, donation_not_undone 1, refund_in_progress 1, refund_outcome_unknown 1), evidence files left in the store: 0, a person needs to look: no.\n'
+			'Test-campaign cleanup: 0 deleted, 0 of them with money not finished (0 deposits not refunded, 0 donations not undone), 7 left (deposit_not_refunded 1, donation_not_undone 2, donation_undo_in_progress 1, donation_undo_outcome_unknown 1, refund_in_progress 1, refund_outcome_unknown 1), evidence files left in the store: 0, a person needs to look: no.\n'
 		);
 	});
 
 	it('deletes a campaign whose money is not finished once it is 24 hours old, and counts what was left', async () => {
 		const before = await snapshot();
-		await makeCampaign('donated', { age: FORCE_AGE_MS + 2 * 60_000, donation: true });
+		await makeCampaign('donated', { age: FORCE_AGE_MS + 2 * 60_000, donation: 'not_undone' });
 		await makeCampaign('unrefunded', { age: FORCE_AGE_MS + 60_000, refunded: false });
 		expect(await rowsMentioning('donated-don')).toBe(1);
 		await makeCampaign('almost', { age: FORCE_AGE_MS - 60_000, refunded: false });

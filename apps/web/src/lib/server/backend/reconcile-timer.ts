@@ -65,7 +65,28 @@ export async function refundTestAccountsOnTimer(options: ReconcileOnTimerOptions
 }
 
 /**
- * A further thing the timer does: one pass that DELETES the campaigns the automatic
+ * The third thing the timer does: one pass that undoes the donations the automatic paid
+ * tests made (`POST /api/test-donation-undos`), FOR THE END-TO-END TEST PEOPLE ONLY, asked
+ * for in the same way. Only the status of the answer is looked at.
+ */
+export async function undoTestDonationsOnTimer(options: ReconcileOnTimerOptions): Promise<number> {
+	const request = new Request(new URL('/api/test-donation-undos', options.origin), {
+		method: 'POST',
+		headers: { origin: options.origin, [CHECKIN_SECRET_HEADER]: options.secret }
+	});
+
+	const response = await options.respond(request);
+	await response.body?.cancel();
+	if (!response.ok) {
+		throw new Error(
+			`Test-donation undos on the timer failed: POST /api/test-donation-undos answered ${response.status}.`
+		);
+	}
+	return response.status;
+}
+
+/**
+ * The last thing the timer does: one pass that DELETES the campaigns the automatic
  * end-to-end tests created and are finished with (`POST /api/test-campaign-cleanup`), asked
  * for in the same way, with no body: the caller names nothing. Only the status of the answer
  * is looked at.

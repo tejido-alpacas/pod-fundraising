@@ -6,7 +6,8 @@ import { listDonationOptions, startDonation } from '#lib/server/backend/donation
 import type { Actions, PageServerLoad } from './$types';
 
 // Giving to one campaign: the donor picks one of the amounts Tejido's donation items sell, and
-// is sent to Qatom's checkout page for it. Nothing is paid, and nothing is recorded, on this
+// Qatom's checkout page for it opens in a new window (the page's form asks for one, because
+// Qatom's page does not bring the donor back). Nothing is paid, and nothing is recorded, on this
 // page: Qatom tells us afterwards, at POST /api/donations/<amount>.
 //
 // The amounts come from Qatom each time the page is opened, through the merchant account. If
@@ -59,7 +60,10 @@ export const load = (async ({ params, locals }) => {
 }) satisfies PageServerLoad;
 
 export const actions = {
-	/** Asks Qatom for a checkout link for the chosen amount and sends the donor's browser to it. */
+	/**
+	 * Asks Qatom for a checkout link for the chosen amount and redirects to it. The page's form
+	 * opens this answer in a new window, so a refusal is drawn there too.
+	 */
 	default: async ({ request, params, locals }) => {
 		const { db, config, qatom } = locals.ctx;
 
