@@ -39,6 +39,7 @@ import type { Page } from '@playwright/test';
 import { BUILD_MILESTONE, draftReport, draftWorkLog } from '../lib/chat.ts';
 import { fileFromReview } from '../lib/filing.ts';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
+import { expectMilestoneStatus, milestoneStatus, openMilestone } from '../lib/milestone-page.ts';
 import {
 	DEPOSIT_REFUNDED,
 	readPaidEntries,
@@ -72,17 +73,9 @@ function paidStoryOnly(project: string, paid: boolean, retry: number): void {
 	expect(retry, 'A paid step must never be retried.').toBe(0);
 }
 
-/** A donor opens the milestone's own page from the campaign's list of milestones. */
-async function openBuildMilestone(page: Page, siteUrl: string, campaignId: string): Promise<void> {
-	await page.goto(`${siteUrl}/campaigns/${campaignId}/milestones`);
-	await page
-		.getByRole('main')
-		.locator(`a[href^="/campaigns/${campaignId}/milestones/"]`)
-		.filter({ hasText: BUILD_MILESTONE })
-		.first()
-		.click();
-	await expect(page.getByRole('heading', { level: 1 })).toHaveText(BUILD_MILESTONE);
-}
+/** A donor opens the build milestone's own page from the campaign's list of milestones. */
+const openBuildMilestone = (page: Page, siteUrl: string, campaignId: string): Promise<void> =>
+	openMilestone(page, siteUrl, campaignId, BUILD_MILESTONE);
 
 /** How long each of the two waits after the filings may last. */
 const WAIT_MS = 240_000;
@@ -133,8 +126,8 @@ function filedInThisRun(entries: PaidEntry[]): string {
 }
 
 test.describe('the three filings', () => {
-	// In order, and the rest are left out once one fails: a claim is not filed after a failed
-	// work log, and nothing is confirmed that was not claimed.
+	// In order, and the rest are left out once one fails. A step that is left out without
+	// failing (a wallet that is short) leaves out the ones after it too: each looks first.
 	test.describe.configure({ mode: 'serial' });
 
 	test('files one work log for a real deposit and finds it on the timeline', async ({
@@ -147,7 +140,7 @@ test.describe('the three filings', () => {
 		const ref = reference('log');
 		const card = await draftWorkLog(page, cfg, ref, waypoint);
 		await waypoint(page, 'review-before-filing');
-		const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+		const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 			what: 'work log',
 			who: 'contractor',
 			deposit: '0.10'
@@ -161,6 +154,14 @@ test.describe('the three filings', () => {
 		waypoint
 	}, testInfo) => {
 		paidStoryOnly(testInfo.project.name, cfg.paid, testInfo.retry);
+
+		// A step left out (a wallet that is short) does not stop the ones after it, so each step
+		// first sees for itself that the one before it happened. Nothing is paid otherwise.
+		test.skip(
+			!readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'work log'),
+			'Not filed, and nothing was paid: this run did not see its work log on the public ' +
+				'timeline, so the story stops here and no milestone is claimed.'
+		);
 
 		const ref = reference('claim');
 		const card = await draftReport(
@@ -177,7 +178,7 @@ test.describe('the three filings', () => {
 			waypoint
 		);
 		await waypoint(page, 'review-before-filing');
-		const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+		const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 			what: 'milestone claim',
 			who: 'contractor',
 			deposit: '1.00'
@@ -186,7 +187,7 @@ test.describe('the three filings', () => {
 
 		// Donors now see the milestone as reported done, and not yet confirmed.
 		await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
-		await expect(page.getByText('Claimed complete', { exact: true }).first()).toBeVisible();
+		await expectMilestoneStatus(page, 'Claimed complete');
 		await waypoint(page, 'milestone-claimed');
 	});
 
@@ -199,6 +200,21 @@ test.describe('the three filings', () => {
 			waypoint
 		}, testInfo) => {
 			paidStoryOnly(testInfo.project.name, cfg.paid, testInfo.retry);
+
+			// Never confirm a milestone nobody claimed: the claim may have been left out (a wallet
+			// that is short). Look at the public page first, before anything can be paid.
+			await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
+			const status = await milestoneStatus(page);
+			const claimed = status === 'Claimed complete';
+			test.skip(
+				!claimed ||
+					!readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'milestone claim'),
+				'Not filed, and nothing was paid: ' +
+					(!claimed
+						? `the milestone’s public page says "${status}", not "Claimed complete"`
+						: 'this run did not see its own claim on the public timeline') +
+					', so there is nothing to confirm.'
+			);
 
 			const ref = reference('confirm');
 			const card = await draftReport(
@@ -215,7 +231,7 @@ test.describe('the three filings', () => {
 				waypoint
 			);
 			await waypoint(page, 'review-before-filing');
-			const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+			const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 				what: 'confirmation',
 				who: 'confirmer',
 				deposit: '1.00'
@@ -224,8 +240,7 @@ test.describe('the three filings', () => {
 
 			// Donors now see the milestone as confirmed.
 			await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
-			await expect(page.getByText('Confirmed', { exact: true }).first()).toBeVisible();
-			await expect(page.getByText('Claimed complete', { exact: true })).toHaveCount(0);
+			await expectMilestoneStatus(page, 'Confirmed');
 			await waypoint(page, 'milestone-confirmed');
 		});
 	});

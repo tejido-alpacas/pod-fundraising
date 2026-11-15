@@ -173,16 +173,28 @@ const NEW_STRINGS = {
 		'Doar {amount} {unit}'
 	],
 	give_lead: [
-		'Pagas en la página de pago de Qatom. Aquí no se cobra nada.',
-		'You pay on Qatom’s checkout page. Nothing is charged here.',
-		'Vous payez sur la page de paiement de Qatom. Rien n’est débité ici.',
-		'Você paga na página de pagamento do Qatom. Nada é cobrado aqui.'
+		'El pago se abre en una ventana nueva, en la página de pago de Qatom. Aquí no se cobra nada.',
+		'Payment opens in a new window, on Qatom’s checkout page. Nothing is charged here.',
+		'Le paiement s’ouvre dans une nouvelle fenêtre, sur la page de paiement de Qatom. Rien n’est débité ici.',
+		'O pagamento abre em uma nova janela, na página de pagamento do Qatom. Nada é cobrado aqui.'
 	],
 	give_after: [
-		'Después de pagar, vuelve a la página de la campaña y recárgala para ver el nuevo total.',
-		'After you pay, come back to the campaign’s page and reload it to see the new total.',
-		'Après le paiement, revenez sur la page de la campagne et rechargez-la pour voir le nouveau total.',
-		'Depois de pagar, volte à página da campanha e recarregue-a para ver o novo total.'
+		'Esta página se queda abierta. Después de pagar, cierra la ventana de Qatom y vuelve aquí.',
+		'This page stays open. After you pay, close Qatom’s window and come back here.',
+		'Cette page reste ouverte. Après le paiement, fermez la fenêtre de Qatom et revenez ici.',
+		'Esta página fica aberta. Depois de pagar, feche a janela do Qatom e volte aqui.'
+	],
+	give_paid: [
+		'Ya pagué: ver la campaña',
+		'I have paid: show the campaign',
+		'J’ai payé : voir la campagne',
+		'Já paguei: ver a campanha'
+	],
+	give_problem_window: [
+		'Si esto se abrió en una ventana nueva, puedes cerrarla y volver a la anterior, o seguir aquí.',
+		'If this opened in a new window, you can close it and go back to the first one, or carry on here.',
+		'Si ceci s’est ouvert dans une nouvelle fenêtre, vous pouvez la fermer et revenir à la première, ou continuer ici.',
+		'Se isto abriu em uma nova janela, você pode fechá-la e voltar à anterior, ou continuar aqui.'
 	],
 	give_private: [
 		'Tejido no guarda tu nombre, tu correo ni tu billetera con el aporte.',

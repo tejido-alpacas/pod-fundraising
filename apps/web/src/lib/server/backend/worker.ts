@@ -19,13 +19,22 @@
  * secret, and refunds nobody else. TO TURN IT OFF, remove the `refundTestAccountsOnTimer`
  * call below; nothing else calls that route.
  *
+ * The same exception covers a donation the paid tests make: after the refunds, the timer asks
+ * for `POST /api/test-donation-undos`, which sends such a donation back to the test person's
+ * wallet it was paid from and takes it out of the campaign's total. Nobody else's donation is
+ * touched. TO TURN IT OFF, remove the `undoTestDonationsOnTimer` call below.
+ *
  * Wrangler bundles this file when it deploys or runs `wrangler dev`; the SvelteKit build does
  * not see it. So the configuration is parsed here from the `env` Cloudflare hands the handler,
  * against the one schema in @tejido/config, as src/lib/server/context.ts does for requests.
  */
 import { parseConfig } from '@tejido/config';
 import sveltekit from 'tejido:sveltekit-worker';
-import { reconcileOnTimer, refundTestAccountsOnTimer } from './reconcile-timer.ts';
+import {
+	reconcileOnTimer,
+	refundTestAccountsOnTimer,
+	undoTestDonationsOnTimer
+} from './reconcile-timer.ts';
 
 export default {
 	...sveltekit,
@@ -51,6 +60,13 @@ export default {
 		const refunds = await refundTestAccountsOnTimer(pass);
 		console.log(
 			`Test-account refunds on the timer: POST /api/test-account-refunds answered ${refunds}.`
+		);
+
+		// The donations the paid tests made, sent back and taken out of the totals. Last, so a
+		// failure here stops nothing above; it fails only this timer event.
+		const undos = await undoTestDonationsOnTimer(pass);
+		console.log(
+			`Test-donation undos on the timer: POST /api/test-donation-undos answered ${undos}.`
 		);
 	}
 };
