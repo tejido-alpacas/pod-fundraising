@@ -49,8 +49,9 @@ export const SURFACES: Surface[] = [
 		id: 'B4',
 		name: 'Reminder message',
 		path: '/reminder',
-		what: 'Says what is due, which tool to use, the milestone id, the fields required and the deadline.',
-		files: [`${R}/reminder/`]
+		what: 'Where a reminder’s link lands: what is due from the signed-in party and by when, with one button into the chat for that milestone. The message’s words are written here too; nothing sends it yet.',
+		files: [`${R}/reminder/`, 'apps/app/src/lib/server/reminder.ts'],
+		working: true
 	},
 	{
 		id: 'B5',
