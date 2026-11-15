@@ -595,6 +595,7 @@
 									<div class="tj-chips">
 										<Button
 											variant="primary"
+											size="field"
 											disabled={waiting || !connected}
 											onclick={() =>
 												quick(
@@ -606,12 +607,13 @@
 											{party.role === 'confirmer' ? 'Confirm a milestone' : 'Log this week’s work'}
 										</Button>
 										{#if canFill}
-											<Button icon="list" disabled={!connected} onclick={toggleForm}>
+											<Button icon="list" size="field" disabled={!connected} onclick={toggleForm}>
 												{formOpen ? 'Close the form' : 'Fill in the form'}
 											</Button>
 										{/if}
 										<Button
 											variant="quiet"
+											size="field"
 											disabled={waiting || !connected}
 											onclick={() =>
 												quick(

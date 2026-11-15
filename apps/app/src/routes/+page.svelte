@@ -265,8 +265,9 @@
 {/if}
 
 <style>
+	/* A heading, so it takes the heading font (Poppins in the first site's look). */
 	.app-cardtitle {
-		font: 600 17px/24px var(--font-sans);
+		font: 600 17px/24px var(--font-serif);
 	}
 	.app-center {
 		text-align: center;
