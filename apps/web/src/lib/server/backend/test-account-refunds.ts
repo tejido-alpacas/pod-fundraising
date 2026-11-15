@@ -356,3 +356,28 @@ export async function refundTestAccounts(
 		message: parts.join(' ')
 	};
 }
+
+/**
+ * One plain line about a pass, for the Worker's logs, or null when the pass had nothing to
+ * consider (so the log is not filled once a minute).
+ *
+ * Counts and reason names only. Never a wallet address, a hostname, a key, an email or an id:
+ * the line is built from the numbers of lines and from `reason`, which is one of a fixed set
+ * of names, and from nothing else in the report.
+ */
+export function passLogLine(report: TestRefundReport): string | null {
+	if (report.sent.length === 0 && report.skipped.length === 0) return null;
+
+	const byReason = new Map<TestRefundSkipReason, number>();
+	for (const { reason } of report.skipped) byReason.set(reason, (byReason.get(reason) ?? 0) + 1);
+	const reasons = [...byReason]
+		.sort(([a], [b]) => a.localeCompare(b))
+		.map(([reason, count]) => `${reason} ${count}`)
+		.join(', ');
+
+	return [
+		`Test-account refunds: ${report.sent.length} sent`,
+		`${report.skipped.length} skipped${reasons === '' ? '' : ` (${reasons})`}`,
+		`a person needs to look: ${report.needs_a_person ? 'YES' : 'no'}.`
+	].join(', ');
+}

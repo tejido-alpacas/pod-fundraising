@@ -856,3 +856,69 @@ describe('the twin’s hostname and key are kept nowhere', () => {
 		for (const secret of SECRETS) expect(out, secret).not.toContain(secret);
 	});
 });
+
+describe('the line each pass writes to the logs', () => {
+	const lines = () => logged.split('\n').filter((line) => line.startsWith('Test-account refunds:'));
+	// Nothing that names a person, a wallet, a twin or a record may be in the line.
+	const NEVER = [
+		'biz.todaq.net',
+		'todaq',
+		'@',
+		'https',
+		'apiKey',
+		LOG_KEY,
+		HIT_KEY,
+		'e2e-',
+		'dep-',
+		'rfd_',
+		CAMPAIGN,
+		MILESTONE
+	];
+
+	it('says how many were sent and that nobody needs to look', async () => {
+		await confirmedRun();
+		await pass();
+
+		expect(lines()).toEqual([
+			'Test-account refunds: 3 sent, 0 skipped, a person needs to look: no.'
+		]);
+		for (const text of NEVER) expect(lines().join(), text).not.toContain(text);
+	});
+
+	it('is not written when there was nothing to consider', async () => {
+		await pass();
+		await confirmedRun();
+		await pass();
+		await pass();
+
+		// One line for the pass that sent; none before it, and none for the empty pass after.
+		expect(lines()).toHaveLength(1);
+	});
+
+	it('makes a pass that skipped everything visible, with the reasons and their counts', async () => {
+		await confirmedRun();
+		balances[HIT_TWIN] = 0;
+		balances[LOG_TWIN] = 0;
+		await pass();
+
+		expect(lines()).toEqual([
+			'Test-account refunds: 0 sent, 3 skipped (item_twin_balance_too_low 3), a person needs to look: no.'
+		]);
+	});
+
+	it('says when a person needs to look, and still names nobody', async () => {
+		await confirmedRun();
+		await addEntry(TEST_CONFIRMER, 'log_work', { status: 'flagged' });
+		answerTwinTransfer = () =>
+			Response.json(
+				{ error: `https://${HIT_TWIN}/dq/${DQ}/transfer?apiKey=${HIT_KEY}` },
+				{ status: 403 }
+			);
+		await pass();
+
+		expect(lines()).toEqual([
+			'Test-account refunds: 0 sent, 4 skipped (entry_flagged 1, transfer_refused 3), a person needs to look: YES.'
+		]);
+		for (const text of NEVER) expect(lines().join(), text).not.toContain(text);
+	});
+});
