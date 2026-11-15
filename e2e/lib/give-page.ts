@@ -266,11 +266,23 @@ export async function whereTheAnswerShows(page: Page, press: () => Promise<void>
 		for (;;) {
 			const other = opened[0];
 			if (other !== undefined) {
-				// No reason is repeated if this fails: a reason can hold an address.
-				await other.waitForLoadState('domcontentloaded').catch(() => undefined);
-				return other;
+				// A new window is blank until the site's answer arrives in it: it is not the answer
+				// yet. No reason is repeated if the wait fails: a reason can hold an address.
+				const where = other.url();
+				if (where !== '' && where !== 'about:blank') {
+					await other.waitForLoadState('domcontentloaded').catch(() => undefined);
+					return other;
+				}
+			} else if (sameTab) {
+				await page.waitForLoadState('domcontentloaded').catch(() => undefined);
+				return page;
 			}
-			if (sameTab) return page;
+			if (other !== undefined && Date.now() >= deadline) {
+				await other.close().catch(() => undefined);
+				throw new Error(
+					'The Give form opened a new window, and 30 seconds later it was still blank: the site’s answer never arrived in it.'
+				);
+			}
 			if (Date.now() >= deadline) {
 				throw new Error(
 					'Waited 30 seconds for the site to answer the Give form, in this tab or in a new window. It did not.'

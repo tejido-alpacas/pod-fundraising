@@ -106,12 +106,44 @@ async function postGiveForm(page: Page, amount: string, action?: string): Promis
 	});
 }
 
-function expectNoCheckout(posts: Posts, statuses: number[]): void {
+/**
+ * Holds the page the answer was shown in to it: still on Tejido, no redirect, and this status.
+ *
+ * The status is read from the page itself (what the browser records for the document it is
+ * showing), so it is read wherever the answer arrived, in a new window or in the same tab.
+ * What `guarded` noted is used only when the browser records none.
+ */
+async function expectAnswered(
+	shown: Page,
+	page: Page,
+	posts: Posts,
+	siteUrl: string,
+	status: number
+): Promise<void> {
+	// First of all: a page of another site is never kept, described or named.
+	if (!onOrigin(shown.url(), siteUrl)) {
+		if (shown === page) await page.goto('about:blank');
+		else await shown.close();
+		throw new Error(
+			'THE SITE SENT THE DONOR AWAY FROM TEJIDO, as it does to start a checkout. The page was closed without being read; a checkout may have been made at Qatom, unpaid.'
+		);
+	}
 	expect(
 		posts.redirected,
 		'THE SITE ANSWERED BY SENDING THE DONOR AWAY, as it does to start a checkout. The check stopped the browser before it left Tejido; a checkout may have been made at Qatom, unpaid.'
 	).toBe(false);
-	expect(posts.statuses, 'What the site answered to the form.').toEqual(statuses);
+	// Written as text: the suite's own code is not checked against a browser's page types.
+	const recorded: unknown = await shown.evaluate(`(() => {
+		const entry = performance.getEntriesByType('navigation')[0];
+		return entry && typeof entry.responseStatus === 'number' ? entry.responseStatus : 0;
+	})()`);
+	const noted = posts.statuses.at(-1) ?? 0;
+	posts.statuses.length = 0;
+	const answered = typeof recorded === 'number' && recorded > 0 ? recorded : noted;
+	expect(
+		answered,
+		'What the site answered to the Give form, read from the page the answer was shown in (0 means no answer could be read).'
+	).toBe(status);
 }
 
 test('a campaign that is not raising money refuses the Give form, and nothing is charged', async ({
@@ -151,12 +183,12 @@ test('a campaign that is not raising money refuses the Give form, and nothing is
 
 	// 1.00 USD-TDN, an amount a donation item may well sell: the campaign's state alone refuses it.
 	const first = await postGiveForm(page, '1000');
-	expectNoCheckout(posts, [409]);
+	await expectAnswered(first, page, posts, cfg.siteUrl, 409);
 	await expectRefused(first, 'give-form-refused-not-raising');
 
 	// The same answer whatever is posted: the amount is not even read.
 	const second = await postGiveForm(page, 'not a number');
-	expectNoCheckout(posts, [409, 409]);
+	await expectAnswered(second, page, posts, cfg.siteUrl, 409);
 	const where = second === page ? 'in the same tab' : 'in a new window';
 	await expectRefused(second, null);
 	say(
@@ -175,7 +207,7 @@ test('the Give form posted for a campaign that does not exist is "not found"', a
 	await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
 
 	const shown = await postGiveForm(page, '1000', '/give/no-such-campaign-e2e');
-	expectNoCheckout(posts, [404]);
+	await expectAnswered(shown, page, posts, cfg.siteUrl, 404);
 	await expect(shown).toHaveURL(`${cfg.siteUrl}/give/no-such-campaign-e2e`);
 	await expect(amountButtons(shown)).toHaveCount(0);
 	if (shown !== page) {
@@ -261,12 +293,12 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 	// A number no donation item can sell: 0.001 USD-TDN. Tejido reads its catalog at Qatom,
 	// finds no item for it, and asks for no checkout.
 	const first = await postInPlaceOf(NEVER_ON_SALE);
-	expectNoCheckout(posts, [409]);
+	await expectAnswered(first, page, posts, cfg.siteUrl, 409);
 	await expectRefused(first, 'give-amount-not-on-sale');
 
 	// Something that is not a number at all: refused without asking Qatom.
 	const second = await postInPlaceOf('ten');
-	expectNoCheckout(posts, [409, 400]);
+	await expectAnswered(second, page, posts, cfg.siteUrl, 400);
 	const inNewWindow = second !== page;
 	await expectRefused(second, null);
 
