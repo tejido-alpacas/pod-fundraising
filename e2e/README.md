@@ -152,17 +152,34 @@ Open the run on GitHub and download the artifact at the bottom of its page. It h
 - `report/index.html`: Playwright's report. Open it in a browser; a failed test shows its
   message, and a picture of the page at the moment it failed.
 
+**The log is enough to read a failure.** Every failed test ends with a few lines saying what the
+page was showing when it failed: which site and page it was on, the page's title, its headings,
+its buttons, any error or notice the page showed, and its first words. For example:
+
+```
+What the page was showing when this failed:
+The page was app.tejido.net/upload, titled "Add evidence · Tejido".
+Headings: "Add photos and documents".
+Buttons: "Take a photo", "Choose files".
+Errors and notices: none.
+It began: "Add evidence …".
+```
+
+Email addresses, sign-in codes and anything long enough to be a token are taken out of those
+lines before they are written, and nothing is read from the address but the site, the page and
+Qatom's step name.
+
 Common failures, and what they mean:
 
-| The message says                                        | What happened                                                                                                                                      |
-| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "No sign-in code arrived at …"                          | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.       |
-| "Qatom did not send a code: …"                          | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                 |
-| "Waited 90 seconds for Qatom to send the browser back…" | Qatom showed a step the suite does not know. The lines under the message name the page's step, headings and buttons; `…-qatom-stuck.png` shows it. |
-| "The App did not sign … in: …"                          | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match).  |
-| "The assistant did not show its review card."           | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                 |
-| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"       | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.         |
-| "The assistant replied without filing"                  | Nothing was sent. Usually the wallet is empty or the auto-approve limit is too low; the screenshot shows what the assistant asked for.             |
+| The message says                                        | What happened                                                                                                                                              |
+| ------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "No sign-in code arrived at …"                          | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.               |
+| "Qatom did not send a code: …"                          | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                         |
+| "Waited 90 seconds for Qatom to send the browser back…" | Qatom showed a step the suite does not know. The lines at the end of the failure name the page's step, headings and buttons; `…-qatom-stuck.png` shows it. |
+| "The App did not sign … in: …"                          | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match).          |
+| "The assistant did not show its review card."           | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                         |
+| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"       | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.                 |
+| "The assistant replied without filing"                  | Nothing was sent. Usually the wallet is empty or the auto-approve limit is too low; the screenshot shows what the assistant asked for.                     |
 
 `sign-in` and `paid-filing` are never retried: a retry would ask for another code or pay
 another deposit. `chat-draft` is retried once, because the model's answers vary. If `sign-in`
@@ -199,15 +216,17 @@ run. In order of likelihood:
 
 ## Where things are
 
-| File                   | What it is                                                             |
-| ---------------------- | ---------------------------------------------------------------------- |
-| `playwright.config.ts` | The three projects: `sign-in`, then `phone` and `desktop`              |
-| `lib/config.ts`        | The configuration, parsed once. The only place that reads environment  |
-| `lib/safety.ts`        | The refusals: other hosts, and typing a code anywhere but Qatom        |
-| `lib/inbox-message.ts` | Reading one queue message and finding the code in the email's body     |
-| `lib/inbox.ts`         | Waiting on the queue: whose message it is, what is removed or put back |
-| `lib/sign-in.ts`       | Driving Qatom's sign-in pages                                          |
-| `lib/chat.ts`          | Driving the App's chat as far as the review card                       |
-| `lib/harness.ts`       | `waypoint`: the named screenshots                                      |
-| `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network           |
-| `specs/*.spec.ts`      | The five specs above. Only `npm run e2e` runs them                     |
+| File                   | What it is                                                              |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `playwright.config.ts` | The three projects: `sign-in`, then `phone` and `desktop`               |
+| `lib/config.ts`        | The configuration, parsed once. The only place that reads environment   |
+| `lib/safety.ts`        | The refusals: other hosts, and typing a code anywhere but Qatom         |
+| `lib/inbox-message.ts` | Reading one queue message and finding the code in the email's body      |
+| `lib/inbox.ts`         | Waiting on the queue: whose message it is, what is removed or put back  |
+| `lib/sign-in.ts`       | Driving Qatom's sign-in pages                                           |
+| `lib/chat.ts`          | Driving the App's chat as far as the review card                        |
+| `lib/harness.ts`       | `waypoint`: the named screenshots. Describes the page when a test fails |
+| `lib/seen-page.ts`     | Reading from a live page what the failure lines say                     |
+| `lib/stuck-page.ts`    | Wording those lines, and taking out what must not be in a log           |
+| `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network            |
+| `specs/*.spec.ts`      | The five specs above. Only `npm run e2e` runs them                      |

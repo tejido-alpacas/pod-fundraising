@@ -25,7 +25,6 @@ import type { E2eConfig, TestPerson } from './config.ts';
 import { until, type Waypoint } from './harness.ts';
 import { waitForSignInCode, type InboxQueue } from './inbox.ts';
 import { assertQatomPage, onOrigin } from './safety.ts';
-import { describeSeenPage, type SeenButton, type SeenPage } from './stuck-page.ts';
 
 const CODE_WAIT_MS = 120_000;
 const RETURN_WAIT_MS = 90_000;
@@ -75,34 +74,6 @@ const ONWARD: Onward[] = [
 		find: (page) => page.locator('#finish-sign-in-retry')
 	}
 ];
-
-/** What the page shows, for the log, when the wait for the way back runs out. Never throws. */
-async function seenOn(page: Page): Promise<SeenPage> {
-	const address = new URL(page.url());
-	const seen: SeenPage = {
-		path: address.pathname,
-		step: address.searchParams.get('step'),
-		headings: [],
-		buttons: []
-	};
-	try {
-		for (const heading of await page.getByRole('heading').all()) {
-			if (await heading.isVisible()) seen.headings.push(await heading.innerText());
-		}
-		for (const button of await page.getByRole('button').all()) {
-			if (!(await button.isVisible())) continue;
-			const found: SeenButton = {
-				text: await button.innerText(),
-				id: await button.getAttribute('id'),
-				disabled: await button.isDisabled()
-			};
-			seen.buttons.push(found);
-		}
-	} catch {
-		// The page went away while it was being read. What was read so far is still worth saying.
-	}
-	return seen;
-}
 
 export async function signInFromInvite(
 	page: Page,
@@ -180,12 +151,10 @@ export async function signInFromInvite(
 			return null;
 		});
 	} catch (error) {
-		// A step this suite does not know shows up here. The picture shows it, and the message
-		// says what was on it, so the run's log is enough to tell which step it was.
-		if (!onOrigin(page.url(), cfg.appUrl)) {
-			await waypoint(page, 'qatom-stuck');
-			if (error instanceof Error) error.message += `\n${describeSeenPage(await seenOn(page))}`;
-		}
+		// A step this suite does not know shows up here. The picture shows it, and the harness adds
+		// to the failure what the page was showing (its step, headings and buttons), so the run's
+		// log is enough to tell which step it was.
+		if (!onOrigin(page.url(), cfg.appUrl)) await waypoint(page, 'qatom-stuck');
 		throw error;
 	}
 
