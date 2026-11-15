@@ -1,0 +1,114 @@
+/*
+ * The stylesheet of the pages built on the design system: a campaign's pages and /old.
+ * DesignFrame.svelte loads it, so no other page does.
+ *
+ * The root layout draws the first site's frame around every page and loads the first site's
+ * stylesheet, which styles bare elements (headings, links, form fields) wherever they are.
+ * Everything below keeps that frame and those rules out of these pages, and changes nothing
+ * for a page that is not inside a DesignFrame: every rule here needs a .tj-frame on the page.
+ *
+ * How: the design system is loaded into a cascade layer. `revert-layer` then means "ignore
+ * what the first site says here and use what the design system says".
+ */
+@import '@tejido/ui/styles.css' layer(tejido-design);
+
+/* design-frame-styles.ts finds this stylesheet by this rule. Keep the selector as it is. */
+.tj-frame-styles {
+	--tj-frame-styles: 1;
+}
+
+/* ---------- The page ---------- */
+html:has(.tj-frame) {
+	scroll-behavior: revert-layer;
+	-webkit-text-size-adjust: revert-layer;
+	text-size-adjust: revert-layer;
+}
+/* The one name both stylesheets give a variable. */
+html:has(.tj-frame):root {
+	--surface: revert-layer;
+}
+html:has(.tj-frame) body {
+	all: revert-layer;
+}
+/* The first site's drifting colour field behind the page. */
+html:has(.tj-frame) body::before {
+	content: none;
+}
+
+/* ---------- The first site's frame is not drawn; DesignFrame draws its own ---------- */
+html:has(.tj-frame) body > div > :is(header.top, footer.foot, nav.tabbar) {
+	display: none;
+}
+/* The root layout's column around the page. These pages lay themselves out. */
+html:has(.tj-frame) main > .wrap.column {
+	all: revert-layer;
+}
+html:has(.tj-frame) body > div > main {
+	min-height: 0;
+}
+
+/* ---------- The frame ---------- */
+.tj-frame {
+	/* Two components here still use the names from before the design system (EntryStatus and the
+	   proof page). The first site gives the same names other values, so they are set again here. */
+	--bg: var(--bg-page);
+	--ink: var(--text-primary);
+	--muted: var(--text-muted);
+	--line: var(--border);
+	--a: var(--accent);
+	--b: var(--secondary);
+	--c: var(--status-attention-icon);
+	--warn: var(--status-critical-icon);
+}
+/* Where the page goes: what the design system gives the <main> of a screen. */
+.tj-frame__content {
+	flex: 1 0 auto;
+	min-width: 0;
+}
+
+/* ---------- The first site's rules for bare elements, kept out of the frame ---------- */
+/* Its rules name an element and nothing else. `:not(html)` puts these one step above them and
+   still below every class, so a design-system class or a page's own style always wins. */
+:where(.tj-frame)
+	:is(h1, h2, h3, p, a, li, img, section, code, label, button, summary, dialog):not(html) {
+	all: revert-layer;
+}
+/* The root layout sizes every h1 and h2 in its column, with a rule strong enough to beat a page's
+   own style. So this one is stronger still: the size and margin of an h1 or h2 in the frame
+   come from the design system's classes, never from a page's <style>. */
+.tj-frame.tj-frame.tj-frame :is(h1, h2) {
+	font-size: revert-layer;
+	margin: revert-layer;
+}
+.tj-frame :focus-visible {
+	outline: revert-layer;
+	outline-offset: revert-layer;
+}
+/* Its field rules name the element and its type. These sit one step above them; a class on the
+   field still wins. */
+.tj-frame :is(input, select, textarea):not(html) {
+	width: revert-layer;
+	font: revert-layer;
+	padding: revert-layer;
+	min-height: revert-layer;
+	border: revert-layer;
+	border-radius: revert-layer;
+	box-shadow: revert-layer;
+	color: revert-layer;
+	background: revert-layer;
+}
+.tj-frame :is(input, select, textarea):focus-visible {
+	outline: revert-layer;
+	outline-offset: revert-layer;
+	border-color: revert-layer;
+}
+/* The first site marks one declaration `!important`: the background of text fields and selects.
+   `revert-layer` cannot undo that in every browser, so the design system's two values (a field,
+   and a field that is switched off or locked) are stated again here. */
+.tj-frame :is(textarea, input[type='text'], select) {
+	background: var(--surface) !important;
+}
+.tj-frame :is(textarea, input[type='text'], select):disabled,
+.tj-frame .tj-input[readonly].tj-input--locked {
+	background: var(--disabled-bg) !important;
+}
