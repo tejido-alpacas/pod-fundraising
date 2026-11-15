@@ -24,3 +24,8 @@ export const TEST_OUTPUT = join(root, '.test-output');
  * specs/create-campaign.spec.ts and read by the harness. No secret is in it.
  */
 export const RUN_CAMPAIGN = join(AUTH, 'run-campaign.json');
+/**
+ * The entries the paid story filed in this run: the public address of each one's proof page.
+ * Written by specs/paid-filing.spec.ts for its own later steps. No secret is in it.
+ */
+export const PAID_ENTRIES = join(AUTH, 'paid-entries.json');
