@@ -2,10 +2,19 @@
  * THE ONE EXCEPTION to "refunds go to the primary wallet only" (CLAUDE.md, "Qatom"; the
  * owner's decision of 15 November 2026). FOR THE END-TO-END TEST PEOPLE ONLY.
  *
+ * This file sends two kinds of money back to a test person, and nothing else:
+ *   - their DEPOSITS, to the AGENT wallet they were paid from (`refundTestPersonFromItemTwin`);
+ *   - a DONATION the paid tests made, to the wallet it was paid from
+ *     (`returnTestDonationFromItemTwin`, described further down).
+ *
  * The automatic paid tests pay their deposits from each test person's AGENT wallet. So that
- * those wallets stay funded with nobody topping them up, a test person's deposits on a
- * confirmed milestone go back to that same agent wallet. Qatom's `POST /v4/transfer` cannot
- * pay out of the twin an item is sold from, so the refund is sent by that twin's OWN API:
+ * those wallets stay funded with nobody topping them up, a test person's deposits go back to
+ * that same agent wallet: a confirmed milestone's deposits at once, and any other deposit of
+ * theirs once it is 20 minutes old, because a test run that fails leaves its milestone
+ * unconfirmed. WHEN a deposit is due back is decided by the caller (test-account-refunds.ts
+ * in the backend), not here: this file is told an amount and a test person, and sends it.
+ * Qatom's `POST /v4/transfer` cannot pay out of the twin an item is sold from, so the refund
+ * is sent by that twin's OWN API:
  *
  *   1. the item's ledger (GET /v4/commodity/{hash}/transactions) names the item's twin and the
  *      digital quantity;
@@ -26,9 +35,16 @@
  *   - the address is never put in an error. Whatever the transport throws is replaced by an
  *     error that names the operation and, at most, a status.
  *
+ * A DONATION THE PAID TESTS MAKE IS UNDONE THE SAME WAY (the same bullet of CLAUDE.md): it
+ * goes back to the wallet it was paid from, which for a donation is the wallet the test
+ * person paid the checkout page with, their primary wallet as a rule. That is
+ * `returnTestDonationFromItemTwin` below. Both entrances run the one sender in this file, so
+ * there is one copy of the checks and of the calls to a twin, and both refuse everyone who is
+ * not a test person before anything is asked of Qatom.
+ *
  * Nothing in this module logs.
  */
-import type { AgentWalletHostname } from '@tejido/contracts';
+import type { AgentWalletHostname, PrimaryWalletHostname } from '@tejido/contracts';
 import { z } from 'zod';
 import {
 	type QatomError,
@@ -89,11 +105,26 @@ export interface ItemTwinRefundRequest {
 	beforeSending(dq: string): Promise<boolean>;
 }
 
+export interface ItemTwinDonationReturnRequest {
+	/** The commodity hash of the DONATION item the donation was paid for. */
+	commodityHash: string;
+	/**
+	 * The test person who paid the donation, and the wallet of theirs it was paid from: the
+	 * caller has found that wallet on the item's ledger AND registered to them in Tejido's own
+	 * database. Refused unless `email` is an end-to-end test person's.
+	 */
+	payer: { email: string; walletHostname: PrimaryWalletHostname | AgentWalletHostname };
+	/** The donation's amount, in TEJIDO'S unit: `1000` sends 1.00. */
+	amount: number;
+	/** As in `ItemTwinRefundRequest`: called once, immediately before the transfer. */
+	beforeSending(dq: string): Promise<boolean>;
+}
+
 /** Why nothing was sent. No request to move money was made. */
 export type ItemTwinRefundRefusal =
 	/** The party's email is not at the test inbox domain. */
 	| 'not_a_test_person'
-	/** The recipient's agent wallet is not a wallet hostname as Qatom writes one. */
+	/** The recipient's wallet is not a wallet hostname as Qatom writes one. */
 	| 'recipient_not_a_wallet'
 	/** The item's ledger did not name the twin the item is sold from. */
 	| 'item_twin_not_named'
@@ -184,9 +215,51 @@ function withoutAddress(operation: string, error: unknown): QatomError {
  * or the balance could not be read): nothing was sent. What became of the transfer itself is
  * always in the result, never thrown.
  */
-export async function refundTestPersonFromItemTwin(
+export function refundTestPersonFromItemTwin(
 	deps: ItemTwinRefundDependencies,
 	request: ItemTwinRefundRequest
+): Promise<ItemTwinRefundResult> {
+	return sendToTestPersonFromItemTwin(deps, {
+		commodityHash: request.commodityHash,
+		email: request.party.email,
+		recipient: request.party.agentWalletHostname,
+		amount: request.amount,
+		beforeSending: request.beforeSending
+	});
+}
+
+/**
+ * Sends a donation an END-TO-END TEST PERSON paid back to the wallet they paid it from, out
+ * of the donation item's own twin, by that twin's own API. Nobody else is ever sent money
+ * this way. Everything said of `refundTestPersonFromItemTwin` holds: the same refusals in the
+ * same order, one transfer, never again, nothing about the twin kept.
+ */
+export function returnTestDonationFromItemTwin(
+	deps: ItemTwinRefundDependencies,
+	request: ItemTwinDonationReturnRequest
+): Promise<ItemTwinRefundResult> {
+	return sendToTestPersonFromItemTwin(deps, {
+		commodityHash: request.commodityHash,
+		email: request.payer.email,
+		recipient: request.payer.walletHostname,
+		amount: request.amount,
+		beforeSending: request.beforeSending
+	});
+}
+
+/**
+ * THE ONE SENDER. Not exported: the two functions above are the only ways in, and each names
+ * the kind of wallet it may be given.
+ */
+async function sendToTestPersonFromItemTwin(
+	deps: ItemTwinRefundDependencies,
+	request: {
+		commodityHash: string;
+		email: string;
+		recipient: string;
+		amount: number;
+		beforeSending(dq: string): Promise<boolean>;
+	}
 ): Promise<ItemTwinRefundResult> {
 	const notSent = (reason: ItemTwinRefundRefusal): ItemTwinRefundResult => ({
 		outcome: 'not_sent',
@@ -194,8 +267,8 @@ export async function refundTestPersonFromItemTwin(
 	});
 
 	// WHO, before anything is asked of Qatom.
-	if (!isEndToEndTestEmail(request.party.email)) return notSent('not_a_test_person');
-	const recipient: string = request.party.agentWalletHostname;
+	if (!isEndToEndTestEmail(request.email)) return notSent('not_a_test_person');
+	const recipient = request.recipient;
 	if (!isWalletHostname(recipient)) return notSent('recipient_not_a_wallet');
 
 	// Our thousandths become the twin's decimal here: 1000 goes out as 1, 100 as 0.1. Throws

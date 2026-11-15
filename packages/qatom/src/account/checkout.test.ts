@@ -73,6 +73,7 @@ describe('listOwnCatalogItems', () => {
 					{
 						id: 128,
 						commodity_id: 301,
+						commodity_hash: '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12',
 						active: true,
 						commodity_cost: 5,
 						external_endpoint: 'https://tejido.net/api/donations/5'
@@ -85,8 +86,20 @@ describe('listOwnCatalogItems', () => {
 		});
 
 		expect(await account().listOwnCatalogItems()).toEqual([
-			{ catalogItemId: 41, price: 100, externalEndpoint: 'https://tejido.net/api/checkins' },
-			{ catalogItemId: 128, price: 5000, externalEndpoint: 'https://tejido.net/api/donations/5' }
+			{
+				catalogItemId: 41,
+				price: 100,
+				externalEndpoint: 'https://tejido.net/api/checkins',
+				commodityId: 118,
+				commodityHash: null
+			},
+			{
+				catalogItemId: 128,
+				price: 5000,
+				externalEndpoint: 'https://tejido.net/api/donations/5',
+				commodityId: 301,
+				commodityHash: '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12'
+			}
 		]);
 		expect(requests[1]).toMatchObject({
 			method: 'GET',
@@ -115,11 +128,34 @@ describe('listOwnCatalogItems', () => {
 			}
 		});
 
-		expect(await account().listOwnCatalogItems()).toEqual([
-			{ catalogItemId: 1, price: null, externalEndpoint: 'https://tejido.net/api/donations/5' },
-			{ catalogItemId: 2, price: null, externalEndpoint: null },
-			{ catalogItemId: 3, price: null, externalEndpoint: null },
-			{ catalogItemId: 4, price: null, externalEndpoint: null }
+		expect(await account().listOwnCatalogItems()).toEqual(
+			[
+				{ catalogItemId: 1, price: null, externalEndpoint: 'https://tejido.net/api/donations/5' },
+				{ catalogItemId: 2, price: null, externalEndpoint: null },
+				{ catalogItemId: 3, price: null, externalEndpoint: null },
+				{ catalogItemId: 4, price: null, externalEndpoint: null }
+			].map((item) => ({ ...item, commodityId: null, commodityHash: null }))
+		);
+	});
+
+	it('gives no commodity, never a guessed one, when Qatom gives none in the form one has', async () => {
+		answers.push(tokenAnswer, {
+			json: {
+				items: [
+					{ id: 1, commodity_id: '301', commodity_hash: 301 },
+					{ id: 2, commodity_id: 0, commodity_hash: '../v4/twins' },
+					{ id: 3, commodity_id: 1.5, commodity_hash: '' },
+					{ id: 4, commodity_id: 7, commodity_hash: 'abc123' }
+				]
+			}
+		});
+
+		const items = await account().listOwnCatalogItems();
+		expect(items.map(({ commodityId, commodityHash }) => [commodityId, commodityHash])).toEqual([
+			[null, null],
+			[null, null],
+			[null, null],
+			[7, 'abc123']
 		]);
 	});
 
