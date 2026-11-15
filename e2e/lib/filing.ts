@@ -212,7 +212,7 @@ export async function fileFromReview(
 				`A filing tool was used, the entry "${reference}" is not on the public timeline, and the ` +
 				'assistant speaks of approving a payment. No deposit shows as paid. But approving that ' +
 				'waiting payment in Qatom later WOULD pay it and file this entry, so do not approve it ' +
-				`unless you want that. To let a paid run file by itself, set the test ${filing.who}’s ` +
+				`unless you want that. To let a paid run file without an approval, set the test ${filing.who}’s ` +
 				`auto-approve limit to at least ${filing.deposit}, then run again. ${words}`
 		);
 	}

@@ -1,7 +1,8 @@
 /**
  * MORE OF THE PAID STORY. LIKE specs/paid-filing.spec.ts, THIS FILE MOVES MONEY. It runs only
- * when E2E_PAID is exactly `true`, which only the workflow sets, under its cap (CLAUDE.md,
- * "Never move money to test something"). Nobody starts it by hand.
+ * when E2E_PAID is exactly `true`, which only the workflow sets, on a run a person started by
+ * hand with "paid" ticked (CLAUDE.md, "Never move money to test something"). Never set E2E_PAID
+ * yourself, and never run this suite from a session.
  *
  * It runs on the same campaign the run created, on the two milestones the first paid story
  * leaves alone, and after that story has ended: that story is told by the phone project and
