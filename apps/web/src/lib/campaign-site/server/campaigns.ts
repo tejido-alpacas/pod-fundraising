@@ -1,13 +1,36 @@
+import type { Campaign } from '@tejido/contracts';
 import type { Executor } from '@tejido/db';
 import { getFundingSummary, listCampaigns, listMilestones } from '@tejido/db';
+import { isEndToEndTestEmail } from '@tejido/qatom/account';
+
+/**
+ * THE ONE RULE for whether a campaign may appear in a public list of campaigns (the home page,
+ * Explore, the Give list, and any list, count, sitemap or feed added later). Two kinds never do:
+ *
+ * - a draft, which is its creator's unfinished work;
+ * - a campaign the end-to-end tests own, whatever its status. The automatic tests publish a
+ *   campaign on every paid run, and a visitor must never be shown one or invited to give to it.
+ *   "The tests own it" means its creator's email is at the test inbox domain, and
+ *   `isEndToEndTestEmail` in @tejido/qatom is the one place that decides that.
+ *
+ * This is about lists only. A campaign's own pages (`/campaigns/<id>` and below, `/give/<id>`)
+ * read it by its id and still open for anyone who has the address.
+ *
+ * Every public list goes through `listDonorCampaigns` below, which asks this. A new list should
+ * call that function; one that cannot must ask this rule and no other.
+ */
+export function isPubliclyListed(campaign: Pick<Campaign, 'status' | 'creatorEmail'>): boolean {
+	return campaign.status !== 'draft' && !isEndToEndTestEmail(campaign.creatorEmail);
+}
 
 // The campaigns a donor can follow, newest first. Used by the home, Explore and Give pages.
 //
 // Donors are the readers, so nothing leaves this function as it is stored. A campaign carries
-// its creator's email, and a draft is its creator's unfinished work: drafts are left out
-// altogether, and each campaign that is listed is rebuilt from the fields a donor may see.
+// its creator's email: what may be listed at all is decided by `isPubliclyListed` above (no
+// drafts, no campaign the end-to-end tests own), and each campaign that is listed is rebuilt
+// from the fields a donor may see.
 export async function listDonorCampaigns(db: Executor) {
-	const listed = (await listCampaigns(db)).filter((campaign) => campaign.status !== 'draft');
+	const listed = (await listCampaigns(db)).filter(isPubliclyListed);
 
 	const campaigns = await Promise.all(
 		listed.map(async (campaign) => {

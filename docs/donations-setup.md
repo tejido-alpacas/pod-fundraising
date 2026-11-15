@@ -66,10 +66,11 @@ pay one amount and have another recorded.
 2. The Give page should show one button for each item you created. If it says "Giving is not
    available right now", Tejido found no donation item: check the hostname, the number at the
    end of the address, the price, and that the item is active.
-3. Press an amount. You should arrive on Qatom's checkout page for that amount.
+3. Press an amount. Qatom's checkout page for that amount opens in a new window; the Give
+   page stays open in the first one.
 4. Pay it. This is a real payment of that amount to Tejido's account.
-5. Go back to the campaign's page and reload it. The Funding block should show the amount
-   raised and one more contribution.
+5. Close Qatom's window, go back to the Give page and press **I have paid: show the
+   campaign**. The Funding block should show the amount raised and one more contribution.
 
 ## Changing the amounts later
 

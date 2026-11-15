@@ -15,9 +15,16 @@ import {
 } from '@tejido/contracts';
 import { and, count, eq, lte, max, sql, sum } from 'drizzle-orm';
 import type { Database, Executor } from './client.ts';
-import { campaigns, donations } from './schema.ts';
+import { campaigns, donations, donationUndos } from './schema.ts';
 
 export type Donation = typeof donations.$inferSelect;
+
+/**
+ * True for a donation that counts. THE ONE PLACE that says which do not: a donation the paid
+ * end-to-end tests made, once its money is recorded as sent back (`donation_undos`, status
+ * `sent`). Its row stays; it is left out of every sum and count below.
+ */
+const counted = sql`not exists (select 1 from ${donationUndos} where ${donationUndos.donationId} = ${donations.id} and ${donationUndos.status} = 'sent')`;
 
 /** Every donation recorded for one campaign, oldest first. */
 export async function listDonations(db: Executor, campaignId: string): Promise<Donation[]> {
@@ -29,8 +36,9 @@ export async function listDonations(db: Executor, campaignId: string): Promise<D
 }
 
 /**
- * What a campaign's recorded donations add up to, or null when it has none. `readAt` is when
- * the newest of them reached us: the totals have not changed since.
+ * What a campaign's recorded donations add up to, or null when it has none that count.
+ * `readAt` is when the newest of them reached us. A test donation that was undone is not
+ * among them, so a campaign whose only donations were undone reads as it did before them.
  */
 export async function getDonationTotals(
 	db: Executor,
@@ -43,7 +51,7 @@ export async function getDonationTotals(
 			readAt: max(donations.receivedAt)
 		})
 		.from(donations)
-		.where(eq(donations.campaignId, campaignId));
+		.where(and(eq(donations.campaignId, campaignId), counted));
 	if (!row || row.donations === 0 || row.readAt === null) return null;
 	return { raised: row.raised, donations: row.donations, readAt: row.readAt };
 }
@@ -91,7 +99,7 @@ export async function recordDonation(
 		paymentDigest: sha256Schema.nullable().parse(donation.paymentDigest),
 		receivedAt: timestampSchema.parse(donation.receivedAt)
 	};
-	const raised = sql<number>`(select coalesce(sum(${donations.amount}), 0) from ${donations} where ${donations.campaignId} = ${row.campaignId})`;
+	const raised = sql<number>`(select coalesce(sum(${donations.amount}), 0) from ${donations} where ${donations.campaignId} = ${row.campaignId} and ${counted})`;
 
 	const [inserted, moved] = await db.batch([
 		db

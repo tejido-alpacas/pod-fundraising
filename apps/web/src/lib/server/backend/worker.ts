@@ -13,10 +13,22 @@
  * ONE EXCEPTION, FOR THE END-TO-END TEST PEOPLE ONLY (CLAUDE.md, "Qatom"; the owner's decision
  * of 15 November 2026). After a reconcile pass that worked, the timer asks, in the same
  * in-process way, for `POST /api/test-account-refunds`: the deposits of the test accounts
- * (email at the test inbox domain) on confirmed milestones go back to their agent wallets, so
- * the automatic paid tests keep themselves funded. That route is its own, checks the same
+ * (email at the test inbox domain) go back to their agent wallets, a confirmed milestone's
+ * at once and any other once it is 20 minutes old, so the automatic paid tests keep
+ * themselves funded. That route is its own, checks the same
  * secret, and refunds nobody else. TO TURN IT OFF, remove the `refundTestAccountsOnTimer`
  * call below; nothing else calls that route.
+ *
+ * The same exception covers a donation the paid tests make: after the refunds, the timer asks
+ * for `POST /api/test-donation-undos`, which sends such a donation back to the test person's
+ * wallet it was paid from and takes it out of the campaign's total. Nobody else's donation is
+ * touched. TO TURN IT OFF, remove the `undoTestDonationsOnTimer` call below.
+ *
+ * LAST, THE TEST CAMPAIGNS ARE CLEANED UP (the owner, 15 November 2026). The timer asks for
+ * `POST /api/test-campaign-cleanup`, which DELETES the campaigns the automatic end-to-end
+ * tests created and are finished with: never the fixed test campaign, never a campaign with
+ * anybody on it who is not a test person. The rules are in test-campaign-cleanup.ts. TO TURN
+ * IT OFF, remove the `cleanUpTestCampaignsOnTimer` call below; nothing else calls that route.
  *
  * Wrangler bundles this file when it deploys or runs `wrangler dev`; the SvelteKit build does
  * not see it. So the configuration is parsed here from the `env` Cloudflare hands the handler,
@@ -24,7 +36,12 @@
  */
 import { parseConfig } from '@tejido/config';
 import sveltekit from 'tejido:sveltekit-worker';
-import { reconcileOnTimer, refundTestAccountsOnTimer } from './reconcile-timer.ts';
+import {
+	cleanUpTestCampaignsOnTimer,
+	reconcileOnTimer,
+	refundTestAccountsOnTimer,
+	undoTestDonationsOnTimer
+} from './reconcile-timer.ts';
 
 export default {
 	...sveltekit,
@@ -50,6 +67,21 @@ export default {
 		const refunds = await refundTestAccountsOnTimer(pass);
 		console.log(
 			`Test-account refunds on the timer: POST /api/test-account-refunds answered ${refunds}.`
+		);
+
+		// The donations the paid tests made, sent back and taken out of the totals. Last, so a
+		// failure here stops nothing above; it fails only this timer event.
+		const undos = await undoTestDonationsOnTimer(pass);
+		console.log(
+			`Test-donation undos on the timer: POST /api/test-donation-undos answered ${undos}.`
+		);
+
+		// Last of all: delete the campaigns the automatic tests created and are finished with.
+		// After the passes above, so a refund or an undo recorded in this same minute is seen.
+		// A failure throws with the status only.
+		const cleanup = await cleanUpTestCampaignsOnTimer(pass);
+		console.log(
+			`Test-campaign cleanup on the timer: POST /api/test-campaign-cleanup answered ${cleanup}.`
 		);
 	}
 };

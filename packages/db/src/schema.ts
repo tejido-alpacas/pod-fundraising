@@ -220,6 +220,39 @@ export const donations = sqliteTable(
 	(table) => [index('donations_campaign_idx').on(table.campaignId)]
 );
 
+/**
+ * FOR THE END-TO-END TEST PEOPLE ONLY (CLAUDE.md, "Qatom": the one exception, the owner's
+ * decision of 15 November 2026). The undoing of one donation the automatic paid tests made:
+ * its money sent back, out of the donation item's own twin, to the test person's wallet it
+ * was paid from. Written by test-donation-undos.ts in the backend and by nothing else.
+ *
+ * The row is written as `started` BEFORE the transfer is sent, so there is always a record
+ * that money may have moved, and it is never removed. Two things make "never twice" a rule
+ * of the table itself:
+ *   - the donation is the primary key: a donation is undone, or tried, at most once, ever;
+ *   - `twistId`, the id of the payment on the item's ledger, is unique: one payment is sent
+ *     back at most once, whichever donation it was matched to.
+ *
+ * A donation whose undo is `sent` no longer counts in its campaign's total (donations.ts).
+ * The donation's own row stays, as the history.
+ *
+ * Nothing here names a wallet, a twin or a key, and no row exists for anyone's donation but
+ * a test person's: for everyone else `donations` still holds nothing that identifies a donor.
+ */
+export const donationUndos = sqliteTable('donation_undos', {
+	donationId: text('donation_id')
+		.primaryKey()
+		.references(() => donations.id),
+	/** The ledger's own id of the payment that was sent back. */
+	twistId: text('twist_id').notNull().unique(),
+	/** What was sent: the donation's amount, in Qatom's smallest unit. */
+	amount: integer('amount').notNull(),
+	status: text('status').$type<RefundStatus>().notNull(),
+	statusReason: text('status_reason'),
+	startedAt: text('started_at').notNull(),
+	settledAt: text('settled_at')
+});
+
 // ---------------------------------------------------------------------------
 // Deposit refunds (bookkeeping for transfers; not contract records)
 // ---------------------------------------------------------------------------

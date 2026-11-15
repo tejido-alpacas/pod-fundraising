@@ -3,13 +3,14 @@
 //
 // NOTHING HERE REACHES QATOM, A TWIN OR ANY NETWORK, AND NOTHING MOVES MONEY. `fetch` is
 // replaced for every test, and a request the test did not expect fails it.
-import { agentWalletHostnameSchema } from '@tejido/contracts';
+import { agentWalletHostnameSchema, primaryWalletHostnameSchema } from '@tejido/contracts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { QatomError } from '../errors.ts';
 import {
 	createMerchantAccount,
 	E2E_TEST_EMAIL_DOMAIN,
 	isEndToEndTestEmail,
+	type ItemTwinDonationReturnRequest,
 	type ItemTwinRefundRequest
 } from './index.ts';
 import { isWalletHostname } from './item-twin-refund.ts';
@@ -523,5 +524,103 @@ describe('the key never comes out', () => {
 			expect(out).not.toContain(ITEM_TWIN);
 		}
 		expect(logged).toBe('');
+	});
+});
+
+// A donation the paid tests made goes back to the wallet it was paid from, which may be the
+// test person's PRIMARY wallet. Same sender, same refusals.
+describe('returnTestDonationFromItemTwin', () => {
+	const PRIMARY = 'primary0001.biz.todaq.net';
+
+	async function giveBack(change: Partial<ItemTwinDonationReturnRequest> = {}) {
+		const beforeSending = vi.fn(async (_dq: string) => true);
+		const account = createMerchantAccount({
+			paymentApiUrl: API,
+			clientId: 'test-account-client',
+			clientSecret: 'test-account-secret'
+		});
+		const outcome = account
+			.returnTestDonationFromItemTwin({
+				commodityHash: HASH,
+				payer: { email: TEST_EMAIL, walletHostname: primaryWalletHostnameSchema.parse(PRIMARY) },
+				amount: 1000,
+				beforeSending,
+				...change
+			})
+			.then(
+				(result) => ({ result, error: null }),
+				(error: unknown) => ({ result: null, error })
+			);
+		return { ...(await outcome), beforeSending };
+	}
+
+	it('sends the amount once, from the item’s twin to the test person’s primary wallet', async () => {
+		const { result, beforeSending } = await giveBack();
+
+		expect(result).toEqual({ outcome: 'sent' });
+		expect(beforeSending).toHaveBeenCalledExactlyOnceWith(DQ);
+		expect(transfers()).toHaveLength(1);
+		expect(transfers()[0]!.body).toEqual({ amount: 1, destination: `https://${PRIMARY}` });
+	});
+
+	it('also takes the agent wallet, when that is the wallet the donation was paid from', async () => {
+		await giveBack({
+			payer: { email: TEST_EMAIL, walletHostname: agentWalletHostnameSchema.parse(AGENT) }
+		});
+
+		expect(transfers().map(({ body }) => body)).toEqual([
+			{ amount: 1, destination: `https://${AGENT}` }
+		]);
+	});
+
+	it('refuses anyone who is not a test person before asking Qatom anything', async () => {
+		for (const email of [
+			'donor@real.example',
+			'donor@e2e.m.todaq.net.example',
+			'donor@x.e2e.m.todaq.net',
+			'donor@e2e.m.todaq.net@real.example',
+			''
+		]) {
+			const { result, beforeSending } = await giveBack({
+				payer: { email, walletHostname: primaryWalletHostnameSchema.parse(PRIMARY) }
+			});
+			expect(result, email).toEqual({ outcome: 'not_sent', reason: 'not_a_test_person' });
+			expect(beforeSending).not.toHaveBeenCalled();
+		}
+		expect(requests).toEqual([]);
+	});
+
+	it('refuses a wallet that is not a wallet hostname as Qatom writes one', async () => {
+		const { result } = await giveBack({
+			payer: {
+				email: TEST_EMAIL,
+				walletHostname: primaryWalletHostnameSchema.parse('wallet.attacker.example')
+			}
+		});
+
+		expect(result).toEqual({ outcome: 'not_sent', reason: 'recipient_not_a_wallet' });
+		expect(requests).toEqual([]);
+	});
+
+	it('is never sent again after no answer, and lets nothing about the twin out', async () => {
+		transfer = () => {
+			throw new TypeError(`fetch failed: https://${ITEM_TWIN}/dq/${DQ}/transfer?apiKey=${KEY}`);
+		};
+		const outcome = await giveBack();
+
+		expect(outcome.result).toEqual({ outcome: 'unknown', failure: 'no_answer' });
+		expect(transfers()).toHaveLength(1);
+		const out = everythingThatCameOut(outcome);
+		expect(out).not.toContain(KEY);
+		expect(out).not.toContain(ITEM_TWIN);
+	});
+
+	it('a refusal by the twin is reported with the status only, and not sent again', async () => {
+		transfer = () => Response.json({ error: `apiKey=${KEY}` }, { status: 403 });
+		const outcome = await giveBack();
+
+		expect(outcome.result).toEqual({ outcome: 'refused', status: 403 });
+		expect(transfers()).toHaveLength(1);
+		expect(everythingThatCameOut(outcome)).not.toContain(KEY);
 	});
 });

@@ -1,6 +1,11 @@
 <!--
 	Giving to one campaign, in the first site's design: pick an amount, then pay on Qatom's page.
 	Each amount is its own button in one plain form, so it works without scripts.
+
+	Qatom's checkout page does not bring the donor back, so the form opens it in a NEW WINDOW
+	(`target="_blank"`) and this page stays where it is, with a link to the campaign for after
+	paying. A refusal (campaign closed, amount gone, Qatom not answering) is this same page,
+	drawn in that new window with its notice and a line saying the window can be closed.
 -->
 <script lang="ts">
 	import Icon from '#lib/campaign-site/Icon.svelte';
@@ -57,6 +62,7 @@
 			<p class="give-problem" role="alert">
 				<Icon name="info" size={18} /><span>{t(lang, `give_problem_${problem}`)}</span>
 			</p>
+			<p class="give-note">{t(lang, 'give_problem_window')}</p>
 		{/if}
 
 		{#if !data.open}
@@ -65,7 +71,8 @@
 			<p class="give-note">{t(lang, 'give_problem_unavailable')}</p>
 		{:else}
 			<h2 class="x-h2">{t(lang, 'give_choose')}</h2>
-			<form method="POST" class="give-amounts">
+			<!-- noopener: Qatom's page gets no handle on this one. -->
+			<form method="POST" target="_blank" rel="noopener" class="give-amounts">
 				{#each data.amounts as amount (amount.value)}
 					<button class="btn btn-orange" name="amount" value={amount.value}>
 						{t(lang, 'give_amount', { amount: amount.shown, unit: UNIT })}
@@ -74,6 +81,9 @@
 			</form>
 			<p class="give-note">{t(lang, 'give_lead')}</p>
 			<p class="give-note">{t(lang, 'give_after')}</p>
+			<p class="give-paid">
+				<a class="btn btn-ghost" href={data.campaign.path}>{t(lang, 'give_paid')}</a>
+			</p>
 			<p class="give-note">{t(lang, 'give_private')}</p>
 		{/if}
 	</div>
@@ -100,6 +110,9 @@
 		color: var(--muted);
 		margin: 0 0 8px;
 		max-width: 56ch;
+	}
+	.give-paid {
+		margin: 12px 0 18px;
 	}
 	.give-problem {
 		display: flex;
