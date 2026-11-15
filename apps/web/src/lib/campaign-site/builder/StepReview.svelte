@@ -1,6 +1,8 @@
 <!--
-  StepReview: everything the organiser entered, in plain words, each section with a link back
-  to its step. Nothing is editable here.
+  StepReview: everything the organiser entered, in plain words, as a summary to check at a
+  glance. Each section is a card: its Edit button sits beside its heading, and its facts are
+  label and value pairs laid out across the card's width. On a phone it is one column.
+  Nothing is editable here.
 
   <StepReview {draft} {notices} />
 -->
@@ -44,9 +46,10 @@
 </script>
 
 {#snippet head(step: Step, id: string)}
-	<div class="tj-section__head">
+	<!-- The first site's button (`btn`, from the root stylesheet), right beside the heading. -->
+	<div class="head">
 		<h2 class="tj-section__title" {id}>{STEP_NAME[step]}</h2>
-		<a class="tj-link--standalone" href="?step={step}">
+		<a class="btn btn-ghost btn-sm edit" href="?step={step}">
 			Edit<span class="tj-vh"> {STEP_NAME[step].toLowerCase()}</span>
 		</a>
 	</div>
@@ -54,7 +57,7 @@
 
 <section class="tj-card" aria-labelledby="review-project">
 	{@render head('project', 'review-project')}
-	<dl class="tj-dl">
+	<dl class="tj-dl facts">
 		<div>
 			<dt>Project name</dt>
 			<dd>{shown(draft.project.title)}</dd>
@@ -80,7 +83,7 @@
 
 <section class="tj-card" aria-labelledby="review-funding">
 	{@render head('funding', 'review-funding')}
-	<dl class="tj-dl">
+	<dl class="tj-dl facts">
 		<div>
 			<dt>Goal</dt>
 			<dd>{goal}</dd>
@@ -97,14 +100,25 @@
 			{#each draft.milestones as milestone, index (milestone.key)}
 				<li>
 					<p class="item-title">{index + 1}. {shown(milestone.title)}</p>
-					<p class="item-meta">
-						{milestone.kind === '' ? 'Kind not chosen' : KIND_LABEL[milestone.kind]} ·
-						{milestone.dueDate === '' ? 'No due date yet' : `Due ${formatDue(milestone.dueDate)}`}
-					</p>
 					{#if milestone.description.trim()}<p class="long">{milestone.description.trim()}</p>{/if}
-					<p class="item-meta">
-						Work by {nameOf(milestone.ownerKey)}. Confirmed by {nameOf(milestone.confirmerKey)}.
-					</p>
+					<dl class="tj-dl pairs">
+						<div>
+							<dt>Kind</dt>
+							<dd>{milestone.kind === '' ? 'Kind not chosen' : KIND_LABEL[milestone.kind]}</dd>
+						</div>
+						<div>
+							<dt>Due</dt>
+							<dd>{milestone.dueDate === '' ? 'No due date yet' : formatDue(milestone.dueDate)}</dd>
+						</div>
+						<div>
+							<dt>Work by</dt>
+							<dd>{nameOf(milestone.ownerKey)}</dd>
+						</div>
+						<div>
+							<dt>Confirmed by</dt>
+							<dd>{nameOf(milestone.confirmerKey)}</dd>
+						</div>
+					</dl>
 				</li>
 			{/each}
 		</ol>
@@ -116,7 +130,7 @@
 	{#if draft.people.length === 0}
 		<p>Nobody has been added yet.</p>
 	{:else}
-		<dl class="tj-dl">
+		<dl class="tj-dl columns">
 			<div>
 				<dt>Who does the work</dt>
 				{#each workers as worker (worker.key)}
@@ -152,7 +166,7 @@
 
 <section class="tj-card" aria-labelledby="review-schedule">
 	{@render head('schedule', 'review-schedule')}
-	<dl class="tj-dl">
+	<dl class="tj-dl facts">
 		<div>
 			<dt>Work is reported</dt>
 			<dd>
@@ -188,13 +202,54 @@
 	section {
 		overflow-wrap: anywhere;
 	}
+	/* The heading with its Edit button right beside it, not across the card from it. */
+	.head {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: var(--space-2) var(--space-3);
+	}
+	/* Big enough to press on a phone: the design system's 44px touch size. */
+	.edit {
+		min-height: var(--size-touch);
+	}
+	.tj-dl dd + dd {
+		margin-top: var(--space-2);
+	}
+	/* One fact a row, each row ruled off from the next. On a phone the value sits under its label. */
+	.facts {
+		gap: 0;
+	}
+	.facts > div {
+		display: grid;
+		gap: var(--space-1) var(--space-4);
+		padding-block: var(--space-3);
+		border-top: var(--border-hair) solid var(--border);
+	}
+	.facts > div:last-child {
+		padding-bottom: 0;
+	}
 	.items {
 		display: grid;
-		gap: var(--space-4);
 	}
 	.items li {
 		display: grid;
-		gap: var(--space-1);
+		gap: var(--space-2);
+		padding-block: var(--space-3);
+		border-top: var(--border-hair) solid var(--border);
+	}
+	.items li:last-child {
+		padding-bottom: 0;
+	}
+	/* A milestone's four facts, side by side where there is room: two across on a phone. */
+	.pairs {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--space-3) var(--space-4);
+	}
+	.columns {
+		gap: var(--space-4);
+		padding-top: var(--space-3);
+		border-top: var(--border-hair) solid var(--border);
 	}
 	.item-title {
 		font: 600 16px/24px var(--font-sans);
@@ -208,7 +263,21 @@
 	.long {
 		white-space: pre-line;
 	}
-	.tj-dl dd + dd {
-		margin-top: var(--space-2);
+	/*
+		With room (the campaign pages are a size container), the card's width is used: label
+		and value side by side, a milestone's four facts in one row, and the two groups of
+		people in two columns.
+	*/
+	@container (min-width: 600px) {
+		.facts > div {
+			grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+			align-items: baseline;
+		}
+		.pairs {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+		}
+		.columns {
+			grid-template-columns: repeat(2, minmax(0, 1fr));
+		}
 	}
 </style>
