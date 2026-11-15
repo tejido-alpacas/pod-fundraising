@@ -107,12 +107,16 @@ function isChatEvent(value: unknown): value is ChatEvent {
 }
 
 /**
- * Which of the campaign's two filing tools a tool name is, or null for any other Qatom tool.
- * The names end in `log_work` and `milestone_hit` (see the agent's instructions).
+ * Which of the two filing tools a tool name is, or null for any other Qatom tool.
+ *
+ * The work log's name ends in `log_work`. The milestone tool's name ends in `milestone_hit`
+ * or in `milestone`: the shared item's tool is called `milestone` on the live site (seen on
+ * 15 November 2026). Both endings count, because a filing taken for an ordinary question is
+ * shown as "nothing was filed" after its deposit was paid.
  */
 export function filingTool(name: string): 'log_work' | 'milestone_hit' | null {
 	if (name.endsWith('log_work')) return 'log_work';
-	if (name.endsWith('milestone_hit')) return 'milestone_hit';
+	if (name.endsWith('milestone_hit') || name.endsWith('milestone')) return 'milestone_hit';
 	return null;
 }
 
