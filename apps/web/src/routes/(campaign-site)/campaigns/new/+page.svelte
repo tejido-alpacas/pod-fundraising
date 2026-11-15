@@ -79,7 +79,10 @@
 	onMount(() => {
 		draft = loadDraft();
 		created = loadCreated();
-		record = loadRecord();
+		// The record holds email addresses, so it is kept no longer than the screen that shows
+		// it: opening the builder itself, rather than a created campaign, removes it.
+		if (page.url.searchParams.has('created')) record = loadRecord();
+		else saveRecord(null);
 		ready = true;
 	});
 	$effect(() => {
@@ -145,6 +148,16 @@
 			}))
 	);
 
+	// Leaving the created screen for the builder ("Start another campaign") removes the record
+	// of people, and so does the campaign being published: it is taken out of this tab's
+	// storage, and stays on the screen only until the tab is reloaded or left.
+	const createdIsPublished = $derived(
+		created !== null && data.publishing?.campaignId === created.id && !data.publishing.draft
+	);
+	$effect(() => {
+		if (ready && showCreated && createdIsPublished) saveRecord(null);
+	});
+
 	let heading = $state<HTMLElement>();
 	let summary = $state<HTMLElement>();
 	afterNavigate((navigation) => {
@@ -153,6 +166,10 @@
 		if (navigation.type === 'enter') return;
 		const from = navigation.from?.url.searchParams;
 		const to = navigation.to?.url.searchParams;
+		if (from?.has('created') && !to?.has('created')) {
+			record = null;
+			saveRecord(null);
+		}
 		if (page.url.hash !== '') return;
 		const opened = to?.get('edit');
 		const closed = from?.get('edit');

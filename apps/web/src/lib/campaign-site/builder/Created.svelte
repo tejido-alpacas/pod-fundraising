@@ -110,9 +110,11 @@
 		</p>
 	</div>
 	<Banner title="Copy these links now" role="note">
-		They are shown here, in this browser tab, and nowhere else. Closing the tab loses them{record
-			? ', and the email addresses with them'
-			: ''}.
+		They are shown here, in this browser tab, and nowhere else. Closing the tab loses them.
+		{#if record}
+			The email addresses are kept for this screen only: they are removed when you start another
+			campaign, and are not kept after a reload once the campaign is published.
+		{/if}
 	</Banner>
 	{#if record}
 		<ul class="links">

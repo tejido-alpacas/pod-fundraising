@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Created from './Created.svelte';
 import type { BuilderDraft, CreatedCampaign } from './draft.ts';
 import { parseRecord, recordOf } from './record.ts';
+import { loadRecord, saveRecord } from './store.ts';
 
 const fetched = vi.fn(() => Promise.reject(new Error('the created screen must not fetch')));
 beforeEach(() => {
@@ -252,5 +253,23 @@ describe('the "Campaign created" screen', () => {
 		expect(body).toContain('Joy Baptiste');
 		expect(body).toContain('https://app.tejido.example/invite/pty_3');
 		expect(body).toContain('Tejido does not email them');
+	});
+});
+
+describe('keeping the record in the browser tab', () => {
+	it('keeps it in this tab’s storage, and removes it whole', () => {
+		const kept = new Map<string, string>();
+		vi.stubGlobal('sessionStorage', {
+			getItem: (key: string) => kept.get(key) ?? null,
+			setItem: (key: string, value: string) => kept.set(key, value),
+			removeItem: (key: string) => kept.delete(key)
+		});
+		const record = recordOf(draft(), answered());
+		saveRecord(record);
+		expect(loadRecord()).toEqual(record);
+
+		saveRecord(null);
+		expect(loadRecord()).toBeNull();
+		expect([...kept.values()].join('')).not.toContain('@');
 	});
 });
