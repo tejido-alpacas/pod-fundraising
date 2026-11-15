@@ -185,6 +185,8 @@ jobs:
         run: |
           say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
           unpaid() { say "$1"; echo "paid=false" >> "$GITHUB_OUTPUT"; exit 0; }
+          # Reading GitHub sometimes fails for a moment. These calls only read, so try three times.
+          api() { local try; for try in 1 2 3; do gh api "$@" && return 0; sleep 3; done; return 1; }
 
           # The gap between paid stories: the fast one until E2E_FAST_UNTIL, the usual one after.
           every=$E2E_PAID_EVERY_MINUTES
@@ -193,22 +195,29 @@ jobs:
           [[ $GITHUB_EVENT_NAME == workflow_run || $GITHUB_EVENT_NAME == schedule ]] || unpaid "Unpaid run: it was started by hand. The paid story only runs by itself."
           [[ $SIGNS_IN == true ]] || unpaid "Unpaid run: this run does not sign in, so it cannot file."
 
-          if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?per_page=30" \
+          if ! runs=$(api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?per_page=30" \
             --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID and .status == \"completed\") | [.id, .run_started_at, .conclusion, .head_sha] | @tsv"); then
             echo "::warning::Could not read this workflow's recent runs, so this run is unpaid."
             unpaid "Unpaid run: the earlier runs could not be read."
           fi
 
-          # The paid runs among them, newest first: when each started, how it ended, on which commit.
+          # The paid runs among them, newest first: when each started, how it ended, and the commit
+          # it TESTED. A run after a release tests that release's commit, which is often one behind
+          # the commit GitHub lists for the run, so the paid step's own name carries the tested
+          # commit in brackets. A paid run from before that has none: GitHub's commit is used.
           paid_runs=()
           while IFS=$'\t' read -r id started conclusion sha; do
             [[ -n $id ]] || continue
-            if ! found=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
-              --jq "[.jobs[].steps[]? | select(.name == \"$PAID_STEP\" and .conclusion == \"success\")] | length"); then
+            if ! found=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
+              --jq "[.jobs[].steps[]? | select((.name | startswith(\"$PAID_STEP\")) and .conclusion == \"success\") | .name] | first // \"\""); then
               echo "::warning::Could not read run $id, so this run is unpaid."
               unpaid "Unpaid run: an earlier run could not be read."
             fi
-            if ((found > 0)); then paid_runs+=("$started $conclusion $sha"); fi
+            if [[ -n $found ]]; then
+              tested=$sha
+              if [[ $found =~ \(([0-9a-f]{40})\)$ ]]; then tested=${BASH_REMATCH[1]}; fi
+              paid_runs+=("$started $conclusion $tested")
+            fi
           done <<< "$runs"
 
           if ((${#paid_runs[@]} > 0)); then
@@ -231,9 +240,9 @@ jobs:
           say "PAID run: it creates its own campaign and files a work log (0.10), a milestone claim (1.00) and its confirmation (1.00) from the two test people's agent wallets."
           echo "paid=true" >> "$GITHUB_OUTPUT"
 
-      # Later runs count this step to know that this run was paid. Its name is PAID_STEP above:
-      # change both together.
-      - name: Note that this run tells the paid story
+      # Later runs count this step to know that this run was paid, and read from its name the
+      # commit the run tested. Its name begins with PAID_STEP above: change both together.
+      - name: Note that this run tells the paid story (${{ github.event.workflow_run.head_sha || github.sha }})
         if: steps.inbox.outputs.ready == 'true' && steps.paid.outputs.paid == 'true'
         run: echo "This run spends up to 2.10 in real deposits from the two test people's agent wallets."
 
