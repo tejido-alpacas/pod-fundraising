@@ -4,9 +4,17 @@
  *
  * THE ONE EXCEPTION (CLAUDE.md, "Qatom"; the owner's decision of 15 November 2026). The paid
  * end-to-end tests pay deposits from each test person's AGENT wallet. So that those wallets
- * stay funded with nobody topping them up, a test person's deposits on a confirmed milestone
- * go back to that same agent wallet, paid out of the twin the item is sold from. Everyone
+ * stay funded with nobody topping them up, a test person's deposits go back to that same
+ * agent wallet, paid out of the twin the item is sold from (when: see below). Everyone
  * else is refunded by refunds.ts, to their PRIMARY wallet, and only when a person asks.
+ *
+ * WHICH DEPOSITS, AND WHEN. A test person's deposit on a CONFIRMED milestone, at once. And
+ * any other deposit of theirs once its entry was filed UNCONFIRMED_REFUND_AGE_MINUTES ago or
+ * more: a test run that fails leaves its milestone unconfirmed, and its deposits must still
+ * come back (the owner, 15 November: "a failed paid test run should still see if refunds are
+ * necessary even if it fails red"). Until it is that old, such a deposit is not looked at at
+ * all: it is not sent, not skipped and not counted. Everything below applies to both kinds
+ * alike.
  *
  * WHO. A party whose email is at the test inbox domain: `isEndToEndTestEmail` in
  * @tejido/qatom is the one place that decides. It is asked here about every deposit, and
@@ -35,11 +43,11 @@
 import { DEPOSIT_AMOUNT, formatAmount, type Amount, type EntryItem } from '@tejido/contracts';
 import {
 	claimDepositsForRefund,
-	listConfirmedUnrefundedDepositsByEmailDomain,
+	listUnrefundedDepositsByEmailDomain,
 	markRefundFailed,
 	markRefundSent,
 	markRefundUnknown,
-	type ConfirmedUnrefundedDeposit,
+	type UnrefundedDepositWithFiler,
 	type Database
 } from '@tejido/db';
 import { QatomError } from '@tejido/qatom';
@@ -60,6 +68,28 @@ import { SHARED_ITEM_COMMODITY_ID } from './reconciler.ts';
  * here could at worst move 10.00 in a minute, out of twins that hold deposits.
  */
 export const PASS_LIMIT: Amount = 10_000;
+
+/**
+ * How old a test person's deposit must be before it goes back although its milestone is not
+ * confirmed: 20 minutes, counted from when its entry was filed. A paid run takes about 13
+ * minutes, so by then the run is over and will not confirm it.
+ */
+export const UNCONFIRMED_REFUND_AGE_MINUTES = 20;
+
+/**
+ * Whether a test person's unrefunded deposit is due to be considered by a pass that runs at
+ * `now`: its milestone is confirmed, or its entry was filed UNCONFIRMED_REFUND_AGE_MINUTES
+ * ago or more. A filed time that cannot be read is never old enough.
+ */
+export function isDueForRefund(
+	row: Pick<UnrefundedDepositWithFiler, 'milestoneConfirmed' | 'filedAt'>,
+	now: Date
+): boolean {
+	if (row.milestoneConfirmed) return true;
+	const filedAtMs = Date.parse(row.filedAt);
+	if (Number.isNaN(filedAtMs)) return false;
+	return now.getTime() - filedAtMs >= UNCONFIRMED_REFUND_AGE_MINUTES * 60_000;
+}
 
 export type TestRefundSkipReason =
 	/** The reconciler has not matched the entry to a ledger transaction yet. */
@@ -147,11 +177,11 @@ export interface RefundTestAccountsOptions {
 	account: Pick<MerchantAccount, 'resolveCommodityHash' | 'refundTestPersonFromItemTwin'>;
 }
 
-const total = (deposits: ConfirmedUnrefundedDeposit[]): Amount =>
+const total = (deposits: UnrefundedDepositWithFiler[]): Amount =>
 	deposits.reduce((sum, { deposit }) => sum + deposit.amount, 0);
 
 /** Why a deposit cannot be refunded by this pass, from what is recorded. Null if it can. */
-function reasonToSkip(row: ConfirmedUnrefundedDeposit): TestRefundSkipReason | null {
+function reasonToSkip(row: UnrefundedDepositWithFiler): TestRefundSkipReason | null {
 	if (row.claim) {
 		return row.claim.status === 'unknown' ? 'refund_outcome_unknown' : 'refund_in_progress';
 	}
@@ -171,8 +201,8 @@ function describeFailure(error: unknown): string {
 }
 
 /**
- * One pass: sends every end-to-end test person's refundable deposits on confirmed milestones
- * back to their agent wallet. Safe to run again: a deposit is never sent twice.
+ * One pass: sends every end-to-end test person's deposits that are due (on a confirmed
+ * milestone, or old enough on any other) back to their agent wallet. Safe to run again: a deposit is never sent twice.
  *
  * Transfers go one after another, never side by side.
  */
@@ -181,14 +211,16 @@ export async function refundTestAccounts(
 ): Promise<TestRefundReport> {
 	const { db, account } = options;
 
-	// WHO. The database shortens the list by the same domain; this line decides.
-	const rows = (
-		await listConfirmedUnrefundedDepositsByEmailDomain(db, E2E_TEST_EMAIL_DOMAIN)
-	).filter((row) => isEndToEndTestEmail(row.party.email));
+	// WHO, then WHEN. The database shortens the list by the same domain; these lines decide.
+	// The time is read once, so every deposit in a pass is judged against the same moment.
+	const now = new Date();
+	const rows = (await listUnrefundedDepositsByEmailDomain(db, E2E_TEST_EMAIL_DOMAIN))
+		.filter((row) => isEndToEndTestEmail(row.party.email))
+		.filter((row) => isDueForRefund(row, now));
 
 	const sent: TestRefundSent[] = [];
 	const skipped: TestRefundSkipped[] = [];
-	const line = (rows: ConfirmedUnrefundedDeposit[]): TestRefundLine => {
+	const line = (rows: UnrefundedDepositWithFiler[]): TestRefundLine => {
 		const first = rows[0]!;
 		const amount = total(rows);
 		return {
@@ -202,7 +234,7 @@ export async function refundTestAccounts(
 		};
 	};
 	const skip = (
-		rows: ConfirmedUnrefundedDeposit[],
+		rows: UnrefundedDepositWithFiler[],
 		reason: TestRefundSkipReason,
 		refundId: string | null = null
 	) => {
@@ -211,10 +243,10 @@ export async function refundTestAccounts(
 
 	// 1. Sort every deposit: ready, or skipped with a reason. One group is one party's deposits
 	//    on one milestone for one item (and, when skipped, for one reason).
-	const ready = new Map<string, ConfirmedUnrefundedDeposit[]>();
+	const ready = new Map<string, UnrefundedDepositWithFiler[]>();
 	const notReady = new Map<
 		string,
-		{ reason: TestRefundSkipReason; refundId: string | null; rows: ConfirmedUnrefundedDeposit[] }
+		{ reason: TestRefundSkipReason; refundId: string | null; rows: UnrefundedDepositWithFiler[] }
 	>();
 	for (const row of rows) {
 		const group = [row.campaignId, row.milestoneId, row.party.id, row.entry.item].join('\n');
