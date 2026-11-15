@@ -120,7 +120,7 @@ describe('POST /api/schedule', () => {
 					dueDate: '2026-11-20',
 					overdueDays: 0,
 					raisedAt: FIRST_PASS,
-					link: `${APP}/reminder?milestone=m3-books-delivered`
+					link: `${APP}/reminder?milestone=m3-books-delivered&party=head-teacher`
 				},
 				{
 					id: expect.stringMatching(/^rem_/),
@@ -134,7 +134,7 @@ describe('POST /api/schedule', () => {
 					dueDate: '2026-11-21',
 					overdueDays: 0,
 					raisedAt: FIRST_PASS,
-					link: `${APP}/reminder`
+					link: `${APP}/reminder?party=contractor`
 				}
 			]
 		} satisfies ScheduleSummary);
@@ -175,7 +175,7 @@ describe('POST /api/schedule', () => {
 				action: 'claim',
 				milestoneId: 'm2-walls',
 				dueDate: '2026-11-27',
-				link: `${APP}/reminder?milestone=m2-walls`
+				link: `${APP}/reminder?milestone=m2-walls&party=contractor`
 			}
 		]);
 
@@ -189,7 +189,7 @@ describe('POST /api/schedule', () => {
 				action: 'confirm',
 				milestoneId: 'm3-books-delivered',
 				overdueDays: 1,
-				link: `${APP}/reminder?milestone=m3-books-delivered`
+				link: `${APP}/reminder?milestone=m3-books-delivered&party=head-teacher`
 			}
 		]);
 
@@ -203,7 +203,7 @@ describe('POST /api/schedule', () => {
 			what: 'work_log',
 			dueDate: '2026-11-21',
 			overdueDays: 1,
-			link: `${APP}/reminder`
+			link: `${APP}/reminder?party=contractor`
 		});
 
 		expect((await run('2026-11-22T18:00:00.000Z')).body.reminders).toEqual([]);

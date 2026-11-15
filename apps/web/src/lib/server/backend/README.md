@@ -28,7 +28,8 @@ reminders it just recorded. The rules are `whatIsDue` in `@tejido/db` (`schedule
 definition; every date is a calendar day in UTC.
 
 - Nothing is sent. A reminder is a row in `reminders` and a line in the answer, with the link
-  the party should open in the App (`/reminder`, or `/reminder?milestone=<id>`). A person or a
+  the party should open in the App: `/reminder?party=<party id>` for a work log, and
+  `/reminder?milestone=<milestone id>&party=<party id>` for a milestone. A person or a
   later mailer acts on it.
 - A reminder is recorded once: one `due` and one `overdue` per party for each milestone and
   each work-log period. Running the pass again records nothing new.

@@ -88,11 +88,16 @@ function workUnderWay(campaign: Pick<Campaign, 'status'>): boolean {
 	return campaign.status === 'reporting' || campaign.status === 'overdue';
 }
 
-/** Where the party is sent: the App's reminder page, with the milestone when there is one. */
+/**
+ * Where the party is sent: the App's reminder page, with the milestone when there is one and
+ * always the party it is for. The party's id is what lets a signed-out person sign in to the
+ * right project in one step, as an invitation link does.
+ */
 function reminderLink(appOrigin: string, item: DueItem): string {
-	return item.what === 'milestone'
-		? `${appOrigin}/reminder?milestone=${encodeURIComponent(item.milestoneId)}`
-		: `${appOrigin}/reminder`;
+	const url = new URL('/reminder', appOrigin);
+	if (item.what === 'milestone') url.searchParams.set('milestone', item.milestoneId);
+	url.searchParams.set('party', item.partyId);
+	return url.href;
 }
 
 /**

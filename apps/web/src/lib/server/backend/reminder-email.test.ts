@@ -19,7 +19,7 @@ function milestone(values: Partial<Reminder> = {}, title = 'Walls up to roof hei
 			period: null,
 			dueDate: '2026-11-27',
 			overdueDays: 0,
-			link: `${APP}/reminder?milestone=m2-walls`,
+			link: `${APP}/reminder?milestone=m2-walls&party=contractor`,
 			...values
 		}
 	});
@@ -36,7 +36,7 @@ function workLog(values: Partial<Reminder> = {}) {
 			period: { number: 1, start: '2026-11-15', end: '2026-11-21' },
 			dueDate: '2026-11-21',
 			overdueDays: 0,
-			link: `${APP}/reminder`,
+			link: `${APP}/reminder?party=contractor`,
 			...values
 		}
 	});
@@ -48,7 +48,7 @@ const confirm = (values: Partial<Reminder> = {}) =>
 			party: { id: 'head-teacher', name: 'Yvonne Campbell' },
 			action: 'confirm',
 			dueDate: '2026-11-20',
-			link: `${APP}/reminder?milestone=m3-books-delivered`,
+			link: `${APP}/reminder?milestone=m3-books-delivered&party=head-teacher`,
 			...values
 		},
 		'Books delivered'
@@ -79,12 +79,13 @@ describe('reminderEmail', () => {
 	});
 
 	it('carries the link to follow in the button, in the fallback line and in the plain text', () => {
-		const link = `${APP}/reminder?milestone=m2-walls`;
+		const link = `${APP}/reminder?milestone=m2-walls&party=contractor`;
 		const { html, text } = milestone();
 
-		expect(html.split(`href="${link}"`)).toHaveLength(3);
+		// In HTML the `&` of the address is written `&amp;`.
+		expect(html.split(`href="${link.replace('&', '&amp;')}"`)).toHaveLength(3);
 		expect(text).toContain(`Report the milestone: ${link}`);
-		expect(workLog().text).toContain(`File the work log: ${APP}/reminder`);
+		expect(workLog().text).toContain(`File the work log: ${APP}/reminder?party=contractor`);
 	});
 
 	it('states the deposit each filing takes, in the contracts’ amounts', () => {
@@ -189,6 +190,6 @@ function milestoneReminder(): Reminder {
 		period: null,
 		dueDate: '2026-11-27',
 		overdueDays: 0,
-		link: `${APP}/reminder?milestone=m2-walls`
+		link: `${APP}/reminder?milestone=m2-walls&party=contractor`
 	};
 }
