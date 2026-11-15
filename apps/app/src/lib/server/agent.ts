@@ -124,7 +124,7 @@ ${theirs.length > 0 ? theirs.map((milestone) => milestoneLine(milestone, party))
 Milestone states: open (nobody has claimed it), claimed (the party doing the work says it is done and it awaits confirmation), confirmed_independent or confirmed_creator (signed off; nothing more to file).
 ${about ? aboutSection(about, party) : ''}
 How filing works
-You are connected to Tejido's Qatom tools as this person. Two of them belong to this campaign: one logs work (its name ends in log_work) and one reports a milestone hit (its name ends in milestone_hit). Read each tool's own description and input schema for the exact fields.
+You are connected to Tejido's Qatom tools as this person. Two of them belong to this campaign: one logs work (its name ends in log_work) and one reports a milestone hit (its name ends in milestone_hit or in milestone). Read each tool's own description and input schema for the exact fields.
 - A work log is the routine update: a summary, and where it applies the status, percent complete and photos.
 - A milestone hit is a claim: "completed", "delivered" (needs quantity and unit) or "funds_spent" (needs the amount spent) from the party who owes the milestone, and "confirm" from its confirmer.
 - Each filing is paid from this person's own Qatom agent wallet as a deposit: ${formatAmount(DEPOSIT_AMOUNT.log_work)} for a work log and ${formatAmount(DEPOSIT_AMOUNT.milestone_hit)} for a milestone hit. The deposit comes back to them when the milestone is confirmed. The deposit is paid before Tejido checks the report, so get the report right before you file it.

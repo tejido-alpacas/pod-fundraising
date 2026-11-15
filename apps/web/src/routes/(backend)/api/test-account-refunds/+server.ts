@@ -11,6 +11,10 @@
  * endpoint. On the live site Cloudflare's timer calls it once a minute, in-process, after the
  * reconcile pass (#lib/server/backend/worker.ts). A person who holds the secret can call it.
  *
+ * Each pass that had something to consider writes one line to the Worker's logs: how many
+ * transfers were sent, how many groups were skipped and for which reasons, and whether a
+ * person needs to look. Counts and reason names only.
+ *
  * THIS ENDPOINT MOVES MONEY when it is called with real configuration: test amounts, from
  * Tejido's own item twins to the test accounts' agent wallets. Calling it again is safe: a
  * deposit is never sent twice. The merchant account is used; no person's token is involved.
@@ -18,7 +22,7 @@
 import { json } from '@sveltejs/kit';
 import { CHECKIN_SECRET_HEADER } from '@tejido/contracts';
 import { createHash, timingSafeEqual } from 'node:crypto';
-import { refundTestAccounts } from '#lib/server/backend/test-account-refunds.ts';
+import { passLogLine, refundTestAccounts } from '#lib/server/backend/test-account-refunds.ts';
 import type { RequestHandler } from './$types';
 
 /** Compares in constant time, whatever the lengths. As in the check-in endpoint. */
@@ -37,5 +41,12 @@ export const POST: RequestHandler = async ({ request, locals }) => {
 		);
 	}
 
-	return json(await refundTestAccounts({ db, account: qatom.account }));
+	const report = await refundTestAccounts({ db, account: qatom.account });
+
+	// One line in the Worker's logs, so a pass that sent nothing is not invisible. Counts and
+	// reason names only; nothing when there was nothing to consider.
+	const line = passLogLine(report);
+	if (line !== null) console.log(line);
+
+	return json(report);
 };
