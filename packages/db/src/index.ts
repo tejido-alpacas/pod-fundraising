@@ -23,10 +23,15 @@ export {
 	refundAttempts,
 	refundDeposits,
 	refunds,
+	reminders,
+	workLogSchedules,
 	type RefundStatus
 } from './schema.ts';
 export * from './records.ts';
 export * from './campaign-builder.ts';
 // The rules of a check-in. Here, not in an app, because both apps apply them.
 export * from './checkin-rules.ts';
+// What is due and overdue, and the reminders recorded for it. Used by the cadence scheduler.
+export * from './schedule.ts';
+export * from './reminders.ts';
 export { checkEvidence, evidenceStoreOrigin, type EvidenceVerdict } from './evidence.ts';

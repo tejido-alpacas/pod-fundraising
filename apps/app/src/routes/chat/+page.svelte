@@ -22,6 +22,7 @@
 		filingTool,
 		readChatEvents,
 		type ChatRefusal,
+		type ChatRequest,
 		type ChatTurn
 	} from '#lib/chat.ts';
 	import { DOCUMENT_TYPES, EVIDENCE_MAX_MEGABYTES, PICTURE_TYPES } from '#lib/evidence.ts';
@@ -123,12 +124,32 @@
 	const today = $derived(data.today ?? '');
 	const mine = $derived(party?.milestones ?? []);
 	const canFill = $derived(mine.some((milestone) => reportKindsFor(milestone).length > 0));
-	/** The milestone this person acts on next: the earliest one not yet confirmed. */
+	/** The one milestone this chat was opened for, from a reminder. Checked by the server. */
+	const about = $derived(mine.find((milestone) => milestone.id === party?.about));
+	/** That milestone, while there is still something to report on it. */
+	const focus = $derived(about && reportKindsFor(about).length > 0 ? about : undefined);
+	/**
+	 * The milestone this person acts on next: the one the chat was opened for, otherwise the
+	 * earliest one not yet confirmed.
+	 */
 	const next = $derived(
-		mine
-			.filter((milestone) => reportKindsFor(milestone).length > 0)
-			.toSorted((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
+		focus ??
+			mine
+				.filter((milestone) => reportKindsFor(milestone).length > 0)
+				.toSorted((a, b) => a.dueDate.localeCompare(b.dueDate))[0]
 	);
+	/** What the first button says and sends when the chat was opened for a milestone. */
+	const opener = $derived.by(() => {
+		if (!focus) return null;
+		if (focus.part === 'confirms') {
+			return focus.state === 'claimed'
+				? { label: 'Confirm this milestone', says: `I want to confirm ${focus.title}.` }
+				: null;
+		}
+		return focus.state === 'open'
+			? { label: 'Report on this milestone', says: `I want to report on ${focus.title}.` }
+			: { label: 'Log work on this milestone', says: `I want to log work on ${focus.title}.` };
+	});
 	const filings = $derived(
 		messages.flatMap((message) =>
 			message.parts.filter(
@@ -325,7 +346,11 @@
 			const response = await fetch('/api/chat', {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ messages: turns }),
+				body: JSON.stringify(
+					(about
+						? { messages: turns, milestone: about.id }
+						: { messages: turns }) satisfies ChatRequest
+				),
 				signal: stop.signal
 			});
 
@@ -569,6 +594,10 @@
 								<p>
 									You’re signed in as {party.name}{party.title ? `, ${party.title}` : ''}, on
 									<strong>{party.campaignTitle}</strong>.
+									{#if about && !focus}
+										<strong>{about.title}</strong> is already confirmed. There is nothing more to file
+										on it.
+									{/if}
 									{#if !next}
 										Every milestone you are named on is confirmed. There is nothing to file.
 									{:else if next.part === 'confirms' && next.state === 'claimed'}
@@ -581,7 +610,8 @@
 										<strong>{next.title}</strong> is reported as complete and waiting for its confirmer.
 										You can still log work on it.
 									{:else}
-										Next due from you: <strong>{next.title}</strong>, {shortDate(
+										{focus ? 'Your reminder is about' : 'Next due from you:'}
+										<strong>{next.title}</strong>, {focus ? 'due ' : ''}{shortDate(
 											next.dueDate
 										)}{overdue(next) > 0 ? `. It is ${days(overdue(next))} overdue` : ''}.
 									{/if}
@@ -599,12 +629,18 @@
 											disabled={waiting || !connected}
 											onclick={() =>
 												quick(
-													party.role === 'confirmer'
-														? 'I want to confirm a milestone.'
-														: 'I want to log this week’s work.'
+													opener
+														? opener.says
+														: party.role === 'confirmer'
+															? 'I want to confirm a milestone.'
+															: 'I want to log this week’s work.'
 												)}
 										>
-											{party.role === 'confirmer' ? 'Confirm a milestone' : 'Log this week’s work'}
+											{opener
+												? opener.label
+												: party.role === 'confirmer'
+													? 'Confirm a milestone'
+													: 'Log this week’s work'}
 										</Button>
 										{#if canFill}
 											<Button icon="list" size="field" disabled={!connected} onclick={toggleForm}>

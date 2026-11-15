@@ -429,7 +429,10 @@ describe('what the browser receives', () => {
 
 	it('gets what the form needs about each milestone from the chat page, and nothing private', async () => {
 		type LoadEvent = Parameters<typeof load>[0];
-		const data = await load({ locals: locals(sessionFor(headTeacher)) } as unknown as LoadEvent);
+		const data = await load({
+			locals: locals(sessionFor(headTeacher)),
+			url: new URL('http://localhost:5174/chat')
+		} as unknown as LoadEvent);
 
 		expect(data).toMatchObject({
 			who: {

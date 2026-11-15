@@ -81,7 +81,7 @@
 	report is due. Until then the campaign stays a draft.
 </Banner>
 
-<div><Button size="field" href="/old/campaigns/new">Start another campaign</Button></div>
+<div><Button size="field" href="/campaigns/new">Start another campaign</Button></div>
 
 <style>
 	.head {

@@ -28,7 +28,15 @@ import type {
 	PrimaryWalletHostname,
 	RefundStatus
 } from '@tejido/contracts';
-import { foreignKey, index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import {
+	foreignKey,
+	index,
+	integer,
+	primaryKey,
+	sqliteTable,
+	text,
+	uniqueIndex
+} from 'drizzle-orm/sqlite-core';
 
 // Times are ISO 8601 UTC strings, as in the contracts. They sort correctly as text.
 
@@ -296,6 +304,63 @@ export const itemProvisioning = sqliteTable(
 		updatedAt: text('updated_at').notNull()
 	},
 	(table) => [primaryKey({ columns: [table.campaignId, table.item] })]
+);
+
+// ---------------------------------------------------------------------------
+// The cadence scheduler (bookkeeping for what is due; not contract records)
+// ---------------------------------------------------------------------------
+
+/**
+ * The day a campaign's work-log periods are counted from: the UTC day the scheduler first
+ * saw the campaign with work under way. One row per campaign, written once and never changed.
+ * No row means the scheduler has not yet seen the campaign reporting, so no work log is due.
+ */
+export const workLogSchedules = sqliteTable('work_log_schedules', {
+	campaignId: text('campaign_id')
+		.primaryKey()
+		.references(() => campaigns.id),
+	/** A calendar day in UTC, `YYYY-MM-DD`: the first day of the first period. */
+	startedOn: text('started_on').notNull(),
+	recordedAt: text('recorded_at').notNull()
+});
+
+/**
+ * One reminder raised for one party: that something of theirs fell due, or became overdue.
+ * A record only. Nothing is sent from here; a person or a later mailer reads these.
+ *
+ * The unique index is what stops the same reminder being recorded twice, however often the
+ * scheduler runs and even when two runs overlap: one `due` and one `overdue` per party for
+ * each milestone, and for each work-log period.
+ */
+export const reminders = sqliteTable(
+	'reminders',
+	{
+		id: text('id').primaryKey(),
+		campaignId: text('campaign_id')
+			.notNull()
+			.references(() => campaigns.id),
+		/** The party responsible for what is due. */
+		partyId: text('party_id')
+			.notNull()
+			.references(() => parties.id),
+		what: text('what').$type<'work_log' | 'milestone'>().notNull(),
+		/** For a milestone, its id. For a work log, the first day of its period (`YYYY-MM-DD`). */
+		subject: text('subject').notNull(),
+		kind: text('kind').$type<'due' | 'overdue'>().notNull(),
+		/** The last day it is on time, in UTC: the milestone's due date, or the period's last day. */
+		dueDate: text('due_date').notNull(),
+		raisedAt: text('raised_at').notNull()
+	},
+	(table) => [
+		uniqueIndex('reminders_once_idx').on(
+			table.campaignId,
+			table.partyId,
+			table.what,
+			table.subject,
+			table.kind
+		),
+		index('reminders_party_idx').on(table.partyId)
+	]
 );
 
 // ---------------------------------------------------------------------------

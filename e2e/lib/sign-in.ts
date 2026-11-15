@@ -8,12 +8,15 @@
  *   1. the email step            #email-input, #email-submit-btn
  *   2. the code step             #email-code-input (it submits itself at six digits)
  *   3. sometimes a passkey offer #passkey-skip-btn
- *   4. the wallet step, which for Tejido's client finishes by itself; the buttons it can show
- *      for other clients are pressed if they appear (#confirm-authorization-btn,
- *      #proceed-without-wallet, #account-select-continue)
+ *   4. the wallet step. Because the sign-in names a Qatom MCP server, Qatom offers to add funds
+ *      by card here ("Add funds to your wallet"), unless the client's row says
+ *      `"show_chargeup": false`. "Skip for now" is pressed, and nothing else on that page: this
+ *      suite never chooses an amount or types a card. The other buttons the step can show are
+ *      pressed if they appear (#confirm-authorization-btn, #proceed-without-wallet,
+ *      #account-select-continue, and #finish-sign-in-retry once if finishing fails)
  *
- * and sends the browser back to the App. These ids were read from the sign-in page Qatom
- * serves in production; none was checked by running this. See e2e/README.md.
+ * and sends the browser back to the App. The first run against the live site reached the offer
+ * to add funds and stopped there; everything after it is still unchecked. See e2e/README.md.
  *
  * ONE code is asked for, by pressing Continue once. Nothing here presses "Send again".
  */
@@ -22,6 +25,7 @@ import type { E2eConfig, TestPerson } from './config.ts';
 import { until, type Waypoint } from './harness.ts';
 import { waitForSignInCode, type InboxQueue } from './inbox.ts';
 import { assertQatomPage, onOrigin } from './safety.ts';
+import { describeSeenPage, type SeenButton, type SeenPage } from './stuck-page.ts';
 
 const CODE_WAIT_MS = 120_000;
 const RETURN_WAIT_MS = 90_000;
@@ -31,13 +35,74 @@ async function shownText(locator: Locator): Promise<string | null> {
 	return (await locator.first().innerText()).trim() || null;
 }
 
+type Onward = { key: string; waypoint: string; find: (page: Page) => Locator };
+
 /** The buttons Qatom may put between the code and the way back. Each is pressed at most once. */
-const ONWARD = [
-	{ id: 'passkey-skip-btn', waypoint: 'qatom-passkey-offer' },
-	{ id: 'account-select-continue', waypoint: 'qatom-account' },
-	{ id: 'confirm-authorization-btn', waypoint: 'qatom-wallet' },
-	{ id: 'proceed-without-wallet', waypoint: 'qatom-no-wallet' }
+const ONWARD: Onward[] = [
+	{
+		key: 'passkey-skip',
+		waypoint: 'qatom-passkey-offer',
+		find: (page) => page.locator('#passkey-skip-btn')
+	},
+	{
+		key: 'account-continue',
+		waypoint: 'qatom-account',
+		find: (page) => page.locator('#account-select-continue')
+	},
+	{
+		key: 'confirm-authorization',
+		waypoint: 'qatom-wallet',
+		find: (page) => page.locator('#confirm-authorization-btn')
+	},
+	{
+		key: 'proceed-without-wallet',
+		waypoint: 'qatom-no-wallet',
+		find: (page) => page.locator('#proceed-without-wallet')
+	},
+	// The offer to add funds by card. The button has no id; Qatom's own checks find it by name.
+	{
+		key: 'add-funds-skip',
+		waypoint: 'qatom-add-funds',
+		find: (page) =>
+			page
+				.locator('#wallet-load-container')
+				.getByRole('button', { name: 'Skip for now', exact: true })
+	},
+	// Shown when finishing the sign-in failed after the offer was skipped.
+	{
+		key: 'finish-retry',
+		waypoint: 'qatom-finish-retry',
+		find: (page) => page.locator('#finish-sign-in-retry')
+	}
 ];
+
+/** What the page shows, for the log, when the wait for the way back runs out. Never throws. */
+async function seenOn(page: Page): Promise<SeenPage> {
+	const address = new URL(page.url());
+	const seen: SeenPage = {
+		path: address.pathname,
+		step: address.searchParams.get('step'),
+		headings: [],
+		buttons: []
+	};
+	try {
+		for (const heading of await page.getByRole('heading').all()) {
+			if (await heading.isVisible()) seen.headings.push(await heading.innerText());
+		}
+		for (const button of await page.getByRole('button').all()) {
+			if (!(await button.isVisible())) continue;
+			const found: SeenButton = {
+				text: await button.innerText(),
+				id: await button.getAttribute('id'),
+				disabled: await button.isDisabled()
+			};
+			seen.buttons.push(found);
+		}
+	} catch {
+		// The page went away while it was being read. What was read so far is still worth saying.
+	}
+	return seen;
+}
 
 export async function signInFromInvite(
 	page: Page,
@@ -102,11 +167,11 @@ export async function signInFromInvite(
 			if (failed) throw new Error(`Qatom could not finish the sign-in: ${failed}`);
 
 			for (const step of ONWARD) {
-				const button = page.locator(`#${step.id}`);
-				if (pressed.has(step.id) || !(await button.isVisible()) || !(await button.isEnabled())) {
+				const button = step.find(page).first();
+				if (pressed.has(step.key) || !(await button.isVisible()) || !(await button.isEnabled())) {
 					continue;
 				}
-				pressed.add(step.id);
+				pressed.add(step.key);
 				assertQatomPage(page.url(), cfg);
 				await waypoint(page, step.waypoint);
 				await button.click();
@@ -115,8 +180,12 @@ export async function signInFromInvite(
 			return null;
 		});
 	} catch (error) {
-		// A step this suite does not know shows up here. The picture says which.
-		if (!onOrigin(page.url(), cfg.appUrl)) await waypoint(page, 'qatom-stuck');
+		// A step this suite does not know shows up here. The picture shows it, and the message
+		// says what was on it, so the run's log is enough to tell which step it was.
+		if (!onOrigin(page.url(), cfg.appUrl)) {
+			await waypoint(page, 'qatom-stuck');
+			if (error instanceof Error) error.message += `\n${describeSeenPage(await seenOn(page))}`;
+		}
 		throw error;
 	}
 

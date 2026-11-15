@@ -253,6 +253,31 @@ describe('signing in from an invite', () => {
 		expect(await comeBack(second.state)).toMatchObject({ location: '/' });
 	});
 
+	it('comes back to the reminder it started from, with its milestone', async () => {
+		const returnTo = encodeURIComponent('/reminder?milestone=m2-walls');
+		const { state } = await start(`?party=${contractor.id}&return_to=${returnTo}`);
+
+		expect(await comeBack(state)).toEqual({
+			kind: 'redirect',
+			status: 303,
+			location: '/reminder?milestone=m2-walls'
+		});
+		expect(session()?.partyId).toBe(contractor.id);
+	});
+
+	it('never goes on to another site, however the address is dressed up', async () => {
+		for (const elsewhere of [
+			'https://elsewhere.example/reminder',
+			'/\\elsewhere.example',
+			'/%09/elsewhere.example',
+			'/%0A/elsewhere.example',
+			'javascript:alert(1)'
+		]) {
+			const { state } = await start(`?party=${contractor.id}&return_to=${elsewhere}`);
+			expect(await comeBack(state)).toMatchObject({ location: '/' });
+		}
+	});
+
 	it('takes the party from the sealed cookie, never from the address Qatom sends back', async () => {
 		const { state } = await start(`?party=${contractor.id}`);
 
