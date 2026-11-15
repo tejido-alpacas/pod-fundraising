@@ -90,6 +90,21 @@ write one row in `donations`. Pages read the sum with `getFundingSummary` from `
 - A campaign with recorded donations is summed from them. One with none still reads the
   totals of the ledger pass below, which no campaign uses now that the items are shared.
 
+### Starting a donation (`donation-items.ts`)
+
+The Give page (`/give/<campaign>`, Track A) offers amounts and sends the donor to Qatom's
+checkout page. Nothing names the donation items in our configuration or database:
+`listDonationOptions` asks Qatom for the merchant account's own items and keeps those that are
+on sale, whose external endpoint is this site's `/api/donations/<amount>` over https, and whose
+price equals that amount. This site's origin is the origin of `WEB_OIDC_REDIRECT_URI`.
+
+- `startDonation` looks the items up again, then asks Qatom for a checkout link for the chosen
+  amount with `campaign_id` as the item's input. A link is for one purchase: one is made per
+  click and none is stored.
+- Making a link moves no money and records nothing. The donation is recorded when Qatom calls
+  the endpoint above.
+- Both calls use the merchant account. Not yet run against real Qatom.
+
 ## Funding (`funding.ts`, `POST /api/funding`)
 
 Donors give through Qatom, by paying for a campaign's donation catalog item. `refreshFunding`

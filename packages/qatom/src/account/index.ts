@@ -160,6 +160,31 @@ export interface CatalogItem {
 	commodityId: number;
 }
 
+/** A catalog item the merchant account has on sale, with what a buyer pays and where it calls. */
+export interface OwnCatalogItem {
+	catalogItemId: number;
+	/** The price in Tejido's whole thousandths, or null when Qatom gave none that can be used. */
+	price: number | null;
+	/** The URL Qatom calls after a sale, or null when the item calls nothing. */
+	externalEndpoint: string | null;
+}
+
+export interface NewCheckout {
+	/** The catalog item to sell. It must be on sale. */
+	catalogItemId: number;
+	/**
+	 * The item's inputs, by name. The checkout page asks the shopper for nothing, so every
+	 * input the item requires must be here. Qatom sends them to the item's endpoint once paid.
+	 */
+	inputs: { [name: string]: string | number | boolean };
+}
+
+/** A hosted checkout page for one purchase. */
+export interface Checkout {
+	/** Where to send the shopper. It can be paid once: make a new checkout for every purchase. */
+	url: string;
+}
+
 export interface MerchantAccount {
 	/**
 	 * Turns a catalog item's commodity id into the commodity hash its ledger is read by.
@@ -251,6 +276,24 @@ export interface MerchantAccount {
 	createCatalogItem(request: NewCatalogItem): Promise<CatalogItem>;
 
 	/**
+	 * Every catalog item the account has on sale, oldest first, with its price and the URL it
+	 * calls. GET /v4/catalog/items?mine=true&active=true. Qatom's document says a `mine`
+	 * listing is not paged, and that `external_endpoint` is given on items the caller manages.
+	 * It only reads.
+	 */
+	listOwnCatalogItems(): Promise<OwnCatalogItem[]>;
+
+	/**
+	 * Makes a hosted checkout page for one purchase of one catalog item, and answers its link.
+	 * POST /v4/payment/checkout. Nothing is charged until the shopper pays on that page.
+	 *
+	 * It moves no money and makes nothing that is for sale, so calling it again is harmless:
+	 * each call makes another link. Qatom answers 400 when the item is not on sale or a required
+	 * input is missing (QatomHttpError).
+	 */
+	createCheckout(request: NewCheckout): Promise<Checkout>;
+
+	/**
 	 * FOR THE END-TO-END TEST PEOPLE ONLY: sends a test person's deposits back to their AGENT
 	 * wallet, out of the twin the item is sold from, by that twin's own API. The one exception
 	 * to "refunds go to the primary wallet only"; see item-twin-refund.ts for the rules.
@@ -330,6 +373,17 @@ const managedItemSchema = z.object({
 });
 
 const createdItemSchema = z.object({ item: managedItemSchema });
+
+const ownItemSchema = z.object({
+	id: z.number().int().positive(),
+	active: z.boolean().optional(),
+	commodity_cost: z.unknown().optional(),
+	external_endpoint: z.string().nullish()
+});
+
+// The 201 of POST /v4/payment/checkout also carries the checkout's `hash`. Whoever holds it
+// can pay the checkout, and it is already in `url`. It is not read.
+const checkoutSchema = z.object({ url: z.string() });
 
 // Qatom: a header value is 1 to 4096 printable ASCII characters, not starting or ending with a space.
 const HEADER_NAME = /^[0-9A-Za-z_-]{1,64}$/;
@@ -718,6 +772,63 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 				throw new QatomResponseError(operation, 'the item is for another commodity');
 			}
 			return { catalogItemId: parsed.data.item.id, commodityId };
+		},
+
+		async listOwnCatalogItems() {
+			const operation = 'account.own-items';
+			const url = apiUrl(config.paymentApiUrl, '/v4/catalog/items');
+			url.searchParams.set('mine', 'true');
+			url.searchParams.set('active', 'true');
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'GET',
+					url,
+					headers: { authorization },
+					timeoutMs: DEFAULT_TIMEOUT_MS
+				})
+			);
+			const listing = catalogListingSchema.safeParse(body);
+			if (!listing.success) throw new QatomResponseError(operation, 'items is missing');
+
+			const items: OwnCatalogItem[] = [];
+			for (const raw of listing.data.items) {
+				const item = ownItemSchema.safeParse(raw);
+				if (!item.success) throw new QatomResponseError(operation, 'an item has no id');
+				// Trust the filter only as far as the answer shows it was applied.
+				if (item.data.active === false) continue;
+				const price = fromQatomAmount(item.data.commodity_cost);
+				items.push({
+					catalogItemId: item.data.id,
+					price: price !== null && price > 0 ? price : null,
+					externalEndpoint: item.data.external_endpoint || null
+				});
+			}
+			return items;
+		},
+
+		async createCheckout({ catalogItemId, inputs }) {
+			const operation = 'account.create-checkout';
+			if (!isId(catalogItemId)) {
+				throw new RangeError('catalogItemId must be a positive whole number');
+			}
+			const body = await authorized((authorization) =>
+				send({
+					operation,
+					method: 'POST',
+					url: apiUrl(config.paymentApiUrl, '/v4/payment/checkout'),
+					headers: { authorization },
+					json: { catalog_item_id: catalogItemId, arguments: inputs },
+					timeoutMs: DEFAULT_TIMEOUT_MS
+				})
+			);
+			const parsed = checkoutSchema.safeParse(body);
+			const link = parsed.success ? URL.parse(parsed.data.url) : null;
+			// The shopper's browser is sent here, so it must be a plain https link.
+			if (link?.protocol !== 'https:' || link.username !== '' || link.password !== '') {
+				throw new QatomResponseError(operation, 'url is missing or is not an https link');
+			}
+			return { url: link.href };
 		},
 
 		refundTestPersonFromItemTwin(request) {

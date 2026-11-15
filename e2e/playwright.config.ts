@@ -11,6 +11,7 @@ import { DESKTOP, PHONE } from './lib/viewports.ts';
 // Each sign-in spec by its whole name under specs/, so neither pattern can match the other file.
 const APP_SIGN_IN = '**/specs/sign-in.spec.ts';
 const SITE_SIGN_IN = '**/specs/site-sign-in.spec.ts';
+const CREATE_CAMPAIGN = '**/specs/create-campaign.spec.ts';
 const SITE_SIGNED_IN = [SITE_SIGN_IN, '**/specs/site-signed-in.spec.ts'];
 
 export default defineConfig({
@@ -37,16 +38,19 @@ export default defineConfig({
 	},
 	projects: [
 		// Signs each test person in ONCE and saves their signed-in browser. Everything else reuses it.
-		{ name: 'sign-in', testMatch: APP_SIGN_IN },
+		// On a paid run only: creates the campaign the run files on. The App's sign-in comes after
+		// it, because a paid run signs in from that campaign's invitations.
+		{ name: 'campaign', testMatch: CREATE_CAMPAIGN },
+		{ name: 'sign-in', testMatch: APP_SIGN_IN, dependencies: ['campaign'] },
 		{
 			name: 'phone',
-			testIgnore: [APP_SIGN_IN, ...SITE_SIGNED_IN],
+			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN],
 			dependencies: ['sign-in'],
 			use: { ...PHONE, storageState: CONTRACTOR_STATE }
 		},
 		{
 			name: 'desktop',
-			testIgnore: [APP_SIGN_IN, ...SITE_SIGNED_IN],
+			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN],
 			dependencies: ['sign-in'],
 			use: { ...DESKTOP, storageState: CONTRACTOR_STATE }
 		},

@@ -112,7 +112,7 @@ test('a file kept from donors opens for its uploader and the confirmer, and for 
 
 	await page
 		.locator('form.tj-picker input[type="file"][multiple]')
-		.setInputFiles(privateEvidenceFile());
+		.setInputFiles(privateEvidenceFile(cfg.contractor.partyId));
 	const row = page.locator('.tj-upload').filter({ hasText: 'e2e-kept-from-donors.png' });
 	await expect(row).toContainText('Uploaded. Not public', { timeout: 60_000 });
 	await waypoint(page, 'upload-kept-from-donors-done');
@@ -120,7 +120,9 @@ test('a file kept from donors opens for its uploader and the confirmer, and for 
 	const address = await row
 		.getByRole('link', { name: 'Open e2e-kept-from-donors.png' })
 		.getAttribute('href');
-	const fingerprint = createHash('sha256').update(privateEvidencePng()).digest('hex');
+	const fingerprint = createHash('sha256')
+		.update(privateEvidencePng(cfg.contractor.partyId))
+		.digest('hex');
 	expect(address).toContain(`/evidence/${fingerprint}.png`);
 	const file = new URL(address ?? '', cfg.appUrl).href;
 
@@ -131,7 +133,7 @@ test('a file kept from donors opens for its uploader and the confirmer, and for 
 	try {
 		const refused = await anyone.get(file);
 		expect(refused.status(), 'A file kept from donors must not open without signing in.').toBe(401);
-		expect((await refused.body()).includes(privateEvidencePng())).toBe(false);
+		expect((await refused.body()).includes(privateEvidencePng(cfg.contractor.partyId))).toBe(false);
 
 		const forConfirmer = await confirmer.get(file);
 		expect(forConfirmer.status(), 'The project’s confirmer may open it.').toBe(200);
