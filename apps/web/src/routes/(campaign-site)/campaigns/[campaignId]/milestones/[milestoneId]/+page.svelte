@@ -53,7 +53,7 @@
 		}
 		const details = [
 			filings.flagged > 0
-				? `${countWord(filings.flagged, 'filing')} ${filings.flagged === 1 ? 'was' : 'were'} paid from a wallet that isn’t the filer’s registered one.`
+				? `${countWord(filings.flagged, 'filing')} ${filings.flagged === 1 ? 'was' : 'were'} flagged: the receipt doesn’t match the filing.`
 				: '',
 			filings.incomplete > 0
 				? `${countWord(filings.incomplete, 'filing')} ${filings.incomplete === 1 ? 'is' : 'are'} missing something this milestone needs.`
@@ -85,7 +85,7 @@
 				`${filings.verified} of ${count(filings.total, 'receipt')} verified` +
 				(filings.flagged > 0 ? `, ${filings.flagged} flagged` : ''),
 			detail: allVerified
-				? 'Each was paid from its filer’s registered wallet. This shows the filings happened. It doesn’t prove the work.'
+				? 'Qatom confirms the deposit for each was paid. This shows the filings happened. It doesn’t prove the work.'
 				: details.join(' ')
 		};
 	});

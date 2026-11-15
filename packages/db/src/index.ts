@@ -16,6 +16,7 @@ export {
 	deposits,
 	donations,
 	donationUndos,
+	entryPurchases,
 	entries,
 	evidenceFiles,
 	itemProvisioning,

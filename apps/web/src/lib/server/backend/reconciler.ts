@@ -7,6 +7,12 @@
  * such entry, and records it. Paid from the agent wallet registered for the entry's party:
  * `verified`. Paid from any other wallet: `flagged`, with a reason donors can read.
  *
+ * TWO WAYS TO PROVE AN ENTRY. An entry filed with a transaction id from Qatom is proved by
+ * Qatom's own purchase record (see "BY QATOM'S OWN PURCHASE RECORD" below): that shows a
+ * settled sale of the right item for the right amount, and NOT which wallet paid. Every other
+ * entry is looked for on the ledger, as described here, which is the only way that compares
+ * the paying wallet.
+ *
  * CAMPAIGNS SHARE THEIR ITEMS
  *
  * Every campaign names the same two catalog items (the owner's decision, 15 November), so one
@@ -75,10 +81,11 @@ import {
 	stampEntries,
 	type Database,
 	type EntryStamp,
+	type FiledPurchase,
 	type UnreconciledEntry
 } from '@tejido/db';
 import { QatomError, sameTwin, twinHostname } from '@tejido/qatom';
-import type { LedgerTransaction, MerchantAccount } from '@tejido/qatom/account';
+import type { LedgerTransaction, MerchantAccount, Purchase } from '@tejido/qatom/account';
 
 /**
  * How long before we saved an entry its payment may have been recorded. The payment happens
@@ -194,6 +201,17 @@ export interface ReconcileSummary {
 	 * which operation a real sale is listed as.
 	 */
 	operationsSeen: Record<(typeof LEDGER_OPERATIONS)[number] | 'other' | 'none', number>;
+	/** Purchases asked of Qatom in this pass, for entries filed with a transaction id. */
+	purchaseLookups: number;
+	/** Of those, the ones Qatom does not know or has not settled yet. They are asked again. */
+	purchasesNotSettled: number;
+	/** Entries left waiting because Qatom could not be asked, or the item they name was not found. */
+	purchaseErrors: number;
+	/**
+	 * Entries with a transaction id that were not asked about in this pass: over the limit of
+	 * one pass, or filed too long ago to be asked about any more.
+	 */
+	purchasesNotAsked: number;
 }
 
 /**
@@ -215,6 +233,7 @@ export function reconcileLogLine(summary: ReconcileSummary): string {
 		`unmatched ${summary.unmatched} (ambiguous ${summary.ambiguous}, waiting for wallet ${summary.waitingForWallet}, paying wallet not comparable ${summary.payingWalletNotComparable})`,
 		`rows unreadable ${summary.unreadableTransactions}`,
 		`rows not payments ${summary.rowsNotPayments}`,
+		`purchases asked ${summary.purchaseLookups} (not settled ${summary.purchasesNotSettled}, errors ${summary.purchaseErrors}, not asked ${summary.purchasesNotAsked})`,
 		`operations seen: send ${seen.send}, receive ${seen.receive}, transfer ${seen.transfer}, split ${seen.split}, other ${seen.other}, none ${seen.none}.`
 	].join(', ');
 }
@@ -383,6 +402,136 @@ function matchLedger(
 	return { stamps, ambiguous, waitingForWallet, payingWalletNotComparable: notComparable.size };
 }
 
+/**
+ * BY QATOM'S OWN PURCHASE RECORD
+ *
+ * Qatom's ledger names the payer as a 66-character address that cannot be compared with a
+ * wallet hostname, so the ledger walk above can never verify a real filing. For an entry filed
+ * with a transaction id (the `X-Qatom-Transaction-Id` header of Qatom's call to our check-in
+ * endpoint, kept beside the entry), the reconciler asks Qatom for that purchase instead.
+ *
+ * WHAT `verified` MEANS FOR SUCH AN ENTRY. Qatom confirms a SETTLED sale, of the catalog item
+ * this entry names, for exactly this entry's deposit, and that sale is tied to this filing by
+ * the id Qatom itself sent with it.
+ *
+ * WHAT IT DOES NOT ESTABLISH: WHICH WALLET PAID. Qatom's purchase record names no payer, and
+ * its ledger names one only in a form Tejido cannot compare. So `payingWallet` stays null, and
+ * nothing here says the deposit came from the party's registered wallet.
+ *
+ *   - settled, the right item, the right amount: `verified` (an `incomplete` entry keeps its
+ *     status and reason, as in the ledger walk), stamped with the time the sale settled;
+ *   - not found, or not settled yet: left waiting, and asked again on a later pass;
+ *   - settled, but for another item or another amount: `flagged`, with the reason;
+ *   - Qatom cannot be asked, or the catalog item the entry names cannot be found: left waiting.
+ *
+ * The transaction id goes where the ledger row's id goes (`twistId`): it is what identifies
+ * the sale at Qatom, and one transaction can still prove only one entry.
+ *
+ * AT MOST PURCHASE_LOOKUPS_PER_PASS lookups a pass, oldest filing first, and only for filings
+ * younger than PURCHASE_LOOKUP_MAX_AGE_MS: a sale settles in seconds, so a filing whose
+ * purchase is still not there after that long would otherwise be asked about for ever, ahead
+ * of every newer one.
+ */
+export const PURCHASE_LOOKUPS_PER_PASS = 20;
+export const PURCHASE_LOOKUP_MAX_AGE_MS = 24 * 60 * 60_000;
+
+interface WaitingOnPurchase {
+	row: UnreconciledEntry & { purchase: FiledPurchase };
+	/** The commodity of the item the entry names, as its campaign has it. */
+	commodityId: number;
+}
+
+async function verifyByPurchase(
+	db: Database,
+	account: Pick<MerchantAccount, 'findCatalogItem' | 'getPurchase'>,
+	waiting: WaitingOnPurchase[],
+	now: string,
+	summary: ReconcileSummary
+): Promise<void> {
+	const oldest = Date.parse(now) - PURCHASE_LOOKUP_MAX_AGE_MS;
+	const young = waiting
+		.filter(({ row }) => Date.parse(row.entry.filedAt) >= oldest)
+		.sort(
+			(a, b) =>
+				a.row.entry.filedAt.localeCompare(b.row.entry.filedAt) ||
+				a.row.entry.id.localeCompare(b.row.entry.id)
+		);
+	const asked = young.slice(0, PURCHASE_LOOKUPS_PER_PASS);
+	summary.purchasesNotAsked = waiting.length - asked.length;
+
+	// The catalog item each commodity is sold as, asked once per commodity in a pass.
+	const catalogItems = new Map<number, Promise<number | null>>();
+	const catalogItemOf = (commodityId: number) => {
+		let found = catalogItems.get(commodityId);
+		if (!found) {
+			found = account.findCatalogItem(commodityId).then((item) => item?.catalogItemId ?? null);
+			catalogItems.set(commodityId, found);
+		}
+		return found;
+	};
+
+	const stamps: EntryStamp[] = [];
+	for (const { row, commodityId } of asked) {
+		let expected: number | null;
+		let purchase: Purchase;
+		try {
+			expected = await catalogItemOf(commodityId);
+			if (expected === null) {
+				summary.purchaseErrors += 1;
+				continue;
+			}
+			summary.purchaseLookups += 1;
+			purchase = await account.getPurchase(row.purchase.transactionId);
+		} catch (error) {
+			// A QatomError carries no token, secret or response body.
+			if (!(error instanceof QatomError)) throw error;
+			summary.purchaseErrors += 1;
+			continue;
+		}
+		if (purchase.status !== 'settled') {
+			summary.purchasesNotSettled += 1;
+			continue;
+		}
+
+		const stamp = (status: EntryStamp['status'], statusReason: string | null) =>
+			stamps.push({
+				entryId: row.entry.id,
+				twistId: row.purchase.transactionId,
+				// Qatom's purchase record names no payer.
+				payingWallet: null,
+				stampedAt: purchase.settledAt,
+				status,
+				statusReason,
+				updatedAt: now
+			});
+		const told = row.purchase.catalogItemId;
+		const wrongItem =
+			purchase.catalogItemId !== expected || (told !== null && told !== purchase.catalogItemId);
+		const wrongAmount = purchase.amount !== row.depositAmount;
+		if (wrongItem || wrongAmount) {
+			const reason = wrongItem
+				? 'Qatom’s record of the purchase filed with this entry is for a different item.'
+				: 'Qatom’s record of the purchase filed with this entry is for a different amount than this entry’s deposit.';
+			const earlier = row.entry.status === 'incomplete' ? row.entry.statusReason : null;
+			stamp('flagged', fit(earlier ? `${reason} ${earlier}` : reason));
+		} else if (row.entry.status === 'incomplete') {
+			stamp('incomplete', row.entry.statusReason);
+		} else {
+			stamp('verified', null);
+		}
+	}
+
+	const stamped = new Set(await stampEntries(db, stamps));
+	for (const stamp of stamps) {
+		if (!stamped.has(stamp.entryId)) continue;
+		summary.matched += 1;
+		summary.unmatched -= 1;
+		if (stamp.status === 'verified') summary.verified += 1;
+		else if (stamp.status === 'flagged') summary.flagged += 1;
+		else summary.stampedIncomplete += 1;
+	}
+}
+
 /** One commodity's ledger, and everything waiting on it across every campaign that names it. */
 interface SharedLedger {
 	commodityId: number;
@@ -399,7 +548,10 @@ interface SharedLedger {
  */
 export async function reconcile(
 	db: Database,
-	account: Pick<MerchantAccount, 'resolveCommodityHash' | 'listCommodityTransactions'>,
+	account: Pick<
+		MerchantAccount,
+		'resolveCommodityHash' | 'listCommodityTransactions' | 'findCatalogItem' | 'getPurchase'
+	>,
 	now: string = new Date().toISOString()
 ): Promise<ReconcileSummary> {
 	const summary: ReconcileSummary = {
@@ -417,12 +569,17 @@ export async function reconcile(
 		payingWalletNotComparable: 0,
 		unreadableTransactions: 0,
 		rowsNotPayments: 0,
-		operationsSeen: { send: 0, receive: 0, transfer: 0, split: 0, other: 0, none: 0 }
+		operationsSeen: { send: 0, receive: 0, transfer: 0, split: 0, other: 0, none: 0 },
+		purchaseLookups: 0,
+		purchasesNotSettled: 0,
+		purchaseErrors: 0,
+		purchasesNotAsked: 0
 	};
 
 	// First, gather. Campaigns that name the same commodity share one ledger, so their waiting
 	// entries are put side by side before anything is read or matched.
 	const ledgers = new Map<number, SharedLedger>();
+	const byPurchase: WaitingOnPurchase[] = [];
 	for (const campaign of await listCampaigns(db)) {
 		// Counted, never skipped: a campaign with no ids of its own uses the shared items.
 		if (ITEMS.every((item) => campaign[ITEM_COMMODITY_ID[item]] === null)) {
@@ -434,7 +591,15 @@ export async function reconcile(
 
 		for (const item of ITEMS) {
 			const commodityId = campaign[ITEM_COMMODITY_ID[item]] ?? SHARED_ITEM_COMMODITY_ID[item];
-			const waitingForItem = waiting.filter((row) => row.entry.item === item);
+			// An entry filed with a transaction id is proved by Qatom's purchase record, below.
+			// Only the others are looked for on the ledger.
+			const waitingForItem: UnreconciledEntry[] = [];
+			for (const row of waiting) {
+				if (row.entry.item !== item) continue;
+				const { purchase } = row;
+				if (purchase === null) waitingForItem.push(row);
+				else byPurchase.push({ row: { ...row, purchase }, commodityId });
+			}
 			// Nothing to prove: this campaign asks for no ledger.
 			if (waitingForItem.length === 0) continue;
 
@@ -447,6 +612,9 @@ export async function reconcile(
 			ledger.waiting.push(...waitingForItem);
 		}
 	}
+
+	// The entries Qatom named a purchase for: ask Qatom about each, up to the limit.
+	await verifyByPurchase(db, account, byPurchase, now, summary);
 
 	// Then, each ledger once, with every entry that could have been paid into it.
 	for (const { commodityId, namedBy, waiting } of ledgers.values()) {

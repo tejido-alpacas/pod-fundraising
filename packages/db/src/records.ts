@@ -55,6 +55,7 @@ import {
 	campaigns,
 	deposits,
 	entries,
+	entryPurchases,
 	evidenceFiles,
 	itemProvisioning,
 	milestones,
@@ -341,9 +342,52 @@ export async function listDeposits(db: Executor, campaignId: string): Promise<De
 export async function insertEntryWithDeposit(
 	db: Database,
 	entry: Entry,
-	deposit: Deposit
+	deposit: Deposit,
+	purchase: FiledPurchase | null = null
 ): Promise<void> {
-	await db.batch([db.insert(entries).values(entry), db.insert(deposits).values(deposit)]);
+	await db.batch([
+		db.insert(entries).values(entry),
+		db.insert(deposits).values(deposit),
+		...purchaseInsert(db, entry, purchase)
+	]);
+}
+
+/**
+ * The purchase Qatom named when it called us with a filing: its transaction id, and the
+ * catalog item it was a purchase of when Qatom said which. Kept beside the entry so the
+ * purchase can be looked up at Qatom afterwards.
+ */
+export interface FiledPurchase {
+	transactionId: string;
+	catalogItemId: number | null;
+}
+
+/** The insert that keeps a filing's purchase, in the same batch as its entry, or nothing. */
+function purchaseInsert(db: Database, entry: Entry, purchase: FiledPurchase | null) {
+	if (purchase === null) return [];
+	return [
+		db.insert(entryPurchases).values({
+			entryId: entry.id,
+			transactionId: purchase.transactionId,
+			catalogItemId: purchase.catalogItemId
+		})
+	];
+}
+
+/** The purchase Qatom named with an entry, or undefined when it was filed without one. */
+export async function getEntryPurchase(
+	db: Executor,
+	entryId: string
+): Promise<FiledPurchase | undefined> {
+	const [row] = await db
+		.select({
+			transactionId: entryPurchases.transactionId,
+			catalogItemId: entryPurchases.catalogItemId
+		})
+		.from(entryPurchases)
+		.where(eq(entryPurchases.entryId, entryId))
+		.limit(1);
+	return row;
 }
 
 /** A milestone moving from one state to the next because of an entry. */
@@ -365,7 +409,8 @@ export async function insertEntryAdvancingMilestone(
 	db: Database,
 	entry: Entry,
 	deposit: Deposit,
-	advance: MilestoneAdvance
+	advance: MilestoneAdvance,
+	purchase: FiledPurchase | null = null
 ): Promise<boolean> {
 	const [, , moved] = await db.batch([
 		db.insert(entries).values(entry),
@@ -380,7 +425,8 @@ export async function insertEntryAdvancingMilestone(
 					eq(milestones.state, advance.from)
 				)
 			)
-			.returning({ id: milestones.id })
+			.returning({ id: milestones.id }),
+		...purchaseInsert(db, entry, purchase)
 	]);
 	return moved.length > 0;
 }
@@ -394,6 +440,8 @@ export interface UnreconciledEntry {
 	party: Party;
 	/** The deposit paid on the entry. */
 	depositAmount: Amount;
+	/** The purchase Qatom named when it called us with this filing, or null when it named none. */
+	purchase: FiledPurchase | null;
 }
 
 /** A campaign's entries that have no ledger transaction yet, oldest first. */
@@ -402,13 +450,28 @@ export async function listUnreconciledEntries(
 	campaignId: string
 ): Promise<UnreconciledEntry[]> {
 	const rows = await db
-		.select({ entry: entries, party: parties, depositAmount: deposits.amount })
+		.select({
+			entry: entries,
+			party: parties,
+			depositAmount: deposits.amount,
+			transactionId: entryPurchases.transactionId,
+			catalogItemId: entryPurchases.catalogItemId
+		})
 		.from(entries)
 		.innerJoin(parties, eq(parties.id, entries.partyId))
 		.innerJoin(deposits, eq(deposits.entryId, entries.id))
+		.leftJoin(entryPurchases, eq(entryPurchases.entryId, entries.id))
 		.where(and(eq(entries.campaignId, campaignId), isNull(entries.twistId)))
 		.orderBy(asc(entries.filedAt), asc(entries.id));
-	return rows.map((row) => ({ ...row, entry: toEntry(row.entry) }));
+	return rows.map((row) => ({
+		entry: toEntry(row.entry),
+		party: row.party,
+		depositAmount: row.depositAmount,
+		purchase:
+			row.transactionId === null
+				? null
+				: { transactionId: row.transactionId, catalogItemId: row.catalogItemId }
+	}));
 }
 
 // D1 allows 100 bound values in one statement.
@@ -431,9 +494,12 @@ export async function listUsedTwistIds(db: Executor, twistIds: string[]): Promis
 export interface EntryStamp {
 	entryId: string;
 	twistId: string;
-	/** The paying address exactly as the ledger reports it. */
-	payingWallet: string;
-	/** The ledger's own timestamp for the deposit. */
+	/**
+	 * The paying address exactly as the ledger reports it. Null when the entry is matched by
+	 * Qatom's purchase record, which names no payer.
+	 */
+	payingWallet: string | null;
+	/** The ledger's own timestamp for the deposit, or the time Qatom says the sale settled. */
 	stampedAt: Timestamp;
 	status: EntryStatus;
 	statusReason: string | null;

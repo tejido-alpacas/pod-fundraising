@@ -113,7 +113,7 @@
 			if (entry.status === 'flagged') {
 				found.push({
 					at: entry.filedAt,
-					title: 'A filing was paid from a different wallet',
+					title: 'A filing’s receipt doesn’t match it',
 					text: `${what} The report itself may still be accurate. The filing stays flagged on the record.`,
 					href: entry.proofPath
 				});

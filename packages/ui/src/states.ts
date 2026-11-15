@@ -30,7 +30,7 @@ export const STATES = {
 		tone: 'record',
 		icon: 'receipt-check',
 		label: 'Receipt verified',
-		text: 'Recorded and matched to its public receipt, paid from the registered wallet. This shows the filing happened. It does not prove the work.'
+		text: 'Recorded, and Qatom confirms its deposit was paid. This shows the filing happened. It does not prove the work.'
 	},
 	pending: {
 		layer: 'Filing',
@@ -44,7 +44,7 @@ export const STATES = {
 		tone: 'critical',
 		icon: 'receipt-flag',
 		label: 'Flagged',
-		text: 'This filing was recorded, but the payment came from a different wallet.'
+		text: 'This filing was recorded, but its receipt does not match it.'
 	},
 	incomplete: {
 		layer: 'Filing',
