@@ -12,8 +12,9 @@
  * Milestones (any campaign that is not a draft)
  * - A confirmed milestone asks nothing of anyone.
  * - An `open` milestone is owed by the party doing the work, who must claim it. It falls due
- *   one reporting period (7 or 14 days) before its due date, and is overdue from the day
- *   after its due date.
+ *   one reporting period before its due date (the cadence's longest: 7 days for weekly, 14
+ *   for fortnightly, 1 for daily, and for chosen days the longest wait between two of them),
+ *   and is overdue from the day after its due date.
  * - A `claimed` milestone is owed by its confirmer, who must confirm it. It is due from the
  *   moment it is claimed, and overdue from the day after the milestone's due date.
  * - Days overdue are counted exactly as the pages count them (`daysOverdue` in @tejido/ui):
@@ -23,17 +24,22 @@
  * - Owed by each party with at least one `open` milestone of a kind whose work logs run on
  *   the cadence: construction and service. Once every such milestone of theirs is claimed or
  *   confirmed, they owe no more work logs, late ones included.
- * - One work log per party per period. Periods are 7 days (weekly) or 14 (fortnightly) and
- *   are counted from the day the work-log schedule started for the campaign, which the
- *   caller passes. With no start day, no work log is due.
+ * - One work log per party per period. What a period is for each cadence (weekly,
+ *   fortnightly, daily, chosen days of the week) is defined once, in the contracts
+ *   (`cadence.ts`). Periods are counted from the day the work-log schedule started for the
+ *   campaign, which the caller passes. With no start day, no work log is due.
  * - A work log fills the earliest period still open at the time it was filed. So a late log
  *   settles the missed period, and the current period is still owed.
  * - The current period's log is due by the period's last day. A period that ended unfilled
  *   is overdue, by the whole days since its last day.
  */
 import {
+	cadenceLongestPeriodDays,
+	cadencePeriod,
+	cadencePeriodOn,
 	isConfirmed,
 	type Cadence,
+	type CadencePeriod,
 	type Campaign,
 	type EntryItem,
 	type Milestone
@@ -43,9 +49,6 @@ import {
 export type UtcDay = string;
 
 const DAY_MS = 86_400_000;
-
-/** How many days one reporting period lasts. */
-export const CADENCE_DAYS: Record<Cadence, number> = { weekly: 7, fortnightly: 14 };
 
 /** The UTC calendar day of a moment: `2026-11-14T23:59:59.999Z` is `2026-11-14`. */
 export function utcDay(at: Date | string): UtcDay {
@@ -66,20 +69,12 @@ export function daysBetween(from: UtcDay, to: UtcDay): number {
 	return dayNumber(to) - dayNumber(from);
 }
 
-/** One reporting period. Both days belong to it. */
-export interface WorkLogPeriod {
-	/** 1 for the first period of the schedule. */
-	number: number;
-	start: UtcDay;
-	/** The last day a work log for this period is on time. */
-	end: UtcDay;
-}
+/** One reporting period. Both days belong to it; a work log is on time until `end`. */
+export type WorkLogPeriod = CadencePeriod;
 
 /** Period `number` (from 1) of a schedule that started on `startedOn`. */
 export function workLogPeriod(cadence: Cadence, startedOn: UtcDay, number: number): WorkLogPeriod {
-	const length = CADENCE_DAYS[cadence];
-	const start = addDays(startedOn, (number - 1) * length);
-	return { number, start, end: addDays(start, length - 1) };
+	return cadencePeriod(cadence, startedOn, number);
 }
 
 /** The period `day` falls in, or null when the schedule had not started by then. */
@@ -88,9 +83,7 @@ export function workLogPeriodOn(
 	startedOn: UtcDay,
 	day: UtcDay
 ): WorkLogPeriod | null {
-	const elapsed = daysBetween(startedOn, day);
-	if (elapsed < 0) return null;
-	return workLogPeriod(cadence, startedOn, Math.floor(elapsed / CADENCE_DAYS[cadence]) + 1);
+	return cadencePeriodOn(cadence, startedOn, day);
 }
 
 /** Whether something can still be done on time (`due`) or its day has passed (`overdue`). */
@@ -166,7 +159,7 @@ function milestoneDue(
 	const late = daysBetween(milestone.dueDate, today);
 	const claimed = milestone.state === 'claimed';
 	// An open milestone is not raised until one reporting period before its date.
-	if (!claimed && late < -CADENCE_DAYS[cadence]) return null;
+	if (!claimed && late < -cadenceLongestPeriodDays(cadence)) return null;
 	return {
 		what: 'milestone',
 		milestoneId: milestone.id,

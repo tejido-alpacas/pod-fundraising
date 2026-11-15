@@ -5,7 +5,15 @@
  * the only place it is checked (server/builder.ts). Nothing here is trusted: `reviveDraft`
  * turns anything at all into a draft of the right shape, and the server validates that.
  */
-import type { Cadence, MilestoneKind, PartyRelationship, PartyRole } from '@tejido/contracts';
+import {
+	DAYS_CADENCE_PREFIX,
+	FIXED_CADENCES,
+	type Cadence,
+	type DaysCadence,
+	type MilestoneKind,
+	type PartyRelationship,
+	type PartyRole
+} from '@tejido/contracts';
 
 export const STEPS = ['project', 'funding', 'milestones', 'people', 'schedule', 'review'] as const;
 export type Step = (typeof STEPS)[number];
@@ -57,7 +65,17 @@ export interface BuilderDraft {
 	};
 	milestones: DraftMilestone[];
 	people: DraftPerson[];
+	/**
+	 * Empty until chosen. Chosen days are written as the contract writes them, `days:mon,thu`;
+	 * while "On chosen days" is picked and no day is yet, this is `days:` alone, which is not
+	 * a cadence and is refused by the check.
+	 */
 	schedule: { cadence: Cadence | '' };
+}
+
+/** True for text that starts the way chosen days are written, whatever follows. */
+export function isChosenDays(cadence: string): cadence is DaysCadence {
+	return cadence.startsWith(DAYS_CADENCE_PREFIX);
 }
 
 export function emptyDraft(): BuilderDraft {
@@ -123,7 +141,20 @@ function oneOf<const T extends string>(value: unknown, allowed: readonly T[]): T
 
 const KINDS = ['construction', 'goods_delivery', 'funds_handover', 'service'] as const;
 const RELATIONSHIPS = ['participant', 'stakeholder', 'independent'] as const;
-const CADENCES = ['weekly', 'fortnightly'] as const;
+
+/** Longer than every day of the week written out (`days:mon,tue,wed,thu,fri,sat,sun`). */
+const MAX_CHOSEN_DAYS_TEXT = 64;
+
+/**
+ * A cadence as stored or sent: one of the single words, or anything that starts like chosen
+ * days, kept as written for the check to read. Anything else is empty.
+ */
+function cadenceAsSent(value: unknown): Cadence | '' {
+	const fixed = oneOf(value, FIXED_CADENCES);
+	if (fixed !== '') return fixed;
+	if (typeof value !== 'string' || value.length > MAX_CHOSEN_DAYS_TEXT) return '';
+	return isChosenDays(value) ? value : '';
+}
 
 /**
  * Rebuilds a draft from anything: a stored string that was edited by hand, an old shape, or a
@@ -178,7 +209,7 @@ export function reviveDraft(value: unknown): BuilderDraft {
 		funding: { goal: text(record(source['funding'])['goal']) },
 		milestones,
 		people,
-		schedule: { cadence: oneOf(record(source['schedule'])['cadence'], CADENCES) }
+		schedule: { cadence: cadenceAsSent(record(source['schedule'])['cadence']) }
 	};
 }
 

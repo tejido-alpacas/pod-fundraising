@@ -3,7 +3,7 @@
 	import { shortDay } from '#lib/dates.ts';
 	import { needsYou } from '#lib/due.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
-	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
+	import { cadencePhrase, ROLES, roleName } from '#lib/roles.ts';
 	import type { PageProps } from './$types';
 
 	let { data }: PageProps = $props();
@@ -110,7 +110,7 @@
 			{#if confirmer}
 				{ROLES.confirmer.does}
 			{:else}
-				You log your work {CADENCE[campaign.cadence]} and report each milestone when it is done.
+				You log your work {cadencePhrase(campaign.cadence)} and report each milestone when it is done.
 			{/if}
 		</p>
 
@@ -177,7 +177,7 @@
 					<div class="tj-mscard__row">
 						<Icon name="clock" size={18} />
 						<div>
-							<strong>Work log, {CADENCE[campaign.cadence]}</strong>
+							<strong>Work log, {cadencePhrase(campaign.cadence)}</strong>
 							<span>A short note on what was done, with photos if you have them.</span>
 						</div>
 					</div>

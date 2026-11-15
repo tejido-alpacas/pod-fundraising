@@ -5,13 +5,12 @@
   <StepReview {draft} {notices} />
 -->
 <script lang="ts">
-	import { formatAmount } from '@tejido/contracts';
+	import { cadenceLabel, formatAmount } from '@tejido/contracts';
 	import { Banner } from '@tejido/ui';
-	import { readGoal } from './check.ts';
+	import { readCadence, readGoal } from './check.ts';
 	import type { BuilderDraft, Notice, Step } from './draft.ts';
 	import {
-		CADENCE_HELP,
-		CADENCE_LABEL,
+		cadenceHelp,
 		KIND_LABEL,
 		RELATIONSHIP_LABEL,
 		STEP_NAME,
@@ -22,6 +21,11 @@
 	let { draft, notices }: { draft: BuilderDraft; notices: Notice[] } = $props();
 
 	const MISSING = 'Not given yet';
+	/** The cadence once it is one. Chosen days with no day picked yet are still missing. */
+	const cadence = $derived.by(() => {
+		const read = readCadence(draft.schedule.cadence);
+		return read.ok ? read.value : null;
+	});
 	const shown = (value: string) => value.trim() || MISSING;
 
 	/** "12,000.00 USD-TDN", or what is wrong with what was typed. */
@@ -152,9 +156,11 @@
 		<div>
 			<dt>Work is reported</dt>
 			<dd>
-				{draft.schedule.cadence === '' ? MISSING : CADENCE_LABEL[draft.schedule.cadence]}
-				{#if draft.schedule.cadence !== ''}
-					<span class="item-meta">{CADENCE_HELP[draft.schedule.cadence]}</span>
+				{#if cadence}
+					{cadenceLabel(cadence)}
+					<span class="item-meta">{cadenceHelp(cadence)}</span>
+				{:else}
+					{MISSING}
 				{/if}
 			</dd>
 		</div>
