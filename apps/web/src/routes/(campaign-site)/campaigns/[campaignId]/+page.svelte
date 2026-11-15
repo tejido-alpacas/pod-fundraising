@@ -13,6 +13,7 @@
 	import DeliveryProgress from '#lib/campaign-site/DeliveryProgress.svelte';
 	import HowProofWorks from '#lib/campaign-site/HowProofWorks.svelte';
 	import { CAMPAIGN_STATUS_LABEL } from '#lib/campaign-site/labels.ts';
+	import PublishCampaign from '#lib/campaign-site/PublishCampaign.svelte';
 	import TimelineEntry from '#lib/campaign-site/TimelineEntry.svelte';
 	import type { PageProps } from './$types';
 
@@ -122,6 +123,16 @@
 		title={data.campaign.title}
 		current="timeline"
 		part="trail"
+	/>
+
+	<!-- A draft says so, and its signed-in creator can publish it from here. -->
+	<PublishCampaign
+		lang={data.lang}
+		campaignId={data.campaign.id}
+		draft={data.publishing !== null}
+		viewer={data.publishing?.viewer ?? 'signed_out'}
+		email={data.donorEmail}
+		returnTo="/campaigns/{data.campaign.id}"
 	/>
 
 	<div class="tj-campaign">
