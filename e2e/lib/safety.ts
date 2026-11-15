@@ -19,6 +19,12 @@ export class SafetyError extends Error {
  * A paid run is refused anywhere else without exception: the deposit is real wherever it is paid.
  */
 export function assertSafeToRun(config: E2eConfig): void {
+	if (config.paid && !config.signIn) {
+		throw new SafetyError(
+			'E2E_PAID=true and E2E_SKIP_SIGN_IN=true were both set. A paid run files as the signed-in ' +
+				'contractor, so it cannot skip the sign-in. Unset one of them.'
+		);
+	}
 	const production = config.appUrl === PRODUCTION_APP_URL && config.siteUrl === PRODUCTION_SITE_URL;
 	if (production) return;
 

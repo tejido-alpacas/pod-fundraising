@@ -8,7 +8,13 @@
 	import { afterNavigate } from '$app/navigation';
 	import { page } from '$app/state';
 	import Icon from '#lib/campaign-site/Icon.svelte';
-	import { LANG_NAMES, LANGS, t, type StringKey } from '#lib/campaign-site/i18n/index.ts';
+	import {
+		LANG_NAMES,
+		LANGS,
+		t,
+		type Lang,
+		type StringKey
+	} from '#lib/campaign-site/i18n/index.ts';
 	import type { LayoutProps } from './$types';
 
 	let { children, data }: LayoutProps = $props();
@@ -46,6 +52,15 @@
 		{ href: '/about', key: 'x_tab_about', icon: 'info' }
 	];
 	const ORG_URL = 'https://tejido.org';
+	/** The campaign builder. A signed-in person gets a button to it in the header and the menu. */
+	const START_HREF = '/campaigns/new';
+	/**
+	 * Languages whose words leave the header bar no room for that button at any width. French:
+	 * "Se déconnecter", "Lancez une campagne" and "Donner maintenant" are wider together than
+	 * the bar. There the button stays in the menu (see the styles below).
+	 */
+	const NO_ROOM_IN_BAR: readonly Lang[] = ['fr'];
+	const startInBar = $derived(donorEmail !== null && !NO_ROOM_IN_BAR.includes(lang));
 
 	function isOn(href: string): boolean {
 		const path = page.url.pathname;
@@ -91,7 +106,7 @@
 
 <a class="skip" href="#main">{t(lang, 'x_skip')}</a>
 
-<header class="top">
+<header class="top" class:signed-in={donorEmail !== null} class:start-in-bar={startInBar}>
 	<div class="wrap top-row">
 		<a class="brand" href="/" aria-label="tejido">
 			<img src="/assets/tejido-logo-on-light.svg" alt="tejido" width="150" height="36" />
@@ -140,6 +155,8 @@
 					<form method="post" action={signOutAction}>
 						<button class="btn btn-ghost btn-sm" type="submit">{t(lang, 'signout')}</button>
 					</form>
+					<a class="btn btn-blue btn-sm acct-start" href={START_HREF}>{t(lang, 'start_campaign')}</a
+					>
 				{:else}
 					<a class="btn btn-ghost btn-sm" href={signInHref} title={t(lang, 'signin_hint')}
 						>{t(lang, 'signin')}</a
@@ -167,6 +184,9 @@
 				>
 			{/each}
 		</div>
+		{#if donorEmail}
+			<a class="btn btn-blue mnav-start" href={START_HREF}>{t(lang, 'start_campaign')}</a>
+		{/if}
 		<div class="mnav-acct">
 			{#if donorEmail}
 				<p>{t(lang, 'signed_in_as', { email: donorEmail })}</p>
@@ -250,6 +270,58 @@
 		white-space: nowrap;
 		font-size: 0.875rem;
 		color: var(--muted);
+	}
+	/*
+		"Start a campaign", for a signed-in person. The bar is full already, so the button takes
+		the email's place there, and only at the bar's full width (1200px and up). Everywhere
+		else it is in the menu, and the menu button stays in reach:
+		- up to 1000px, the phone and tablet header, as before;
+		- 1001px to 1199px, signed in: the same tablet header, since the wide bar with the email
+		  and sign-out has no room for the navigation at these widths in any language but English;
+		- 1200px and up in a language with no room (see NO_ROOM_IN_BAR): the bar keeps the email,
+		  and the language choices move into the menu to make room for the menu button.
+		A signed-out visitor's header is not touched by any of this.
+	*/
+	.acct-start {
+		display: none;
+	}
+	/* In the menu on a wide screen the button keeps its own width; on a phone it fills the row. */
+	@media (min-width: 1001px) {
+		.mnav-start {
+			justify-self: start;
+		}
+	}
+	@media (min-width: 1200px) {
+		.top.start-in-bar .acct-start {
+			display: inline-flex;
+		}
+		.top.start-in-bar .acct-who {
+			display: none;
+		}
+		.top.signed-in:not(.start-in-bar) .lang-dd {
+			display: none;
+		}
+		/* The first site's stylesheet hides these two above 1000px with !important. */
+		.top.signed-in:not(.start-in-bar) .menu-btn {
+			display: block !important;
+		}
+		.top.signed-in:not(.start-in-bar) .mnav:not([hidden]) {
+			display: grid !important;
+		}
+	}
+	@media (min-width: 1001px) and (max-width: 1199.98px) {
+		.top.signed-in .mainnav {
+			display: none !important;
+		}
+		.top.signed-in .lang-dd {
+			display: none;
+		}
+		.top.signed-in .menu-btn {
+			display: block !important;
+		}
+		.top.signed-in .mnav:not([hidden]) {
+			display: grid !important;
+		}
 	}
 	.mnav-acct {
 		display: flex;

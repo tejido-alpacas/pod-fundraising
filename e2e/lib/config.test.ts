@@ -42,6 +42,14 @@ describe('parseE2eConfig', () => {
 		}
 	});
 
+	it('signs in unless told not to with exactly "true"', () => {
+		expect(parseE2eConfig(complete).signIn).toBe(true);
+		expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: 'true' }).signIn).toBe(false);
+		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
+			expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: value }).signIn).toBe(true);
+		}
+	});
+
 	it('names every missing value at once, and no value', () => {
 		const error = refusal({ E2E_INBOX_DOMAIN: 'e2e.m.todaq.net' });
 		expect(error.names).toEqual([

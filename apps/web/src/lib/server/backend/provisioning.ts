@@ -177,11 +177,9 @@ export async function provisionCampaignItems(request: ProvisionRequest): Promise
 			`Refused: the campaign is still "${campaign.status}". Items are created once it has reached its goal.`
 		);
 	}
-	const [first, ...rest] = (await listMilestones(db, campaignId)).map((milestone) => milestone.id);
-	if (first === undefined) {
+	if ((await listMilestones(db, campaignId)).length === 0) {
 		return refuse(409, 'no_milestones', 'Refused: the campaign has no milestones to report on.');
 	}
-	const milestoneIds = [first, ...rest] as const;
 
 	const items: ItemReport[] = [];
 	let stopped = false;
@@ -190,7 +188,7 @@ export async function provisionCampaignItems(request: ProvisionRequest): Promise
 			items.push({ item, outcome: 'not_attempted', commodityId: null, steps: [] });
 			continue;
 		}
-		const report = await provisionItem(request, campaign, item, milestoneIds);
+		const report = await provisionItem(request, campaign, item);
 		items.push(report);
 		stopped = report.outcome === 'busy' || report.outcome === 'failed';
 	}
@@ -208,8 +206,7 @@ export async function provisionCampaignItems(request: ProvisionRequest): Promise
 async function provisionItem(
 	request: ProvisionRequest,
 	campaign: Campaign,
-	item: EntryItem,
-	milestoneIds: readonly [string, ...string[]]
+	item: EntryItem
 ): Promise<ItemReport> {
 	const { db, account, campaignId, dq } = request;
 	const steps: string[] = [];
@@ -306,7 +303,7 @@ async function provisionItem(
 				creating = 'catalog item';
 				const created = await account.createCatalogItem({
 					commodityId,
-					serviceSchema: itemInputJsonSchema(item, milestoneIds),
+					serviceSchema: itemInputJsonSchema(item),
 					externalEndpoint: request.checkinEndpoint,
 					secretHeader: { name: CHECKIN_SECRET_HEADER, value: request.checkinSecret }
 				});

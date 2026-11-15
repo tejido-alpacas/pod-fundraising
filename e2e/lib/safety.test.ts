@@ -18,6 +18,15 @@ describe('assertSafeToRun', () => {
 		expect(() => assertSafeToRun(parseE2eConfig({ ...base, E2E_PAID: 'true' }))).not.toThrow();
 	});
 
+	it('refuses a paid run that was also told not to sign in', () => {
+		expect(() =>
+			assertSafeToRun(parseE2eConfig({ ...base, E2E_PAID: 'true', E2E_SKIP_SIGN_IN: 'true' }))
+		).toThrow(/cannot skip the sign-in/);
+		expect(() =>
+			assertSafeToRun(parseE2eConfig({ ...base, E2E_SKIP_SIGN_IN: 'true' }))
+		).not.toThrow();
+	});
+
 	it('refuses any other host unless it is allowed on purpose', () => {
 		const elsewhere = { ...base, E2E_APP_URL: 'https://app.tejido.example' };
 		expect(() => assertSafeToRun(parseE2eConfig(elsewhere))).toThrow(SafetyError);

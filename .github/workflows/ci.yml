@@ -6,6 +6,16 @@ on:
 permissions:
   contents: read
 
+# On `main`, one run at a time, in the order the changes were merged, so an older release can
+# never land on top of a newer one. (It happened once: two releases were checked side by side,
+# the older one's checks finished last, and it replaced the newer one on the live site.) While
+# a run is going, GitHub keeps only the newest waiting run and cancels the ones in between; the
+# newest contains their changes, so nothing is lost. A run that has started is never cancelled.
+# Every other branch is unaffected: each push there runs on its own, as before.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'ci-main' || format('ci-{0}', github.run_id) }}
+  cancel-in-progress: false
+
 jobs:
   check:
     runs-on: ubuntu-latest

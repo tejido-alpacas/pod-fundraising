@@ -8,11 +8,15 @@ import { basename, join } from 'node:path';
 import { loadE2eConfig, type E2eConfig } from './config.ts';
 import { SCREENSHOTS } from './paths.ts';
 import { assertSafeToRun } from './safety.ts';
+import { describePage } from './seen-page.ts';
 
 /** Takes a full-page screenshot named for this point in the walk, and adds it to the report. */
 export type Waypoint = (page: Page, name: string) => Promise<void>;
 
-export const test = base.extend<{ waypoint: Waypoint }, { cfg: E2eConfig }>({
+export const test = base.extend<
+	{ waypoint: Waypoint; pageAtFailure: undefined },
+	{ cfg: E2eConfig }
+>({
 	// Parsed and checked once per run, before any page is opened.
 	cfg: [
 		// Playwright wants a fixture named here; the browser's name is the cheapest one there is.
@@ -42,7 +46,24 @@ export const test = base.extend<{ waypoint: Waypoint }, { cfg: E2eConfig }>({
 			await page.screenshot({ path, fullPage: true, animations: 'disabled' });
 			await testInfo.attach(name, { path, contentType: 'image/png' });
 		});
-	}
+	},
+
+	// When a test fails for any reason, says in the failure itself what the page was showing:
+	// where it was, its headings, buttons, any error text, and its first words. The run's log
+	// is then enough to tell what happened without the screenshots. See stuck-page.ts for what
+	// is kept out.
+	pageAtFailure: [
+		async ({ page }, use, testInfo) => {
+			await use(undefined);
+			if (testInfo.status === testInfo.expectedStatus || testInfo.status === 'skipped') return;
+			const described = await describePage(page);
+			if (described === null) return;
+			testInfo.errors.push({
+				message: `What the page was showing when this failed:\n${described}`
+			});
+		},
+		{ auto: true }
+	]
 });
 
 export { expect };
@@ -68,4 +89,17 @@ export async function until<T>(
 		}
 		await new Promise((resolve) => setTimeout(resolve, 500));
 	}
+}
+
+/**
+ * Put at the top of a spec that needs a signed-in person. When the run was told not to sign in
+ * (`E2E_SKIP_SIGN_IN=true`), every test in the file is skipped with this reason, before a
+ * browser is opened: there is no signed-in browser to open.
+ */
+export function needsSignIn(): void {
+	test.skip(
+		({ cfg }) => !cfg.signIn,
+		'This run did not sign in: enough recent runs already asked Qatom for sign-in codes, and ' +
+			'Qatom limits them. The signed-out checks still ran. The next run after the wait signs in.'
+	);
 }

@@ -21,6 +21,8 @@ permissions:
   contents: read
   # Lets the job prove to AWS that it is this repository's `main`. There is no AWS key anywhere.
   id-token: write
+  # Lets the job read this workflow's own recent runs, to see how many of them signed in.
+  actions: read
 
 # One run at a time: the two test people and their inbox are shared. A run that has started is
 # never cancelled, least of all in the middle of a paid filing.
@@ -100,6 +102,55 @@ jobs:
           role-to-assume: ${{ vars.E2E_AWS_ROLE_ARN }}
           aws-region: ca-central-1
 
+      # Qatom gives each address 5 sign-in codes in each fixed quarter-hour (:00, :15, :30, :45
+      # UTC), and several releases close together would spend them. So at most 3 runs sign in per
+      # quarter-hour; a run beyond that walks only the signed-out pages and says so. A run started
+      # by hand always signs in. If the count cannot be read, the run does not sign in.
+      - name: Decide whether this run signs in
+        id: signin
+        if: steps.inbox.outputs.ready == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGN_IN_STEP: Note that this run signs in
+          RUNS_PER_QUARTER_HOUR: 3
+        run: |
+          if [[ $GITHUB_EVENT_NAME == workflow_dispatch ]]; then
+            echo "::notice::This run was started by hand, so it signs in."
+            echo "sign_in=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Qatom counts codes in fixed quarter-hours: from :00, :15, :30 and :45 UTC.
+          since=$(date -u -d "@$(( $(date +%s) / 900 * 900 ))" +%Y-%m-%dT%H:%M:%SZ)
+          signed_in=0
+          if ! recent=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?per_page=30" \
+            --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID and .run_started_at >= \"$since\") | .id"); then
+            echo "::warning::Could not read this workflow's recent runs, so this run does not sign in. The signed-out checks still run."
+            echo "sign_in=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          for run in $recent; do
+            if ! steps=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run/jobs" \
+              --jq "[.jobs[].steps[]? | select(.name == \"$SIGN_IN_STEP\" and .conclusion == \"success\")] | length"); then
+              echo "::warning::Could not read run $run, so this run does not sign in. The signed-out checks still run."
+              echo "sign_in=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if ((steps > 0)); then signed_in=$((signed_in + 1)); fi
+          done
+          if ((signed_in >= RUNS_PER_QUARTER_HOUR)); then
+            echo "::notice::This run does not sign in: $signed_in runs have signed in since $since, and Qatom limits sign-in codes per quarter-hour. The signed-out checks still run."
+            echo "sign_in=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::This run signs in: $signed_in earlier runs have signed in since $since."
+            echo "sign_in=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Later runs count this step to know that this run asked Qatom for codes. Its name is
+      # SIGN_IN_STEP above: change both together.
+      - name: Note that this run signs in
+        if: steps.inbox.outputs.ready == 'true' && steps.signin.outputs.sign_in == 'true'
+        run: echo "This run asks Qatom for one sign-in code for each of the two test people."
+
       - name: Say whether this run spends a deposit
         if: steps.inbox.outputs.ready == 'true'
         run: |
@@ -111,6 +162,9 @@ jobs:
 
       - name: Run the end-to-end suite
         if: steps.inbox.outputs.ready == 'true'
+        env:
+          # "true" makes the suite skip the sign-in and every check that needs a signed-in person.
+          E2E_SKIP_SIGN_IN: ${{ steps.signin.outputs.sign_in == 'true' && 'false' || 'true' }}
         run: npm run e2e
 
       # Always, pass or fail: the screenshots are how a person reads what happened. Only this
