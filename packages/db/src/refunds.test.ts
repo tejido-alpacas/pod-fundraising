@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
 	claimDepositsForRefund,
-	listConfirmedUnrefundedDepositsByEmailDomain,
+	listUnrefundedDepositsByEmailDomain,
 	listDeposits,
 	listRefunds,
 	listUnrefundedDeposits,
@@ -203,9 +203,9 @@ describe('recording what happened to the transfer', () => {
 	});
 });
 
-describe('unrefunded deposits on confirmed milestones, by the filer’s email domain', () => {
+describe('unrefunded deposits, by the filer’s email domain', () => {
 	const DOMAIN = 'e2e.m.todaq.net';
-	const list = () => listConfirmedUnrefundedDepositsByEmailDomain(test.db, DOMAIN);
+	const list = () => listUnrefundedDepositsByEmailDomain(test.db, DOMAIN);
 	const setEmail = (partyId: string, email: string) =>
 		test.db.update(parties).set({ email }).where(eq(parties.id, partyId));
 	const confirmWalls = () =>
@@ -233,16 +233,33 @@ describe('unrefunded deposits on confirmed milestones, by the filer’s email do
 				email: 'Tejido-Contractor@E2E.M.Todaq.Net',
 				agentWalletHostname: contractor.agentWalletHostname
 			},
+			milestoneConfirmed: true,
 			commodityId: fixtures.campaign.logWorkCommodityId,
 			claim: null,
 			attempted: false
 		});
 	});
 
-	it('leaves out unconfirmed milestones, refunded deposits and every other domain', async () => {
-		// m2-walls is open: nothing yet, though the contractor is at the domain.
+	it('lists a deposit on an unconfirmed milestone too, saying so, with when it was filed', async () => {
+		// m2-walls is open. The caller decides from these two facts whether it is due.
 		await setEmail(contractor.id, 'contractor@e2e.m.todaq.net');
-		expect(await list()).toEqual([]);
+		const walls = fixtures.entries.filter((entry) => entry.milestoneId === WALLS);
+		const open = await list();
+
+		expect(open.map((row) => row.deposit.id)).toEqual(WALLS_DEPOSITS);
+		expect(open.map((row) => row.milestoneConfirmed)).toEqual([false, false]);
+		expect(open.map((row) => row.filedAt).sort()).toEqual(
+			walls.map((entry) => entry.filedAt).sort()
+		);
+
+		await confirmWalls();
+		expect((await list()).map((row) => row.milestoneConfirmed)).toEqual([true, true]);
+	});
+
+	it('leaves out refunded deposits and every other domain', async () => {
+		// The contractor's two deposits on m1-foundation are already refunded.
+		await setEmail(contractor.id, 'contractor@e2e.m.todaq.net');
+		expect((await list()).map((row) => row.milestoneId)).toEqual([WALLS, WALLS]);
 
 		await confirmWalls();
 		for (const email of [
