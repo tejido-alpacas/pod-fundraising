@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { Banner, Button, Icon } from '@tejido/ui';
 	import FieldPage from '#lib/FieldPage.svelte';
-	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
+	import { cadencePhrase, ROLES, roleName } from '#lib/roles.ts';
 	import Strength from '#lib/Strength.svelte';
 	import type { PageProps } from './$types';
 
@@ -43,7 +43,7 @@
 				<dd>
 					<strong>{roleName(data.party)}.</strong>
 					{role.does}
-					{#if !confirmer}Your work log is due {CADENCE[data.campaign.cadence]}.{/if}
+					{#if !confirmer}Your work log is due {cadencePhrase(data.campaign.cadence)}.{/if}
 				</dd>
 			</div>
 			<div>

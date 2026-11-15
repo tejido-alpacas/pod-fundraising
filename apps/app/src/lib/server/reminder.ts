@@ -7,8 +7,8 @@
  *
  * "Due" is not defined here: it is `#lib/due.ts`, the same list the home page shows.
  */
-import type { PartyRole } from '@tejido/contracts';
-import { CADENCE } from '#lib/roles.ts';
+import type { Cadence, PartyRole } from '@tejido/contracts';
+import { cadencePhrase } from '#lib/roles.ts';
 import { shortDay } from '#lib/dates.ts';
 import { needsYou, type PartyMilestone } from '#lib/due.ts';
 
@@ -75,7 +75,7 @@ export function chatPath(milestoneId: string | null): string {
 export interface ReminderMessageInput {
 	/** Only the name. The message is never given a filing code, a wallet or an email address. */
 	party: { name: string };
-	campaign: { title: string; cadence: keyof typeof CADENCE };
+	campaign: { title: string; cadence: Cadence };
 	/** Something that is actually due. A link with nothing to do gets no message. */
 	due: Extract<ReminderDue, { kind: 'milestone' | 'work_log' }>;
 	/** The full address of the reminder page for this, as the scheduler hands it out. */
@@ -107,7 +107,7 @@ export function reminderMessage(input: ReminderMessageInput): ReminderMessage {
 
 	if (due.kind === 'work_log') {
 		subject = `Work log due: ${campaign.title}`;
-		what = `Your work log on "${campaign.title}" is due. You log your work ${CADENCE[campaign.cadence]}.`;
+		what = `Your work log on "${campaign.title}" is due. You log your work ${cadencePhrase(campaign.cadence)}.`;
 		next = `It is a short note on what was done, with photos if you have them. ${HOW}`;
 	} else {
 		const { milestone } = due;

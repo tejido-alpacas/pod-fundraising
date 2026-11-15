@@ -106,6 +106,89 @@ describe('work-log periods', () => {
 	});
 });
 
+describe('daily and chosen days of the week', () => {
+	// The schedule starts on Monday 9 November 2026, as everywhere in this file.
+	const logs = (values: Parameters<typeof due>[0]) => workLogsOf(due(values));
+
+	it('daily: a work log is due each day, and overdue from the next', () => {
+		expect(logs({ cadence: 'daily', now: '2026-11-09T08:00:00.000Z' })).toEqual([
+			{
+				what: 'work_log',
+				partyId: 'contractor',
+				period: { number: 1, start: '2026-11-09', end: '2026-11-09' },
+				kind: 'due',
+				dueDate: '2026-11-09',
+				overdueDays: 0
+			}
+		]);
+		expect(logs({ cadence: 'daily', now: '2026-11-11T00:00:00.000Z' })).toMatchObject([
+			{ kind: 'overdue', dueDate: '2026-11-09', overdueDays: 2 },
+			{ kind: 'overdue', dueDate: '2026-11-10', overdueDays: 1 },
+			{ kind: 'due', dueDate: '2026-11-11', overdueDays: 0 }
+		]);
+	});
+
+	it('daily: a log filed today settles today, and tomorrow is owed again', () => {
+		const entries = [workLog('2026-11-09T09:00:00.000Z')];
+		expect(logs({ cadence: 'daily', entries, now: '2026-11-09T23:59:59.999Z' })).toEqual([]);
+		expect(logs({ cadence: 'daily', entries, now: '2026-11-10T00:00:00.000Z' })).toMatchObject([
+			{ kind: 'due', dueDate: '2026-11-10' }
+		]);
+	});
+
+	it('chosen days: a work log is due on each chosen day', () => {
+		// Monday and Thursday. On Tuesday the next one is due on Thursday.
+		expect(
+			logs({
+				cadence: 'days:mon,thu',
+				entries: [workLog('2026-11-09T09:00:00.000Z')],
+				now: '2026-11-10T12:00:00.000Z'
+			})
+		).toEqual([
+			{
+				what: 'work_log',
+				partyId: 'contractor',
+				period: { number: 2, start: '2026-11-10', end: '2026-11-12' },
+				kind: 'due',
+				dueDate: '2026-11-12',
+				overdueDays: 0
+			}
+		]);
+	});
+
+	it('chosen days: a missed day is overdue from the day after, and the next is still owed', () => {
+		// Nothing filed. On Friday 13: Monday's is 4 days late, Thursday's 1, next Monday's due.
+		expect(logs({ cadence: 'days:mon,thu', now: '2026-11-13T12:00:00.000Z' })).toMatchObject([
+			{ kind: 'overdue', dueDate: '2026-11-09', overdueDays: 4 },
+			{ kind: 'overdue', dueDate: '2026-11-12', overdueDays: 1 },
+			{ kind: 'due', dueDate: '2026-11-16', overdueDays: 0 }
+		]);
+	});
+
+	it('chosen days: a late log settles the earliest missed day', () => {
+		expect(
+			logs({
+				cadence: 'days:mon,thu',
+				entries: [workLog('2026-11-13T09:00:00.000Z')],
+				now: '2026-11-13T12:00:00.000Z'
+			})
+		).toMatchObject([
+			{ kind: 'overdue', dueDate: '2026-11-12' },
+			{ kind: 'due', dueDate: '2026-11-16' }
+		]);
+	});
+
+	it('raises an open milestone one period ahead: a day for daily, the longest wait for chosen days', () => {
+		// The milestone is due on Friday 27 November.
+		const raised = (cadence: Cadence, now: string) => milestonesOf(due({ cadence, now })).length;
+		expect(raised('daily', '2026-11-25T23:59:59.999Z')).toBe(0);
+		expect(raised('daily', '2026-11-26T00:00:00.000Z')).toBe(1);
+		// Monday and Tuesday: the longest wait is the six days from Tuesday to Monday.
+		expect(raised('days:mon,tue', '2026-11-20T23:59:59.999Z')).toBe(0);
+		expect(raised('days:mon,tue', '2026-11-21T00:00:00.000Z')).toBe(1);
+	});
+});
+
 describe('a draft campaign', () => {
 	it('is never due, whatever its dates and entries', () => {
 		expect(
