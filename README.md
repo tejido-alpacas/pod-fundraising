@@ -78,7 +78,7 @@ those four.
 `e2e/` holds a Playwright suite that signs two fixed test people in to the live App through real
 Qatom (it reads each emailed sign-in code from a queue), walks the App and the Campaign Site, and
 keeps a screenshot of every step at phone and desktop size. GitHub runs it after each release of
-`main` and keeps the screenshots with the run for a week. After a release, at most once an hour,
+`main` and keeps the screenshots with the run for a week. After a release, at most once every 15 minutes,
 a run also tells the paid story by itself: a work log, a milestone claim and its confirmation,
 for real deposits from the two test people's wallets, on a campaign the run creates.
 
