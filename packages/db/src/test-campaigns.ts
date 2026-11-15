@@ -8,6 +8,9 @@
  *
  *   - the fixed test campaign (`E2E_CAMPAIGN_ID`, the one every run uses) is never listed
  *     and never deleted: `deleteCampaignAndAllOfItsOwn` throws when given its id;
+ *   - `deleteCampaignAndAllOfItsOwn` reads the campaign's creator and every person on it
+ *     itself, and throws, deleting nothing, unless every one of those addresses is at the
+ *     test inbox domain it was given. A real fundraiser handed to it by mistake is refused;
  *   - every statement of a deletion names one campaign's id and removes only that campaign's
  *     rows. Foreign keys are enforced, so if anything else still points at the campaign
  *     (a row of another campaign, or a table this file does not know) the whole deletion
@@ -250,17 +253,47 @@ export type CampaignDeletion =
  * Deletes one campaign and every row that belongs to it, in one batch: all of it, or none.
  * Deletes no stored evidence bytes. Never deletes the fixed test campaign.
  *
- * It does not decide whether the campaign SHOULD be deleted: the caller has.
+ * It does not decide whether the campaign is old enough or finished with: the caller has.
+ * It does refuse, by throwing, any campaign that is not the tests' own (see the top).
  *
  * Throws when the database refuses the batch, which is what happens when something this file
  * does not know about still points at the campaign. Nothing is deleted then.
  */
 export async function deleteCampaignAndAllOfItsOwn(
 	db: Database,
-	campaignId: string
+	campaignId: string,
+	/** The test inbox domain. The caller gives it; it is not written in this package. */
+	testEmailDomain: string
 ): Promise<CampaignDeletion> {
 	if (campaignId === E2E_CAMPAIGN_ID) {
 		throw new RangeError('The fixed test campaign is never deleted.');
+	}
+
+	// THE LOCK ON WHOSE CAMPAIGN IT IS, whatever the caller believes: the creator's address
+	// and the address of every person on the campaign are read here, and each must be one
+	// address at the test inbox domain. Anything else throws, and nothing is deleted.
+	const domain = testEmailDomain.toLowerCase();
+	if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(domain) || !domain.includes('.')) {
+		throw new RangeError('The test inbox domain is not a domain.');
+	}
+	const atTestDomain = (email: string) => {
+		const at = email.indexOf('@');
+		return at > 0 && at === email.lastIndexOf('@') && email.slice(at + 1).toLowerCase() === domain;
+	};
+	const [campaign] = await db
+		.select({ creatorEmail: campaigns.creatorEmail })
+		.from(campaigns)
+		.where(eq(campaigns.id, campaignId))
+		.limit(1);
+	if (!campaign) return { deleted: false, why: 'not_found' };
+	const people = await db
+		.select({ email: parties.email })
+		.from(parties)
+		.where(eq(parties.campaignId, campaignId));
+	if (!atTestDomain(campaign.creatorEmail) || !people.every(({ email }) => atTestDomain(email))) {
+		throw new RangeError(
+			'Only a campaign whose creator and every person are test people is ever deleted.'
+		);
 	}
 
 	// Evidence rows owned by this campaign's people, and who else names each file.

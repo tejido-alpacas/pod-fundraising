@@ -198,7 +198,7 @@ export async function cleanUpTestCampaigns(
 		tries += 1;
 		let outcome;
 		try {
-			outcome = await deleteCampaignAndAllOfItsOwn(db, campaign.id);
+			outcome = await deleteCampaignAndAllOfItsOwn(db, campaign.id, E2E_TEST_EMAIL_DOMAIN);
 		} catch (error) {
 			// The batch is all or nothing: the campaign is exactly as it was. Only the kind of
 			// failure is logged; a database error can quote a row.
