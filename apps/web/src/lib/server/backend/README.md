@@ -16,8 +16,9 @@ shared-secret header. No network hop, and the same route a person's call goes th
 - The one more thing is for the end-to-end test accounts only (`CLAUDE.md`, "Qatom": the one
   exception, the owner's decision of 15 November 2026). After a reconcile pass that worked, the
   timer asks for `POST /api/test-account-refunds`. A party whose email is at the test inbox
-  domain gets their deposits on a confirmed milestone back in the agent wallet they were paid
-  from, out of the twin the item is sold from, so the automatic paid tests keep themselves
+  domain gets their deposits back in the agent wallet they were paid from (a confirmed
+  milestone's at once; any other once it is 20 minutes old, because a failed test run never
+  confirms its milestone), out of the twin the item is sold from, so the automatic paid tests keep themselves
   funded. Nobody else is refunded that way. The rules are in `test-account-refunds.ts`; the
   Qatom calls are in `packages/qatom/src/account/item-twin-refund.ts`. To turn it off, remove
   the `refundTestAccountsOnTimer` call in `worker.ts`. A pass that had something to consider

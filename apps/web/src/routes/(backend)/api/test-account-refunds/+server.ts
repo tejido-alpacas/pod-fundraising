@@ -3,8 +3,9 @@
  * Track C owns this file. The rules are in #lib/server/backend/test-account-refunds.ts.
  *
  * It takes no body and names nobody: who is refunded is decided by the email domain of the
- * party who paid, and by nothing a caller sends. A test person's deposits on a confirmed
- * milestone go back to their agent wallet, out of the twin the item is sold from. Nobody
+ * party who paid, and by nothing a caller sends. A test person's deposits go back to their
+ * agent wallet, out of the twin the item is sold from: a confirmed milestone's at once, any
+ * other once it is 20 minutes old (a test run that fails never confirms its milestone). Nobody
  * else's deposits are touched; theirs go back through POST /api/refunds, to a primary wallet.
  *
  * Not for the public: the caller must send the same shared-secret header as the check-in
