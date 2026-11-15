@@ -11,6 +11,8 @@
  * is skipped, saying why, when there is nothing to check. It never calls `/api/donations`.
  */
 import type { Page } from '@playwright/test';
+import { describeCheckoutPage } from '../lib/checkout-page.ts';
+import { amountShown } from '../lib/give-page.ts';
 import { expect, test, until } from '../lib/harness.ts';
 import { assertQatomCheckoutPage, onOrigin } from '../lib/safety.ts';
 
@@ -133,20 +135,37 @@ test('pressing an amount arrives at Qatom’s checkout page, and nothing is paid
 		'No amount is on sale: the donation items are not in Qatom yet, so there is nothing to press.'
 	);
 
+	// What the page offers, as written ("1.00"), smallest first. The smallest is pressed.
+	const offered = (await amountButtons(page).allInnerTexts()).map(amountShown);
+	const pressed = offered[0] ?? '';
+
 	// The smallest amount. The checkout's address can be paid by whoever holds it, so it is
 	// never waited on by address or written anywhere: only where the browser is, is read.
 	await amountButtons(page).first().click();
-	await until('the browser to leave Tejido for Qatom’s checkout page', 45_000, async () => {
-		if (!onOrigin(page.url(), cfg.siteUrl)) return true;
-		const problem = page.getByRole('alert');
-		if (await problem.isVisible()) {
-			throw new Error(
-				`The Give page did not start a checkout: ${(await problem.innerText()).trim()}`
-			);
-		}
-		return null;
-	});
-	assertQatomCheckoutPage(page.url());
-	// Arriving is the whole check. Nothing on Qatom's page is pressed, so nothing is paid. No
-	// picture is kept of it either: the page is a checkout anyone holding it could pay.
+	try {
+		await until('the browser to leave Tejido for Qatom’s checkout page', 45_000, async () => {
+			if (!onOrigin(page.url(), cfg.siteUrl)) return true;
+			const problem = page.getByRole('alert');
+			if (await problem.isVisible()) {
+				throw new Error(
+					`The Give page did not start a checkout: ${(await problem.innerText()).trim()}`
+				);
+			}
+			return null;
+		});
+		assertQatomCheckoutPage(page.url());
+		// Arriving is the check that fails. Nothing on Qatom's page is pressed, so nothing is paid.
+		// What the page shows is then READ, to say whether it is for the amount that was pressed.
+		// Qatom's wording is not known from this repository, so this is reported, not required:
+		// read "found" in the report after the first run that reaches here.
+		testInfo.annotations.push({
+			type: 'found',
+			description: await describeCheckoutPage(page, pressed, offered)
+		});
+	} finally {
+		// Whatever happened, the browser does not stay on a page of another site: nothing that
+		// runs after a test (the failure's description of the page) may read a checkout that
+		// anyone holding its address could pay. No picture is kept of it either.
+		if (!onOrigin(page.url(), cfg.siteUrl)) await page.goto('about:blank');
+	}
 });
