@@ -142,9 +142,12 @@ function mayBePayment(transaction: LedgerTransaction, commodityHash: string): bo
 }
 
 export interface ReconcileSummary {
-	/** Campaigns with at least one catalog item to read. */
+	/** Campaigns looked at: every campaign. */
 	campaigns: number;
-	/** Campaigns skipped because neither commodity id is stored on them yet. */
+	/**
+	 * Of those, the campaigns that store no commodity id of their own and so are read under
+	 * the two shared items (SHARED_ITEM_COMMODITY_ID). They are not skipped.
+	 */
 	campaignsWithoutItems: number;
 	/** Ledgers read. A ledger several campaigns share is read, and counted, once. */
 	ledgersRead: number;
@@ -203,6 +206,23 @@ const ITEM_COMMODITY_ID = {
 	log_work: 'logWorkCommodityId',
 	milestone_hit: 'milestoneHitCommodityId'
 } as const satisfies Record<EntryItem, keyof Campaign>;
+
+/**
+ * THE TWO SHARED ITEMS. Every campaign uses the same two catalog items on Tejido's merchant
+ * account (the owner's decision, 15 November 2026): one Log work and one Milestone hit. These
+ * are their commodity ids in Qatom, the same two the example campaign has always carried.
+ *
+ * A campaign that stores an id of its own for an item is read under that id. A campaign that
+ * stores none, which is every campaign made with the builder, is read under these. Without
+ * this its reports would stay at "Receipt pending" for ever.
+ *
+ * CLAUDE.md prefers configuration for a value that belongs to one Qatom environment. There is
+ * one environment, and the owner chose not to add settings to the release for this.
+ */
+export const SHARED_ITEM_COMMODITY_ID = {
+	log_work: 3152,
+	milestone_hit: 3153
+} as const satisfies Record<EntryItem, number>;
 
 const ITEMS = Object.keys(DEPOSIT_AMOUNT) as EntryItem[];
 
@@ -381,19 +401,19 @@ export async function reconcile(
 	// entries are put side by side before anything is read or matched.
 	const ledgers = new Map<number, SharedLedger>();
 	for (const campaign of await listCampaigns(db)) {
+		// Counted, never skipped: a campaign with no ids of its own uses the shared items.
 		if (ITEMS.every((item) => campaign[ITEM_COMMODITY_ID[item]] === null)) {
 			summary.campaignsWithoutItems += 1;
-			continue;
 		}
 		summary.campaigns += 1;
 		const waiting = await listUnreconciledEntries(db, campaign.id);
 		summary.unmatched += waiting.length;
 
 		for (const item of ITEMS) {
-			const commodityId = campaign[ITEM_COMMODITY_ID[item]];
+			const commodityId = campaign[ITEM_COMMODITY_ID[item]] ?? SHARED_ITEM_COMMODITY_ID[item];
 			const waitingForItem = waiting.filter((row) => row.entry.item === item);
-			// Nothing to prove, or no ledger to read yet: this campaign asks for no ledger.
-			if (commodityId === null || waitingForItem.length === 0) continue;
+			// Nothing to prove: this campaign asks for no ledger.
+			if (waitingForItem.length === 0) continue;
 
 			let ledger = ledgers.get(commodityId);
 			if (!ledger) {
