@@ -30,6 +30,24 @@ describe('FieldHeader', () => {
 		expect(body).toContain('<p class="tj-vh">Tejido</p>');
 	});
 
+	it('puts the page links inside the bar, before whatever is at its end', () => {
+		const { body } = render(FieldHeader, {
+			props: {
+				title: 'Rebuild the library wing',
+				links: [
+					{ href: '/', label: 'Home' },
+					{ href: '/fix', label: 'Fix reports' }
+				],
+				current: '/'
+			}
+		});
+		const nav = body.indexOf('<nav class="tj-fieldnav"');
+		expect(nav).toBeGreaterThan(body.indexOf('<header'));
+		expect(nav).toBeLessThan(body.indexOf('</header>'));
+		expect(body).toContain('aria-current="page"');
+		expect(body.match(/<a href=/g)).toHaveLength(2);
+	});
+
 	it('shows the back arrow, not the logo, inside a flow', () => {
 		const { body } = render(FieldHeader, { props: { title: 'Add evidence', back: '/', logo } });
 		expect(body).toContain('aria-label="Back"');

@@ -108,10 +108,13 @@
 }
 
 /* The page links under the header, as the first site's navigation pills. */
+/* They are inside the bar. On a narrow screen they are its second row, from edge to edge. */
 .tj-fieldnav {
+	grid-row: 2;
+	grid-column: 1 / -1;
 	gap: 2px;
-	margin: 6px 8px 0;
-	padding: 0 12px;
+	min-width: 0;
+	padding: 0 0 6px;
 	background: none;
 	border-bottom: 0;
 }
@@ -144,9 +147,24 @@
 	.tj-fieldheader__end .tj-btn {
 		padding: 0 18px;
 	}
-	.tj-fieldnav {
-		margin-inline: 12px;
-		padding-inline: 18px;
+}
+
+/* From 900px the links sit in the bar itself, between the title and the buttons at its end, as
+   the first site's navigation does. (Below 900px the phone's tab bar does this job.) */
+@container (min-width: 900px) {
+	.tj-fieldheader:has(> .tj-fieldnav) {
+		grid-template-columns: auto fit-content(26rem) minmax(0, 1fr) auto;
+	}
+	.tj-fieldheader > .tj-fieldnav {
+		grid-row: 1;
+		grid-column: 3;
+		padding: 0;
+	}
+	.tj-fieldheader > .tj-fieldnav a {
+		padding: 0 10px;
+	}
+	.tj-fieldheader:has(> .tj-fieldnav) > .tj-fieldheader__end {
+		grid-column: 4;
 	}
 }
 

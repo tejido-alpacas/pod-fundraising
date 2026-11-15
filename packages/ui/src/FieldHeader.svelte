@@ -1,7 +1,7 @@
 <!--
   FieldHeader: the field app's header. Sticky, 60px. The weave mark (a link home) or a back
   button, a title that truncates, and whatever goes at the end (connectivity, sign out).
-  An optional row of page links sits under it. No serif here: the field app is a tool.
+  Optional page links sit inside it: in the bar on a wide screen, as a second row on a narrow one. No serif here: the field app is a tool.
 
   <FieldHeader title="Rebuild the library wing" subtitle="Kemar Douglas · Coral Ridge Builders"
                links={[{ href: '/', label: 'Home' }]} current={page.url.pathname}>
@@ -75,14 +75,16 @@
 		<p class={back === undefined && logo?.standsForTitle ? 'tj-vh' : undefined}>{title}</p>
 		{#if subtitle}<small title={subtitleTitle}>{subtitle}</small>{/if}
 	</div>
+	<!-- The page links are part of the bar. On a wide screen they sit in it, between the title
+	     and the end, as the first site's navigation does; on a narrow one they are its second row. -->
+	{#if links.length > 0}
+		<nav class="tj-fieldnav" aria-label="Main">
+			{#each links as link (link.href)}
+				<a href={link.href} aria-current={current === link.href ? 'page' : undefined}>
+					{link.label}
+				</a>
+			{/each}
+		</nav>
+	{/if}
 	{#if end}<div class="tj-fieldheader__end">{@render end()}</div>{/if}
 </header>
-{#if links.length > 0}
-	<nav class="tj-fieldnav" aria-label="Main">
-		{#each links as link (link.href)}
-			<a href={link.href} aria-current={current === link.href ? 'page' : undefined}>
-				{link.label}
-			</a>
-		{/each}
-	</nav>
-{/if}

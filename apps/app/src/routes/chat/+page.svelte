@@ -1007,9 +1007,8 @@
 		flex-direction: column;
 	}
 	/* The chat names itself in its own header, as the App's other pages do (see FieldPage). The
-	   layout's general header and its row of links stand down while the chat is showing. */
-	:global(.tj-screen:has(.chat) > .tj-fieldheader),
-	:global(.tj-screen:has(.chat) > .tj-fieldnav) {
+	   layout's general header, with its links, stands down while the chat is showing. */
+	:global(.tj-screen:has(.chat) > .tj-fieldheader) {
 		display: none;
 	}
 	.chat {
