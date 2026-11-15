@@ -78,10 +78,11 @@ those four.
 `e2e/` holds a Playwright suite that signs two fixed test people in to the live App through real
 Qatom (it reads each emailed sign-in code from a queue), walks the App and the Campaign Site, and
 keeps a screenshot of every step at phone and desktop size. GitHub runs it after each release of
-`main` and keeps the screenshots with the run for a week. After a release, at most once every 15 minutes
-(and until 16 November 2026, 11:30 UTC, also on a five-minute timer),
-a run also tells the paid story by itself: a work log, a milestone claim and its confirmation,
-for real deposits from the two test people's wallets, on a campaign the run creates.
+`main` and keeps the screenshots with the run for a week. A run that follows a release never
+moves money. The paid story (work logs, milestone claims and their confirmations for real
+deposits, and one real donation, from the test people's wallets, on a campaign the run creates)
+is told only by a run a person starts by hand with "paid" ticked. Test money is returned by the
+owner, by hand.
 
 It is not one of the four checks and `npm test` never runs it. What a person sets up once, how
 to run it, what it costs and how to read a failure are in [`e2e/README.md`](e2e/README.md).

@@ -9,6 +9,7 @@ import {
 	stampEntries,
 	type EntryStamp
 } from './index.ts';
+import { campaigns, deposits, entries, milestones, parties } from './schema.ts';
 import { createTestDatabase, type TestDatabase } from './testing.ts';
 
 const CAMPAIGN = fixtures.campaign.id;
@@ -53,6 +54,42 @@ describe('listUnreconciledEntries', () => {
 
 	it('returns nothing for a campaign it does not know', async () => {
 		expect(await listUnreconciledEntries(test.db, 'no-such-campaign')).toEqual([]);
+	});
+
+	it('with no campaign named, returns every campaign’s waiting entries at once, oldest first', async () => {
+		// A second campaign with one waiting entry of its own, filed before the fixtures' two.
+		const other = 'harbour-clinic';
+		const party = { ...fixtures.parties[0]!, id: 'harbour-joinery', campaignId: other };
+		const milestone = { ...fixtures.milestones[0]!, campaignId: other, ownerPartyId: party.id };
+		await test.db.insert(campaigns).values({ ...fixtures.campaign, id: other });
+		await test.db.insert(parties).values({ ...party, reporterCode: 'rc_22222222222222222222' });
+		await test.db.insert(milestones).values({ ...milestone, confirmerPartyId: party.id });
+		const template = unstamped[0]!;
+		const entry = {
+			...template,
+			id: 'ent-harbour-1',
+			campaignId: other,
+			milestoneId: milestone.id,
+			partyId: party.id,
+			filedAt: '2026-01-01T00:00:00.000Z'
+		};
+		await test.db.insert(entries).values(entry);
+		await test.db
+			.insert(deposits)
+			.values({ id: 'dep-harbour-1', entryId: entry.id, amount: 100, refundedAt: null });
+
+		const all = await listUnreconciledEntries(test.db);
+		expect(all.map((row) => [row.entry.campaignId, row.entry.id])).toEqual([
+			[other, 'ent-harbour-1'],
+			...[...unstamped]
+				.sort((a, b) => a.filedAt.localeCompare(b.filedAt))
+				.map((waiting) => [CAMPAIGN, waiting.id])
+		]);
+		// Asking for one campaign still gives only that campaign's.
+		expect((await listUnreconciledEntries(test.db, other)).map((row) => row.entry.id)).toEqual([
+			'ent-harbour-1'
+		]);
+		expect(await listUnreconciledEntries(test.db, CAMPAIGN)).toHaveLength(2);
 	});
 });
 

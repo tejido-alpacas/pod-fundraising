@@ -85,7 +85,7 @@ export type LogWorkInput = z.infer<typeof logWorkInputSchema>;
 
 /**
  * `completed`, `delivered` and `funds_spent` are claims by the party doing the work.
- * `confirm` is the sign-off by the milestone's named confirmer, from their own wallet.
+ * `confirm` is the sign-off by the milestone's named confirmer.
  */
 export const milestoneClaimSchema = z.enum(['completed', 'delivered', 'funds_spent', 'confirm']);
 export type MilestoneClaim = z.infer<typeof milestoneClaimSchema>;

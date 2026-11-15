@@ -2,23 +2,23 @@ name: End-to-end
 
 # Signs in to the LIVE site through real Qatom and walks it, keeping screenshots. See e2e/README.md.
 #
-# It runs after every successful release of `main`, and by hand from the Actions tab. The paid
-# story (real filing deposits from the two test people's wallets) tells itself after a release,
-# at most once in the time set below, and never in a run started by hand. It is a workflow of
-# its own, so it can never fail or hold up a deploy.
-#
-# UNTIL E2E_FAST_UNTIL (below) it also starts by itself every five minutes, so paid stories
-# follow one another without waiting for a release: the owner, 15 November 2026, "paid runs
-# should go every 5 minutes please", "just for the next 24 hours". After that moment a run the
-# timer starts ends at its first step and does nothing. Remove the `schedule` block then.
+# It runs after every successful release of `main`, and by hand from the Actions tab. A run that
+# follows a release never moves money. The paid story (real filing deposits and one real donation
+# from the test people's wallets) is told ONLY by a run that a person starts by hand with "paid"
+# ticked: the owner, 15 November 2026, "Switch to manual e2e runs from now on so we can manage
+# the refunds and the money flow". It is a workflow of its own, so it can never fail or hold up
+# a deploy.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
   workflow_dispatch:
-  schedule:
-    - cron: '*/5 * * * *'
+    inputs:
+      paid:
+        description: 'Tell the paid story: spends REAL test money (up to 6.20 in deposits and one donation)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -36,10 +36,9 @@ concurrency:
 jobs:
   e2e:
     # After CI: only when that run was a push to `main` and every job in it, the deploy
-    # included, succeeded. By hand, and on the five-minute timer: always.
+    # included, succeeded. By hand: always.
     if: >-
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'schedule' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main')
@@ -58,13 +57,6 @@ jobs:
       E2E_CAMPAIGN_ID: e2e-smoke
       E2E_CONTRACTOR_PARTY_ID: e2e-contractor
       E2E_CONFIRMER_PARTY_ID: e2e-confirmer
-      # At most one paid story starts within this many minutes. One number, easy to change.
-      E2E_PAID_EVERY_MINUTES: 15
-      # The fast pace the owner asked for, for 24 hours. Until this moment (UTC) the five-minute
-      # timer above starts runs and a paid story may start every E2E_FAST_EVERY_MINUTES. After
-      # it the timer's runs do nothing and the number above applies again.
-      E2E_FAST_UNTIL: '2026-11-16T11:30:00Z'
-      E2E_FAST_EVERY_MINUTES: 5
       # The campaign a paid run creates is titled with this, so it can be found and removed.
       E2E_RUN_LABEL: ${{ github.run_number }}
     steps:
@@ -73,13 +65,6 @@ jobs:
       - name: Check that the inbox is set up
         id: inbox
         run: |
-          # The five-minute timer is for the fast pace only. Once its time is over, a run it
-          # starts ends here, green, having done nothing.
-          if [[ $GITHUB_EVENT_NAME == schedule && ! $(date -u +%Y-%m-%dT%H:%M:%SZ) < $E2E_FAST_UNTIL ]]; then
-            echo "::notice::The five-minute timer's time ended at $E2E_FAST_UNTIL, so this run does nothing. Remove the schedule block from this workflow."
-            echo "ready=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
           missing=()
           for name in E2E_INBOX_QUEUE_URL E2E_INBOX_DOMAIN E2E_AWS_ROLE_ARN; do
             [[ -n ${!name} ]] || missing+=("$name")
@@ -173,78 +158,27 @@ jobs:
       # The paid story files work logs, milestone claims and their confirmations as the two test
       # people: up to 6.20 in real deposits, on a campaign the run creates. It also gives one real
       # donation, of the smallest amount on sale, to that campaign from the test contractor's
-      # primary wallet; nothing sends a donation back by itself. It tells itself, after a
-      # release or on the five-minute timer while the fast pace lasts, never by hand (CLAUDE.md,
-      # "Never move money to test something"). Earlier paid runs are the ones whose job has the
-      # step named below, finished. If they cannot be read, the run is unpaid.
+      # primary wallet; nothing sends a donation back by itself. It is told only by a run that a
+      # person started by hand with "paid" ticked, never by a run that follows a release
+      # (CLAUDE.md, "Never move money to test something").
       - name: Decide whether this run tells the paid story
         id: paid
         if: steps.inbox.outputs.ready == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          PAID_STEP: Note that this run tells the paid story
+          BY_HAND_PAID: ${{ github.event_name == 'workflow_dispatch' && inputs.paid }}
           SIGNS_IN: ${{ steps.signin.outputs.sign_in }}
-          THIS_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
           unpaid() { say "$1"; echo "paid=false" >> "$GITHUB_OUTPUT"; exit 0; }
-          # Reading GitHub sometimes fails for a moment. These calls only read, so try three times.
-          api() { local try; for try in 1 2 3; do gh api "$@" && return 0; sleep 3; done; return 1; }
 
-          # The gap between paid stories: the fast one until E2E_FAST_UNTIL, the usual one after.
-          every=$E2E_PAID_EVERY_MINUTES
-          if [[ $(date -u +%Y-%m-%dT%H:%M:%SZ) < $E2E_FAST_UNTIL ]]; then every=$E2E_FAST_EVERY_MINUTES; fi
-
-          [[ $GITHUB_EVENT_NAME == workflow_run || $GITHUB_EVENT_NAME == schedule ]] || unpaid "Unpaid run: it was started by hand. The paid story only runs by itself."
+          [[ $GITHUB_EVENT_NAME == workflow_dispatch ]] || unpaid "Unpaid run: it follows a release. The paid story is told only by a run started by hand with \"paid\" ticked."
+          [[ $BY_HAND_PAID == true ]] || unpaid "Unpaid run: it was started by hand without \"paid\" ticked."
           [[ $SIGNS_IN == true ]] || unpaid "Unpaid run: this run does not sign in, so it cannot file."
 
-          if ! runs=$(api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?per_page=30" \
-            --jq ".workflow_runs[] | select(.id != $GITHUB_RUN_ID and .status == \"completed\") | [.id, .run_started_at, .conclusion, .head_sha] | @tsv"); then
-            echo "::warning::Could not read this workflow's recent runs, so this run is unpaid."
-            unpaid "Unpaid run: the earlier runs could not be read."
-          fi
-
-          # The paid runs among them, newest first: when each started, how it ended, and the commit
-          # it TESTED. A run after a release tests that release's commit, which is often one behind
-          # the commit GitHub lists for the run, so the paid step's own name carries the tested
-          # commit in brackets. A paid run from before that has none: GitHub's commit is used.
-          paid_runs=()
-          while IFS=$'\t' read -r id started conclusion sha; do
-            [[ -n $id ]] || continue
-            if ! found=$(api "repos/$GITHUB_REPOSITORY/actions/runs/$id/jobs" \
-              --jq "[.jobs[].steps[]? | select((.name | startswith(\"$PAID_STEP\")) and .conclusion == \"success\") | .name] | first // \"\""); then
-              echo "::warning::Could not read run $id, so this run is unpaid."
-              unpaid "Unpaid run: an earlier run could not be read."
-            fi
-            if [[ -n $found ]]; then
-              tested=$sha
-              if [[ $found =~ \(([0-9a-f]{40})\)$ ]]; then tested=${BASH_REMATCH[1]}; fi
-              paid_runs+=("$started $conclusion $tested")
-            fi
-          done <<< "$runs"
-
-          if ((${#paid_runs[@]} > 0)); then
-            read -r last_started last_conclusion last_sha <<< "${paid_runs[0]}"
-            since=$(date -u -d "$every minutes ago" +%Y-%m-%dT%H:%M:%SZ)
-            if [[ $last_started > $since ]]; then
-              unpaid "Unpaid run: a paid story started at $last_started, and at most one starts every $every minutes."
-            fi
-            if ((${#paid_runs[@]} > 1)); then
-              read -r _ before_conclusion _ <<< "${paid_runs[1]}"
-              if [[ $last_conclusion != success && $before_conclusion != success ]]; then
-                if [[ $last_sha == "$THIS_COMMIT" ]]; then
-                  echo "::warning title=End-to-end: the paid story is stopped::The last two paid runs were red. No more deposits are spent until a new release, which gets one try. Read the last paid run's failure first."
-                  unpaid "Unpaid run: THE PAID STORY IS STOPPED. The last two paid runs were red, and this release has had its try."
-                fi
-                echo "::warning title=End-to-end: one more try at the paid story::The last two paid runs were red. This is a new release, so it gets one try."
-              fi
-            fi
-          fi
-          say "PAID run: it creates its own campaign and files work logs (0.10 each), milestone claims and their confirmations (1.00 each), up to 6.20, from the two test people's agent wallets; and it gives one donation of the smallest amount on sale from the test contractor's primary wallet."
+          say "PAID run, started by hand by $GITHUB_ACTOR: it creates its own campaign and files work logs (0.10 each), milestone claims and their confirmations (1.00 each), up to 6.20, from the two test people's agent wallets; and it gives one donation of the smallest amount on sale from the test contractor's primary wallet."
           echo "paid=true" >> "$GITHUB_OUTPUT"
 
-      # Later runs count this step to know that this run was paid, and read from its name the
-      # commit the run tested. Its name begins with PAID_STEP above: change both together.
+      # A paid run is recognised by this step, and its name carries the commit the run tested.
       - name: Note that this run tells the paid story (${{ github.event.workflow_run.head_sha || github.sha }})
         if: steps.inbox.outputs.ready == 'true' && steps.paid.outputs.paid == 'true'
         run: echo "This run spends up to 6.20 in real deposits from the two test people's agent wallets, and one donation of the smallest amount on sale from the test contractor's primary wallet, which nothing sends back by itself."

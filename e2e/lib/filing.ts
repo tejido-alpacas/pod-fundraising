@@ -152,6 +152,30 @@ export async function fileFromReview(
 		}
 	};
 
+	/**
+	 * A wallet that is short is a job for a person, not a fault in the product: say so as a
+	 * notice and stop, without a red failure. Called only once the entry is known not to be on
+	 * the public timeline. This leans on the assistant's wording, because neither the suite nor
+	 * the App's pages can read a wallet's balance.
+	 */
+	const topUpIfTheWalletIsShort = (): void => {
+		if (
+			!/top.?up|insufficient|not enough|doesn[’']t have enough|too low|short of funds|balance/i.test(
+				said
+			)
+		) {
+			return;
+		}
+		const notice =
+			`TOP UP NEEDED: the ${filing.what} was not filed and nothing shows as paid. The assistant ` +
+			`speaks of the wallet's funds. Add funds to the test ${filing.who}'s AGENT wallet in Qatom ` +
+			`(a ${filing.what} costs ${filing.deposit}).`;
+		console.log(
+			`::warning title=End-to-end: top up needed::${notice} ${words.replace(/\n/g, ' ')}`
+		);
+		test.skip(true, notice);
+	};
+
 	if (outcome === 'not_sent') {
 		// The chat drew no filing. That is not proof that nothing was filed: the chat knows a
 		// filing only by its tool's name, and has shown a real, paid filing as an ordinary answer
@@ -166,19 +190,7 @@ export async function fileFromReview(
 					`the App, not in the filing. Do not file again. ${words}`
 			);
 		}
-		// A wallet that is short is a job for a person, not a fault in the product: say so as a
-		// notice and stop, without a red failure. This leans on the assistant's wording, because
-		// neither the suite nor the App's pages can read a wallet's balance.
-		if (/top.?up|insufficient|not enough|too low|short of funds|balance/i.test(said)) {
-			const notice =
-				`TOP UP NEEDED: the ${filing.what} was not filed and nothing was paid. The assistant ` +
-				`speaks of the wallet's funds. Add funds to the test ${filing.who}'s AGENT wallet in Qatom ` +
-				`(a ${filing.what} costs ${filing.deposit}).`;
-			console.log(
-				`::warning title=End-to-end: top up needed::${notice} ${words.replace(/\n/g, ' ')}`
-			);
-			test.skip(true, notice);
-		}
+		topUpIfTheWalletIsShort();
 		throw new Error(
 			'NOTHING WAS FILED, as far as the App and the public timeline show: the chat drew no filing ' +
 				`and the entry "${reference}" is not on the campaign’s timeline, so no deposit shows as ` +
@@ -200,12 +212,15 @@ export async function fileFromReview(
 				`A filing tool was used, the entry "${reference}" is not on the public timeline, and the ` +
 				'assistant speaks of approving a payment. No deposit shows as paid. But approving that ' +
 				'waiting payment in Qatom later WOULD pay it and file this entry, so do not approve it ' +
-				`unless you want that. To let a paid run file by itself, set the test ${filing.who}’s ` +
+				`unless you want that. To let a paid run file without an approval, set the test ${filing.who}’s ` +
 				`auto-approve limit to at least ${filing.deposit}, then run again. ${words}`
 		);
 	}
 	if (!listed) {
 		await waypoint(page, 'timeline-without-the-entry');
+		// A filing that came back with a problem because the wallet could not cover the deposit
+		// (run 72): the entry is not on the timeline, and the assistant says the wallet is short.
+		if (outcome === 'problem') topUpIfTheWalletIsShort();
 		throw new Error(
 			(outcome === 'problem'
 				? 'The filing was sent and came back with a problem'
