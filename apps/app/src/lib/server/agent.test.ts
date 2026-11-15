@@ -228,7 +228,13 @@ describe('a request the Claude API refuses for a cause that waiting will not fix
 		['has a type with odd characters', errorBody(`bad type: ${SENTINEL}`)],
 		['has a type that is too long', errorBody('x'.repeat(41))],
 		['has a type that is not a word', errorBody({ nested: SENTINEL })],
-		['is longer than we read', errorBody('invalid_request_error') + ' '.repeat(5000) + SENTINEL]
+		[
+			'is longer than we read',
+			JSON.stringify({
+				padding: 'x'.repeat(5000),
+				error: { type: 'invalid_request_error', message: SENTINEL }
+			})
+		]
 	])('names the code and no type when the body %s', async (_name, body) => {
 		answers = [refused(400, body, { 'request-id': 'req_abc' })];
 
@@ -300,13 +306,25 @@ describe('a request the Claude API refuses for a cause that waiting will not fix
 		});
 	});
 
-	it('says busy after a 429 with a short wait, and names the cause after one with none', async () => {
-		const short = new AgentUnavailableError(429, 2000, 'rate_limit_error');
-		const none = new AgentUnavailableError(429, null, 'rate_limit_error');
+	it('names the cause after a 429 that names no wait, which does not pass by itself', async () => {
+		answers = [refused(429, errorBody('rate_limit_error'))];
 
-		expect(unavailableMessage(short)).toContain('busy');
-		expect(unavailableMessage(none)).toContain('(code 429, rate_limit_error)');
-		expect(unavailableMessage(none)).toContain('trying again will not help');
+		const message = unavailableMessage(await refusal());
+
+		expect(message).toContain('trying again will not help');
+		expect(message).toContain('(code 429, rate_limit_error)');
+		expect(sent).toHaveLength(1);
+	});
+
+	it('still says busy after a 429 for which the API named a wait, short or long', async () => {
+		const rateLimited = (wait: string) =>
+			refused(429, errorBody('rate_limit_error'), { 'retry-after': wait });
+		answers = [rateLimited('30')];
+		expect(unavailableMessage(await refusal())).toContain('busy');
+
+		answers = [rateLimited('1'), rateLimited('1'), rateLimited('1')];
+		await ask();
+		expect(events.at(-1)).toEqual({ type: 'error', message: expect.stringContaining('busy') });
 	});
 
 	it('keeps the "try again" wording when the connection fails', () => {

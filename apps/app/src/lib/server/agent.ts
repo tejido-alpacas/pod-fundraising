@@ -224,23 +224,27 @@ export function agentRequest(input: AgentRequestInput): { url: string; init: Req
  * `retryFloorMs` is null unless the request may be sent again by itself; then it is the least
  * time to wait first. `type` is the API's own short word for the error (`error.type` in its
  * JSON error body, such as `invalid_request_error`), or null when it gave none we could read.
- * Nothing else of the body is kept.
+ * Nothing else of the body is kept. `namedWait` is true when the API said how long to wait
+ * (`retry-after`), however long: such a cause passes with time even when we do not wait it out.
  */
 export class AgentUnavailableError extends Error {
 	readonly status: number | null;
 	readonly retryFloorMs: number | null;
 	readonly type: string | null;
+	readonly namedWait: boolean;
 
 	constructor(
 		status: number | null,
 		retryFloorMs: number | null = null,
-		type: string | null = null
+		type: string | null = null,
+		namedWait = false
 	) {
 		super(`The Claude API did not start a reply${status === null ? '' : ` (${status})`}.`);
 		this.name = 'AgentUnavailableError';
 		this.status = status;
 		this.retryFloorMs = retryFloorMs;
 		this.type = type;
+		this.namedWait = namedWait;
 	}
 }
 
@@ -426,7 +430,12 @@ async function onePass(
 			response.headers.get('request-id') ?? 'no request id'
 		);
 		await response.body?.cancel().catch(() => undefined);
-		throw new AgentUnavailableError(response.status, retryFloorMs(response), type);
+		throw new AgentUnavailableError(
+			response.status,
+			retryFloorMs(response),
+			type,
+			response.headers.has('retry-after')
+		);
 	}
 
 	const pass: Pass = { blocks: [], stopReason: null, failed: false };
@@ -514,9 +523,9 @@ const STOPPED_EARLY =
 /**
  * What to tell the person when a reply could not start.
  *
- * A cause that passes by itself (502, 503, 504, 529, or a 429 with a short wait) and a
- * connection that failed keep the "try again" wording. Any other refusal will not pass by
- * waiting, so the person is told that, and the API's status and error type are named exactly
+ * A cause that passes by itself (502, 503, 504, 529, or a 429 for which the API named a wait)
+ * and a connection that failed keep the "try again" wording. Any other refusal, a 429 that
+ * names no wait included, will not pass by waiting, so the person is told that, and the API's status and error type are named exactly
  * as received for whoever runs Tejido. We do not say what they mean: we do not know.
  */
 export function unavailableMessage(error: AgentUnavailableError): string {
@@ -524,7 +533,7 @@ export function unavailableMessage(error: AgentUnavailableError): string {
 	if (status === null || status < 400) return UNAVAILABLE;
 	if (status === 529) return BUSY;
 	if (PASSING_STATUSES.has(status)) return UNAVAILABLE;
-	if (status === 429 && error.retryFloorMs !== null) return BUSY;
+	if (status === 429 && (error.retryFloorMs !== null || error.namedWait)) return BUSY;
 	const cause = error.type === null ? `code ${status}` : `code ${status}, ${error.type}`;
 	return `The assistant is not available, and trying again will not help. Nothing was filed by this message. Whoever runs Tejido needs to look: the assistant's service refused the request (${cause}).`;
 }
