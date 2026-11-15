@@ -227,3 +227,44 @@ export function fundingInWords(funding: StatedFunding | null): string {
 	];
 	return parts.filter((part) => part !== null).join(', ');
 }
+
+/**
+ * Does `press` (a press on one of the Give form's buttons), and answers the page the site's
+ * answer is shown in: a new window, when the form opens one, or this same tab. Whichever
+ * happens first. The caller closes a new window when it has read it.
+ */
+export async function whereTheAnswerShows(page: Page, press: () => Promise<void>): Promise<Page> {
+	const context = page.context();
+	const opened: Page[] = [];
+	const note = (other: Page) => {
+		opened.push(other);
+	};
+	let sameTab = false;
+	const navigated = (frame: unknown) => {
+		if (frame === page.mainFrame()) sameTab = true;
+	};
+	context.on('page', note);
+	page.on('framenavigated', navigated);
+	try {
+		await press();
+		const deadline = Date.now() + 30_000;
+		for (;;) {
+			const other = opened[0];
+			if (other !== undefined) {
+				// No reason is repeated if this fails: a reason can hold an address.
+				await other.waitForLoadState('domcontentloaded').catch(() => undefined);
+				return other;
+			}
+			if (sameTab) return page;
+			if (Date.now() >= deadline) {
+				throw new Error(
+					'Waited 30 seconds for the site to answer the Give form, in this tab or in a new window. It did not.'
+				);
+			}
+			await new Promise((resolve) => setTimeout(resolve, 200));
+		}
+	} finally {
+		context.off('page', note);
+		page.off('framenavigated', navigated);
+	}
+}

@@ -141,31 +141,62 @@ test('pressing an amount arrives at Qatom’s checkout page, and nothing is paid
 
 	// The smallest amount. The checkout's address can be paid by whoever holds it, so it is
 	// never waited on by address or written anywhere: only where the browser is, is read.
-	await amountButtons(page).first().click();
+	// Qatom's checkout does not bring the donor back, so the Give page may open it in a NEW
+	// WINDOW and stay where it is. Either is accepted: a new window, or this same tab, arriving
+	// on Qatom's checkout page, whichever happens first.
+	const givePage = page.url();
+	const opened: Page[] = [];
+	const note = (other: Page) => {
+		opened.push(other);
+	};
+	page.context().on('page', note);
 	try {
-		await until('the browser to leave Tejido for Qatom’s checkout page', 45_000, async () => {
-			if (!onOrigin(page.url(), cfg.siteUrl)) return true;
-			const problem = page.getByRole('alert');
-			if (await problem.isVisible()) {
-				throw new Error(
-					`The Give page did not start a checkout: ${(await problem.innerText()).trim()}`
-				);
+		await amountButtons(page).first().click();
+		const checkout = await until(
+			'Qatom’s checkout page to open, in a new window or in this tab',
+			45_000,
+			async () => {
+				const candidate = opened[0] ?? page;
+				const where = candidate.url();
+				// A new window is blank until the site has answered.
+				if (where === '' || where === 'about:blank') return null;
+				if (!onOrigin(where, cfg.siteUrl)) return candidate;
+				// Still on Tejido: a refusal is shown there, in whichever page the form answered in.
+				const problem = candidate.getByRole('alert');
+				if (await problem.isVisible().catch(() => false)) {
+					throw new Error(
+						`The Give page did not start a checkout: ${(await problem.innerText()).trim()}`
+					);
+				}
+				return null;
 			}
-			return null;
-		});
-		assertQatomCheckoutPage(page.url());
+		);
+		assertQatomCheckoutPage(checkout.url());
 		// Arriving is the check that fails. Nothing on Qatom's page is pressed, so nothing is paid.
 		// What the page shows is then READ, to say whether it is for the amount that was pressed.
-		// Qatom's wording is not known from this repository, so this is reported, not required:
-		// read "found" in the report after the first run that reaches here.
-		testInfo.annotations.push({
-			type: 'found',
-			description: await describeCheckoutPage(page, pressed, offered)
-		});
+		// This is reported, not required, until a real run has shown Qatom's wording: read
+		// "found" in the report.
+		const found = await describeCheckoutPage(checkout, pressed, offered);
+		if (checkout === page) {
+			testInfo.annotations.push({ type: 'found', description: `In the same tab. ${found}` });
+		} else {
+			// The Give page is still there in the first tab, as it was, for the donor to come back to.
+			expect(page.url(), 'The first tab should still be on the Give page.').toBe(givePage);
+			await expect(page.getByRole('heading', { level: 1 })).toHaveText(/^Give to .+/);
+			await expect(amountButtons(page).first()).toBeVisible();
+			await expect(page.getByRole('alert')).toHaveCount(0);
+			testInfo.annotations.push({
+				type: 'found',
+				description: `In a new window; the Give page stayed in the first tab. ${found}`
+			});
+		}
 	} finally {
-		// Whatever happened, the browser does not stay on a page of another site: nothing that
-		// runs after a test (the failure's description of the page) may read a checkout that
-		// anyone holding its address could pay. No picture is kept of it either.
+		page.context().off('page', note);
+		// Whatever happened, no page of another site is left open: nothing that runs after a
+		// test (the failure's description of the page) may read a checkout that anyone holding
+		// its address could pay. A new window is closed; the tab itself leaves for a blank page.
+		// No picture is kept of it either.
+		for (const other of opened) await other.close().catch(() => undefined);
 		if (!onOrigin(page.url(), cfg.siteUrl)) await page.goto('about:blank');
 	}
 });

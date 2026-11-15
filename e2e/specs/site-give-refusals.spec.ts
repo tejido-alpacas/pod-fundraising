@@ -25,7 +25,8 @@ import {
 	amountsOffered,
 	campaignIdOf,
 	campaignsRaisingMoney,
-	giveWords
+	giveWords,
+	whereTheAnswerShows
 } from '../lib/give-page.ts';
 import { onOrigin } from '../lib/safety.ts';
 import { whole } from '../lib/site-words.ts';
@@ -52,7 +53,8 @@ interface Posts {
  */
 async function guarded(page: Page, siteUrl: string): Promise<Posts> {
 	const posts: Posts = { statuses: [], redirected: false };
-	await page.route('**/*', async (route) => {
+	// On the whole browser, not this tab alone: a form that opens a new window is held too.
+	await page.context().route('**/*', async (route) => {
 		const request = route.request();
 		if (!onOrigin(request.url(), siteUrl)) return route.abort();
 		if (request.method() !== 'POST') return route.continue();
@@ -175,36 +177,55 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 		'No amount is on sale (Qatom lists no donation item, or could not be asked), so the page has no form to post.'
 	);
 
-	/** Changes what the first button will post, then presses it. The words on it stay. */
-	const postInPlaceOf = async (value: string) => {
+	// What the page's own buttons post, read before anything is changed.
+	const real = await main
+		.locator('form button[name="amount"]')
+		.evaluateAll((buttons) => buttons.map((each) => each.getAttribute('value')));
+
+	/**
+	 * Changes what the first button will post, presses it, and answers the page the site's
+	 * answer shows in: a new window if the form opens one, or this tab. The words on the button
+	 * stay.
+	 */
+	const postInPlaceOf = async (value: string): Promise<Page> => {
 		const button = amountButtons(page).first();
-		const real = await main
-			.locator('form button[name="amount"]')
-			.evaluateAll((buttons) => buttons.map((each) => each.getAttribute('value')));
 		expect(real, 'The page’s own buttons must not post the value this check posts.').not.toContain(
 			value
 		);
 		await button.evaluate((each, posted) => each.setAttribute('value', posted), value);
-		await button.click();
+		return whereTheAnswerShows(page, () => button.click());
+	};
+
+	/** The answer: the notice in plain words, on the Give page, with the real amounts still offered. */
+	const expectRefused = async (shown: Page, picture: string | null) => {
+		await expect(shown.getByRole('main').getByRole('alert')).toHaveText(
+			whole(giveWords('en', GIVE.amountGone))
+		);
+		await expect(shown).toHaveURL(`${cfg.siteUrl}${path}`);
+		await expect(
+			shown.getByRole('main').getByRole('heading', { name: 'Choose an amount' })
+		).toBeVisible();
+		expect(await amountsOffered(shown), 'The amounts offered after the refusal.').toEqual(offered);
+		if (picture !== null) await waypoint(shown, picture);
+		if (shown !== page) {
+			// The answer came in a new window. The first tab is still the Give page, untouched.
+			await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
+			await expect(amountButtons(page).first()).toBeVisible();
+			await shown.close();
+		}
 	};
 
 	// A number no donation item can sell: 0.001 USD-TDN. Tejido reads its catalog at Qatom,
 	// finds no item for it, and asks for no checkout.
-	await postInPlaceOf(NEVER_ON_SALE);
-	await expect(problem).toHaveText(whole(giveWords('en', GIVE.amountGone)));
+	const first = await postInPlaceOf(NEVER_ON_SALE);
 	expectNoCheckout(posts, [409]);
-	// Still on the Give page, with the real amounts still offered: the donor can choose another.
-	await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
-	await expect(main.getByRole('heading', { name: 'Choose an amount' })).toBeVisible();
-	expect(await amountsOffered(page), 'The amounts offered after the refusal.').toEqual(offered);
-	await waypoint(page, 'give-amount-not-on-sale');
+	await expectRefused(first, 'give-amount-not-on-sale');
 
 	// Something that is not a number at all: refused without asking Qatom.
-	await postInPlaceOf('ten');
-	await expect(problem).toHaveText(whole(giveWords('en', GIVE.amountGone)));
+	const second = await postInPlaceOf('ten');
 	expectNoCheckout(posts, [409, 400]);
-	await expect(page).toHaveURL(`${cfg.siteUrl}${path}`);
-	expect(await amountsOffered(page)).toEqual(offered);
+	const inNewWindow = second !== page;
+	await expectRefused(second, null);
 
 	// Opened afresh, the page reports no problem: the notice belonged to the refused post.
 	await page.goto(`${cfg.siteUrl}${path}`);
@@ -213,6 +234,6 @@ test('an amount that is not on sale is refused in plain words, and no checkout i
 
 	testInfo.annotations.push({
 		type: 'found',
-		description: `With ${offered.join(', ')} on sale: 0.001 answered 409 and "not a number" answered 400, both with "${giveWords('en', GIVE.amountGone)}". No checkout was started.`
+		description: `With ${offered.join(', ')} on sale: 0.001 answered 409 and "not a number" answered 400, both with "${giveWords('en', GIVE.amountGone)}", shown ${inNewWindow ? 'in a new window' : 'in the same tab'}. No checkout was started.`
 	});
 });

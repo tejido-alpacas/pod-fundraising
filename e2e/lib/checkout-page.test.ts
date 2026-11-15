@@ -9,6 +9,9 @@ describe('writesAmount', () => {
 		expect(writesAmount('Pay 10,00 TDN now', '10.00')).toBe(true);
 		expect(writesAmount('Pay $100.00', '100.00')).toBe(true);
 		expect(writesAmount('1.000 usd-tdn', '1.00')).toBe(true);
+		// As Qatom's checkout is said to write a price: three decimals after a dollar sign.
+		expect(writesAmount('TOTAL $1.000 TJD', '1.00')).toBe(true);
+		expect(writesAmount('TOTAL $10.000 TJD', '1.00')).toBe(false);
 	});
 
 	it('finds a grouped thousand', () => {
