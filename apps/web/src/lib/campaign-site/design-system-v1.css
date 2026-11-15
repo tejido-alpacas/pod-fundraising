@@ -2,8 +2,8 @@
 	The design system's components (@tejido/ui), dressed in the first Tejido site's look.
 
 	A campaign's pages are built from the design system's components. The Campaign Site's frame
-	is the first site's. This file loads after the design system's stylesheet, on a campaign's
-	pages only (see routes/(campaign-site)/campaigns/[campaignId]/+layout.svelte), and points the
+	is the first site's. This file loads after the design system's stylesheet, on the campaign
+	pages only (see routes/(campaign-site)/campaigns/+layout.svelte), and points the
 	design system's brand tokens at the first site's: its fonts, blues, surfaces and corners.
 
 	The status colours (confirmed, in progress, attention, overdue, flagged) are left as the

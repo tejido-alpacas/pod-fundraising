@@ -1,5 +1,6 @@
 <!--
-	Every page of one campaign: its overview, milestones, proof pages and report.
+	Every campaign page: each campaign's overview, milestones, proof pages and report, and the
+	campaign builder at /campaigns/new.
 
 	These pages are built from the design system's components (@tejido/ui); the Campaign Site's
 	frame is the first site's. So the design system's stylesheet is loaded here, and only here,
