@@ -43,6 +43,16 @@ describe('parseE2eConfig', () => {
 		}
 	});
 
+	it('turns the paid donation on only for exactly "true", and never from E2E_PAID', () => {
+		expect(parseE2eConfig(complete).paidDonation).toBe(false);
+		expect(parseE2eConfig({ ...complete, E2E_PAID: 'true' }).paidDonation).toBe(false);
+		expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: 'true' }).paidDonation).toBe(true);
+		expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: 'true' }).paid).toBe(false);
+		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
+			expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: value }).paidDonation).toBe(false);
+		}
+	});
+
 	it('signs in unless told not to with exactly "true"', () => {
 		expect(parseE2eConfig(complete).signIn).toBe(true);
 		expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: 'true' }).signIn).toBe(false);

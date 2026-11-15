@@ -13,6 +13,7 @@ const APP_SIGN_IN = '**/specs/sign-in.spec.ts';
 const SITE_SIGN_IN = '**/specs/site-sign-in.spec.ts';
 const CREATE_CAMPAIGN = '**/specs/create-campaign.spec.ts';
 const SITE_SIGNED_IN = [SITE_SIGN_IN, '**/specs/site-signed-in.spec.ts'];
+const PAID_DONATION = '**/specs/paid-donation.spec.ts';
 
 export default defineConfig({
 	testDir: './specs',
@@ -44,13 +45,13 @@ export default defineConfig({
 		{ name: 'sign-in', testMatch: APP_SIGN_IN, dependencies: ['campaign'] },
 		{
 			name: 'phone',
-			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN],
+			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN, PAID_DONATION],
 			dependencies: ['sign-in'],
 			use: { ...PHONE, storageState: CONTRACTOR_STATE }
 		},
 		{
 			name: 'desktop',
-			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN],
+			testIgnore: [APP_SIGN_IN, CREATE_CAMPAIGN, ...SITE_SIGNED_IN, PAID_DONATION],
 			dependencies: ['sign-in'],
 			use: { ...DESKTOP, storageState: CONTRACTOR_STATE }
 		},
@@ -63,6 +64,10 @@ export default defineConfig({
 			testMatch: '**/specs/site-signed-in.spec.ts',
 			dependencies: ['site-sign-in'],
 			use: { storageState: DONOR_STATE }
-		}
+		},
+		// The paid donation, after BOTH sign-ins: the App's registers the payer's wallets with Tejido,
+		// and the Campaign Site's is the organiser who publishes the run's campaign. Skipped, saying
+		// no donation was paid, unless the workflow switches it on (specs/paid-donation.spec.ts).
+		{ name: 'donation', testMatch: PAID_DONATION, dependencies: ['sign-in', 'site-sign-in'] }
 	]
 });

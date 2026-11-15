@@ -35,6 +35,14 @@ describe('the campaign a paid run creates', () => {
 		);
 	});
 
+	it('names the suite’s visitor as its organiser, so that person can publish it', () => {
+		const request = runCampaignRequest(parseE2eConfig(env), now) as {
+			project: { creatorName: string; creatorEmail: string };
+		};
+		expect(request.project.creatorName).toBe('Tejido automated tests');
+		expect(request.project.creatorEmail).toBe('e2e-donor@e2e.m.todaq.net');
+	});
+
 	it('invites the two test people at their own addresses, to the fixture’s three milestones', () => {
 		const request = runCampaignRequest(parseE2eConfig({ ...env, E2E_RUN_LABEL: '40' }), now) as {
 			people: { role: string; email: string }[];
