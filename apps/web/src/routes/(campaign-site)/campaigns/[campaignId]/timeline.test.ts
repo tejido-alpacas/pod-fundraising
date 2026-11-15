@@ -190,10 +190,13 @@ describe('the donor timeline', () => {
 				'milestones',
 				'nextShow',
 				'parties',
+				'publishing',
 				'today',
 				'total'
 			].sort()
 		);
+		// The seeded campaign is not a draft, so there is nothing to publish.
+		expect(data.publishing).toBeNull();
 	});
 
 	it('says funding is not known, never zero, until donations have been read', async () => {
