@@ -222,17 +222,65 @@ export function agentRequest(input: AgentRequestInput): { url: string; init: Req
 /**
  * Why a reply could not start. `status` is the Claude API's, or null when it never answered.
  * `retryFloorMs` is null unless the request may be sent again by itself; then it is the least
- * time to wait first.
+ * time to wait first. `type` is the API's own short word for the error (`error.type` in its
+ * JSON error body, such as `invalid_request_error`), or null when it gave none we could read.
+ * Nothing else of the body is kept.
  */
 export class AgentUnavailableError extends Error {
 	readonly status: number | null;
 	readonly retryFloorMs: number | null;
+	readonly type: string | null;
 
-	constructor(status: number | null, retryFloorMs: number | null = null) {
+	constructor(
+		status: number | null,
+		retryFloorMs: number | null = null,
+		type: string | null = null
+	) {
 		super(`The Claude API did not start a reply${status === null ? '' : ` (${status})`}.`);
 		this.name = 'AgentUnavailableError';
 		this.status = status;
 		this.retryFloorMs = retryFloorMs;
+		this.type = type;
+	}
+}
+
+/** The most of an error body we read: an error body is a few hundred bytes. */
+const ERROR_BODY_LIMIT_BYTES = 4096;
+/** An error type is one short word, like `invalid_request_error`. Anything else is not kept. */
+const ERROR_TYPE = /^[A-Za-z0-9_]{1,40}$/;
+
+/**
+ * The error type the Claude API gave for a refused request: `error.type` in its JSON body
+ * (`{"type":"error","error":{"type":"…","message":"…"}}`), or null. Only that one word leaves
+ * this function. The body and its `message` are never kept, logged or shown, and a body that
+ * cannot be read changes nothing else.
+ */
+async function refusedType(response: Response): Promise<string | null> {
+	try {
+		if (!response.body) return null;
+		const reader = response.body.getReader();
+		const chunks: Uint8Array[] = [];
+		let size = 0;
+		while (size < ERROR_BODY_LIMIT_BYTES) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			const room = ERROR_BODY_LIMIT_BYTES - size;
+			const kept = value.length > room ? value.subarray(0, room) : value;
+			chunks.push(kept);
+			size += kept.length;
+		}
+		await reader.cancel();
+		const bytes = new Uint8Array(size);
+		let at = 0;
+		for (const chunk of chunks) {
+			bytes.set(chunk, at);
+			at += chunk.length;
+		}
+		const parsed: unknown = JSON.parse(new TextDecoder().decode(bytes));
+		const type = record(record(parsed)?.error)?.type;
+		return typeof type === 'string' && ERROR_TYPE.test(type) ? type : null;
+	} catch {
+		return null;
 	}
 }
 
@@ -368,15 +416,17 @@ async function onePass(
 		throw new AgentUnavailableError(null);
 	}
 	if (!response.ok || !response.body) {
-		// The status and the request id are enough to find the failure in the Claude Console.
-		// The body is not logged.
+		// The status, the error type and the request id are enough to find the failure in the
+		// Claude Console. The body is not logged.
+		const type = response.ok ? null : await refusedType(response);
 		console.error(
 			'The Claude API refused the chat request:',
 			response.status,
+			type ?? 'no type',
 			response.headers.get('request-id') ?? 'no request id'
 		);
-		await response.body?.cancel();
-		throw new AgentUnavailableError(response.status, retryFloorMs(response));
+		await response.body?.cancel().catch(() => undefined);
+		throw new AgentUnavailableError(response.status, retryFloorMs(response), type);
 	}
 
 	const pass: Pass = { blocks: [], stopReason: null, failed: false };
@@ -461,9 +511,22 @@ const UNAVAILABLE =
 const STOPPED_EARLY =
 	'The agent stopped before finishing its reply. If it was filing a report, ask it whether the report went through before you try again.';
 
-/** What to tell the person when a reply could not start. */
+/**
+ * What to tell the person when a reply could not start.
+ *
+ * A cause that passes by itself (502, 503, 504, 529, or a 429 with a short wait) and a
+ * connection that failed keep the "try again" wording. Any other refusal will not pass by
+ * waiting, so the person is told that, and the API's status and error type are named exactly
+ * as received for whoever runs Tejido. We do not say what they mean: we do not know.
+ */
 export function unavailableMessage(error: AgentUnavailableError): string {
-	return error.status === 429 || error.status === 529 ? BUSY : UNAVAILABLE;
+	const { status } = error;
+	if (status === null || status < 400) return UNAVAILABLE;
+	if (status === 529) return BUSY;
+	if (PASSING_STATUSES.has(status)) return UNAVAILABLE;
+	if (status === 429 && error.retryFloorMs !== null) return BUSY;
+	const cause = error.type === null ? `code ${status}` : `code ${status}, ${error.type}`;
+	return `The assistant is not available, and trying again will not help. Nothing was filed by this message. Whoever runs Tejido needs to look: the assistant's service refused the request (${cause}).`;
 }
 
 /**

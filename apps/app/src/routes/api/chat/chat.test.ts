@@ -476,10 +476,18 @@ describe('when the Claude API does not cooperate', () => {
 		expect(response.status).toBe(502);
 		const text = await response.text();
 		expect(JSON.parse(text)).toMatchObject({ error: 'agent_unavailable' });
-		expect(text).toContain('could not be reached');
+		// Waiting will not fix a 401, so the person is told so and the cause is named.
+		expect(JSON.parse(text)).toMatchObject({
+			message: expect.stringContaining('trying again will not help')
+		});
+		expect(text).toContain('Nothing was filed by this message');
+		expect(text).toContain('(code 401, authentication_error)');
+		expect(text).not.toContain('bad token');
 		expectNoSecrets(text);
 		// Enough to find the failure, and nothing from the body.
 		expect(logged).toContain('401');
+		expect(logged).toContain('authentication_error');
+		expect(logged).not.toContain('bad token');
 		expect(logged).toContain('req_123');
 		expectNoSecrets(logged);
 	});
