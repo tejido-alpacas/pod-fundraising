@@ -22,10 +22,17 @@ test('home shows the project and what can be done', async ({ page, cfg, waypoint
 	await waypoint(page, 'home');
 });
 
-test('a picture can be added as evidence', async ({ page, cfg, waypoint }) => {
+test('a picture can be added as evidence', async ({ page, cfg, waypoint }, testInfo) => {
 	await page.goto(`${cfg.appUrl}/upload`);
-	// The drop area is drawn once the page's script runs; a file chosen then is sent at once.
-	await expect(page.getByText('Or drop files here')).toBeVisible({ timeout: 30_000 });
+	// The drop area is put in the page once the page's script runs; a file chosen then is sent at
+	// once. It is for dragging with a mouse, so the App shows it on a wide screen and hides it on
+	// a phone: being in the page is the sign the script runs, and being seen is checked on desktop.
+	const drop = page.getByText('Or drop files here');
+	await expect(drop).toBeAttached({ timeout: 30_000 });
+	if (testInfo.project.name === 'desktop') await expect(drop).toBeVisible();
+	else await expect(drop).toBeHidden();
+	await expect(page.getByText('Take a photo', { exact: true })).toBeVisible();
+	await expect(page.getByText('Choose files', { exact: true })).toBeVisible();
 	await waypoint(page, 'upload-empty');
 
 	await page
