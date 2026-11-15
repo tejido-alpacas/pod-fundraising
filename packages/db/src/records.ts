@@ -444,10 +444,15 @@ export interface UnreconciledEntry {
 	purchase: FiledPurchase | null;
 }
 
-/** A campaign's entries that have no ledger transaction yet, oldest first. */
+/**
+ * The entries that have no ledger transaction yet, oldest first: one campaign's, or, with no
+ * campaign named, every campaign's in ONE query. The reconciler asks for all of them at once,
+ * so a pass costs the same however many campaigns there are; each row's `entry.campaignId`
+ * says whose it is.
+ */
 export async function listUnreconciledEntries(
 	db: Executor,
-	campaignId: string
+	campaignId?: string
 ): Promise<UnreconciledEntry[]> {
 	const rows = await db
 		.select({
@@ -461,7 +466,12 @@ export async function listUnreconciledEntries(
 		.innerJoin(parties, eq(parties.id, entries.partyId))
 		.innerJoin(deposits, eq(deposits.entryId, entries.id))
 		.leftJoin(entryPurchases, eq(entryPurchases.entryId, entries.id))
-		.where(and(eq(entries.campaignId, campaignId), isNull(entries.twistId)))
+		.where(
+			and(
+				campaignId === undefined ? undefined : eq(entries.campaignId, campaignId),
+				isNull(entries.twistId)
+			)
+		)
 		.orderBy(asc(entries.filedAt), asc(entries.id));
 	return rows.map((row) => ({
 		entry: toEntry(row.entry),
