@@ -1,0 +1,58 @@
+/*
+	The design system's components (@tejido/ui), dressed in the first Tejido site's look.
+
+	A campaign's pages are built from the design system's components. The Campaign Site's frame
+	is the first site's. This file loads after the design system's stylesheet, on a campaign's
+	pages only (see routes/(campaign-site)/campaigns/[campaignId]/+layout.svelte), and points the
+	design system's brand tokens at the first site's: its fonts, blues, surfaces and corners.
+
+	The status colours (confirmed, in progress, attention, overdue, flagged) are left as the
+	design system sets them. They carry meaning, and the trust vocabulary depends on them.
+*/
+:root {
+	/* Type: Rubik for text, Poppins for headings, as on the first site. */
+	--font-sans: Rubik, Roboto, system-ui, sans-serif;
+	--font-serif: Poppins, Rubik, sans-serif;
+
+	/* Surfaces and text. */
+	--bg-page: #f3f7fc;
+	--surface: #ffffff;
+	--surface-2: #f6f9fd;
+	--surface-raised: #ffffff;
+	--text-primary: #0b1322;
+	--text-secondary: #4a5567;
+	--border: #e1e7ef;
+
+	/* The first site's blues for actions, links and focus. */
+	--accent: #0173e6;
+	--accent-hover: #0559b8;
+	--accent-pressed: #04478f;
+	--accent-subtle: #e6f1fd;
+	--link: #0559b8;
+	--focus-ring: #0173e6;
+
+	/* Softer, rounder cards, as on the first site. */
+	--radius-lg: 12px;
+	--radius-xl: 16px;
+	--shadow-1: 0 1px 1px rgba(11, 19, 34, 0.03), 0 10px 30px -8px rgba(11, 40, 90, 0.14);
+}
+
+/*
+	The design system's base rules restyle the whole page. Put back the first site's page: its
+	text, its colours and the light field behind the glass. The frame's own rules do the rest.
+*/
+body {
+	background: var(--bg);
+	color: var(--text);
+	font-family: Rubik, Roboto, system-ui, sans-serif;
+}
+
+/* Inside a campaign's pages, the components' own sizes and spacing apply. */
+.ds-v1 {
+	font-size: 16px;
+	line-height: 24px;
+}
+.ds-v1 :is(h1, h2, h3) {
+	font-family: var(--font-serif);
+	letter-spacing: -0.02em;
+}
