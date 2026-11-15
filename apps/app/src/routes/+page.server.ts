@@ -1,7 +1,6 @@
 /**
  * The home page: who you are here, what is due next, and where to go. Track B owns this file.
  */
-import { isConfirmed, type Milestone } from '@tejido/contracts';
 import {
 	getCampaign,
 	getParty,
@@ -9,24 +8,8 @@ import {
 	listIncompleteEntries,
 	listMilestones
 } from '@tejido/db';
-import { daysOverdue, milestoneState } from '@tejido/ui';
+import { partyMilestones } from '#lib/due.ts';
 import type { PageServerLoad } from './$types';
-
-/**
- * What one milestone asks of the person looking at it.
- * - `claim`: they owe it and have not said it is done.
- * - `confirm`: it has been claimed and they are the one named to sign it off.
- * - `waiting`: someone else acts next (the confirmer, or the party doing the work).
- * - `done`: confirmed.
- */
-type Step = 'claim' | 'confirm' | 'waiting' | 'done';
-
-function stepFor(milestone: Milestone, partyId: string): Step {
-	if (isConfirmed(milestone)) return 'done';
-	const owes = milestone.ownerPartyId === partyId;
-	if (milestone.state === 'open') return owes ? 'claim' : 'waiting';
-	return owes ? 'waiting' : 'confirm';
-}
 
 export const load: PageServerLoad = async ({ locals }) => {
 	const { session } = locals;
@@ -61,28 +44,7 @@ export const load: PageServerLoad = async ({ locals }) => {
 		},
 		campaign: { title: campaign.title, cadence: campaign.cadence },
 		incompleteReports: incomplete.length,
-		milestones: milestones
-			.filter(
-				(milestone) =>
-					milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id
-			)
-			.map((milestone) => {
-				const step = stepFor(milestone, party.id);
-				return {
-					id: milestone.id,
-					position: milestone.position,
-					title: milestone.title,
-					dueDate: milestone.dueDate,
-					part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const),
-					step,
-					/** The milestone's own state, in the words donors are shown. */
-					status: milestoneState(milestone, reportedOn.has(milestone.id)),
-					/** Whole days past its date without being confirmed. 0 when it is not late. */
-					overdueDays: daysOverdue(milestone, today),
-					/** Past its date and still theirs to claim. */
-					overdue: step === 'claim' && milestone.dueDate < today
-				};
-			})
-			.sort((a, b) => a.dueDate.localeCompare(b.dueDate))
+		// What is theirs to do is worked out in one place: `#lib/due.ts`.
+		milestones: partyMilestones(milestones, party.id, reportedOn, today)
 	};
 };

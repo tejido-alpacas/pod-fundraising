@@ -114,6 +114,9 @@ afterEach(async () => {
 
 type RouteEvent = Parameters<typeof POST>[0];
 
+/** What the agent was told before the conversation, in the request our server sent. */
+const systemSent = () => String(sent[0]?.body.system);
+
 function ask(session: Session | null, body: unknown = { messages: [said('What do I owe?')] }) {
 	const url = new URL('http://localhost:5174/api/chat');
 	const locals = {
@@ -620,5 +623,59 @@ describe('a long turn the API pauses', () => {
 
 		expect(sent).toHaveLength(4);
 		expect(events.at(-1)).toMatchObject({ type: 'error' });
+	});
+});
+
+describe('POST /api/chat for a chat opened from a reminder', () => {
+	const HEADING = 'What this conversation is about';
+	const ask2 = (session: Session, milestone: unknown) =>
+		ask(session, { messages: [said('I want to report on it.')], milestone });
+
+	it('tells the agent which milestone, when it is the signed-in party’s own', async () => {
+		const response = await ask2(sessionFor(contractor), 'm2-walls');
+		expect(response.status).toBe(200);
+		await received(response);
+
+		expect(systemSent()).toContain(HEADING);
+		expect(systemSent()).toContain('a reminder about milestone_id "m2-walls"');
+	});
+
+	it('ignores another party’s milestone, one that does not exist, and anything that is not an id', async () => {
+		await received(await ask(sessionFor(contractor)));
+		const plain = systemSent();
+		expect(plain).not.toContain(HEADING);
+
+		for (const milestone of [
+			'm3-books-delivered',
+			'no-such-milestone',
+			'',
+			7,
+			null,
+			['m2-walls']
+		]) {
+			sent = [];
+			answers = [plainReply];
+			const response = await ask2(sessionFor(contractor), milestone);
+			expect(response.status).toBe(200);
+			await received(response);
+			expect(systemSent()).toBe(plain);
+		}
+	});
+
+	it('sends the same request otherwise: same tools, same sign-in, same conversation', async () => {
+		await received(
+			await ask(sessionFor(contractor), { messages: [said('I want to report on it.')] })
+		);
+		const { system: _plain, ...before } = sent[0]!.body;
+		const headers = sent[0]!.headers;
+
+		sent = [];
+		answers = [plainReply];
+		await received(await ask2(sessionFor(contractor), 'm2-walls'));
+		const { system: _about, ...after } = sent[0]!.body;
+
+		expect(after).toEqual(before);
+		expect(sent[0]!.headers).toEqual(headers);
+		expect(sent).toHaveLength(1);
 	});
 });
