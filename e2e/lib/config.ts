@@ -43,7 +43,6 @@ const schema = z.object({
 	E2E_CONFIRMER_PARTY_ID: id,
 	E2E_PAID: switchedOn,
 	E2E_PAID_DONATION: switchedOn,
-	E2E_DONATION_CAMPAIGN_ID: id.optional(),
 	E2E_SKIP_SIGN_IN: switchedOn,
 	E2E_CREATE_CAMPAIGN: switchedOn,
 	E2E_RUN_LABEL: z
@@ -82,17 +81,12 @@ export interface E2eConfig {
 	/** True only when `E2E_PAID` is exactly `true`: the paid spec then spends a real deposit. */
 	paid: boolean;
 	/**
-	 * True only when `E2E_PAID_DONATION` is exactly `true`: specs/paid-donation.spec.ts would then
-	 * pay one real donation, which is never returned. NOTHING SETS IT, and nothing may until the
-	 * owner allows a paid donation test (CLAUDE.md, "Never move money to test something").
-	 * `E2E_PAID` does not switch it on.
+	 * True only when `E2E_PAID_DONATION` is exactly `true`: on a paid run,
+	 * specs/paid-donation.spec.ts then pays one real donation to the run's own campaign (CLAUDE.md,
+	 * "Never move money to test something"). Only the workflow may set it, and it does not yet.
+	 * `E2E_PAID` alone does not switch it on, and it does nothing without `E2E_PAID`.
 	 */
 	paidDonation: boolean;
-	/**
-	 * The one campaign a paid donation test may give to: `E2E_DONATION_CAMPAIGN_ID`. Null when not
-	 * given, and then no donation is paid whatever the switch says.
-	 */
-	donationCampaignId: string | null;
 	/**
 	 * False only when `E2E_SKIP_SIGN_IN` is exactly `true`: the run then asks Qatom for no sign-in
 	 * code, and every check that needs a signed-in person is skipped, saying why. The workflow
@@ -172,7 +166,6 @@ export function parseE2eConfig(env: Readonly<Record<string, string | undefined>>
 		donor: { email: `e2e-donor@${values.E2E_INBOX_DOMAIN}` },
 		paid: values.E2E_PAID,
 		paidDonation: values.E2E_PAID_DONATION,
-		donationCampaignId: values.E2E_DONATION_CAMPAIGN_ID ?? null,
 		signIn: !values.E2E_SKIP_SIGN_IN,
 		createCampaign: values.E2E_CREATE_CAMPAIGN,
 		runLabel: values.E2E_RUN_LABEL ?? null
