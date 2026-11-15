@@ -51,6 +51,10 @@ test('from the reminder page to the chat for one milestone, which the chat names
 	cfg,
 	waypoint
 }) => {
+	test.skip(
+		cfg.paid,
+		'A paid run: the phone has already reported this milestone as done on the run’s own campaign, so the chat no longer greets it as untouched. The paid story checks that state.'
+	);
 	const messages = countMessages(page);
 
 	// As a person arrives: the plain reminder, then the milestone it lists as also due. (When
@@ -123,6 +127,10 @@ test.describe('as the confirmer', () => {
 		cfg,
 		waypoint
 	}) => {
+		test.skip(
+			cfg.paid,
+			'A paid run: the phone has already reported this milestone as done on the run’s own campaign, so the chat no longer greets it as untouched. The paid story checks that state.'
+		);
 		const id = await lastMilestoneId(page, cfg);
 		const usual = await usualMilestone(page, cfg);
 		const messages = countMessages(page);
