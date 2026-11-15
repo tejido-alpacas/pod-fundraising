@@ -56,3 +56,17 @@ body {
 	font-family: var(--font-serif);
 	letter-spacing: -0.02em;
 }
+
+/*
+	Width. A campaign's pages are as wide as the first site's other pages: the frame's 1200px
+	column (.wrap), with its side padding. The root layout puts pages that were not on the first
+	site in a narrower column; a campaign's pages take the full one back. The design system's own
+	page then fills that column, so its edges line up with the home, Explore and Give pages.
+*/
+.wrap.column:has(> .ds-v1) {
+	max-width: 1200px;
+}
+.ds-v1 .tj-page {
+	max-width: none;
+	padding-inline: 0;
+}
