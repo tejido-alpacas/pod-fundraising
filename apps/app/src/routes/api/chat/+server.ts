@@ -5,6 +5,10 @@
  * conversation so far, ending with what the person just said. The answer is a stream of lines,
  * one JSON event per line (see `#lib/chat.ts`).
  *
+ * The body may also carry `milestone`: the id of the milestone the chat was opened for. It only
+ * tells the agent what the conversation is about, and only when that milestone is this party's
+ * own. Any other value is ignored, as if it were not there.
+ *
  * A turn of the person's may carry `form` instead of text: the report form from the chat page
  * (see `#lib/report-form.ts`). It is checked here and reaches the agent as a message. Sending a
  * form files nothing: only the agent calls a campaign tool, and only after the person says yes.
@@ -148,10 +152,18 @@ export const POST: RequestHandler = async ({ request, locals, url }) => {
 	});
 	if (!token.ok) return refuse(409, 'sign_in_again', SIGN_IN_AGAIN);
 
+	const { milestone: asked } = body as { milestone?: unknown };
+	const about = milestones.find(
+		(milestone) =>
+			milestone.id === asked &&
+			(milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id)
+	);
+
 	const system = systemPrompt({
 		party,
 		campaign,
 		milestones,
+		about,
 		uploadPageUrl: `${url.origin}/upload`,
 		today: new Date().toISOString().slice(0, 10)
 	});

@@ -44,6 +44,11 @@ export interface AgentFacts {
 	campaign: Campaign;
 	/** Every milestone of the campaign. The prompt keeps the ones this party owes or confirms. */
 	milestones: Milestone[];
+	/**
+	 * The one milestone this conversation was opened for (a reminder's button), if any. The
+	 * caller has already checked that it is this party's own.
+	 */
+	about?: Milestone | undefined;
 	/** The App's upload page, as a full address. */
 	uploadPageUrl: string;
 	/** Today, as YYYY-MM-DD. */
@@ -70,12 +75,36 @@ function milestoneLine(milestone: Milestone, party: Party): string {
 	);
 }
 
+/** What the agent is told when the chat was opened for one milestone. */
+function aboutSection(milestone: Milestone, party: Party): string {
+	let start: string;
+	if (milestone.confirmedAt) {
+		start =
+			'It is already confirmed, so there is nothing to file on it. Say so if they ask about it.';
+	} else if (milestone.ownerPartyId === party.id) {
+		start =
+			milestone.state === 'open'
+				? 'They owe it. Ask whether it is done or still in progress: if it is done, help them report it; if not, help them log where the work stands.'
+				: 'They have reported it as done and it awaits its confirmer. They can still log work on it.';
+	} else {
+		start =
+			milestone.state === 'open'
+				? 'They confirm it, and it has not been reported as done yet, so there is nothing for them to confirm so far.'
+				: 'It has been reported as done and they are its confirmer. Help them confirm it once they say they have seen it done.';
+	}
+	return `
+What this conversation is about
+The person opened this chat from a reminder about milestone_id "${milestone.id}": ${milestone.title}. The App has already told them so. Start from that milestone and do not ask which milestone they mean. ${start}
+If they want to do something else, help with that instead. The reminder is not a yes to filing: everything below about showing a report and getting their say-so still applies.
+`;
+}
+
 /**
  * What the agent is told before the conversation: who it is working for and what they owe.
  * Built again for every reply, from the database, so a milestone's state is never stale.
  */
 export function systemPrompt(facts: AgentFacts): string {
-	const { party, campaign, milestones, uploadPageUrl, today } = facts;
+	const { party, campaign, milestones, about, uploadPageUrl, today } = facts;
 	const theirs = milestones.filter(
 		(milestone) => milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id
 	);
@@ -92,7 +121,7 @@ Who you are working for
 Their milestones on this campaign
 ${theirs.length > 0 ? theirs.map((milestone) => milestoneLine(milestone, party)).join('\n') : '- None. They are not named on any milestone, so there is nothing for them to file.'}
 Milestone states: open (nobody has claimed it), claimed (the party doing the work says it is done and it awaits confirmation), confirmed_independent or confirmed_creator (signed off; nothing more to file).
-
+${about ? aboutSection(about, party) : ''}
 How filing works
 You are connected to Tejido's Qatom tools as this person. Two of them belong to this campaign: one logs work (its name ends in log_work) and one reports a milestone hit (its name ends in milestone_hit). Read each tool's own description and input schema for the exact fields.
 - A work log is the routine update: a summary, and where it applies the status, percent complete and photos.

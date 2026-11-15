@@ -28,7 +28,7 @@ afterEach(async () => {
 
 type LoadEvent = Parameters<typeof load>[0];
 
-function page(session: Session | null) {
+async function page(session: Session | null, query = '') {
 	const locals = {
 		ctx: {
 			config: { SESSION_SECRET, QATOM_MCP_URL: 'https://tejido.mcp.qatom.test/mcp' },
@@ -41,7 +41,10 @@ function page(session: Session | null) {
 		},
 		session
 	};
-	return load({ locals } as unknown as LoadEvent);
+	const url = new URL(`http://localhost:5174/chat${query}`);
+	const data = await load({ locals, url } as unknown as LoadEvent);
+	if (!data) throw new Error('the chat page was given nothing');
+	return data;
 }
 
 describe('the chat page', () => {
@@ -78,6 +81,93 @@ describe('the chat page', () => {
 
 	it('gives nobody else’s details to someone who is not signed in', async () => {
 		expect(await page(null)).toEqual({ who: null });
+	});
+});
+
+describe('the chat opened for one milestone', () => {
+	const asContractor = { sub: 'qatom-user-123', email: contractor.email, partyId: contractor.id };
+	const about = async (session: Session, query: string) =>
+		(await page(session, query)).who?.party?.about;
+
+	it('is told which milestone when it is the signed-in party’s own', async () => {
+		expect(await about(asContractor, '?milestone=m2-walls')).toBe('m2-walls');
+		// A confirmer's milestone is theirs too.
+		expect(
+			await about(
+				{ sub: 'qatom-user-456', email: headTeacher.email, partyId: headTeacher.id },
+				'?milestone=m3-books-delivered'
+			)
+		).toBe('m3-books-delivered');
+	});
+
+	it('ignores anything else in that value, as if it were not there', async () => {
+		const plain = await page(asContractor);
+		expect(plain.who?.party?.about).toBeNull();
+
+		// Another party's milestone, one that does not exist, an empty value, and nonsense.
+		for (const query of [
+			'?milestone=m3-books-delivered',
+			'?milestone=no-such-milestone',
+			'?milestone=',
+			'?milestone=%3Cscript%3E',
+			'?milestone=m2-walls%20'
+		]) {
+			expect(await page(asContractor, query)).toEqual(plain);
+		}
+	});
+
+	it('gives nothing to someone who is not signed in, whatever the address says', async () => {
+		expect(await page(null, '?milestone=m2-walls')).toEqual({ who: null });
+	});
+});
+
+describe('what the assistant is told when the chat was opened for a milestone', () => {
+	const facts = {
+		campaign,
+		milestones: fixtures.milestones,
+		uploadPageUrl: 'http://localhost:5174/upload',
+		today: '2026-11-14'
+	};
+	const milestone = (id: string) => fixtures.milestones.find((one) => one.id === id)!;
+	const HEADING = 'What this conversation is about';
+
+	it('is nothing extra when no milestone was named', () => {
+		expect(systemPrompt({ ...facts, party: contractor })).not.toContain(HEADING);
+		expect(systemPrompt({ ...facts, party: contractor, about: undefined })).toBe(
+			systemPrompt({ ...facts, party: contractor })
+		);
+	});
+
+	it('names the milestone and starts from it, for the party who owes it', () => {
+		const prompt = systemPrompt({ ...facts, party: contractor, about: milestone('m2-walls') });
+		expect(prompt).toContain(HEADING);
+		expect(prompt).toContain(
+			'opened this chat from a reminder about milestone_id "m2-walls": Walls up to roof height.'
+		);
+		expect(prompt).toContain('do not ask which milestone they mean');
+		expect(prompt).toContain('They owe it.');
+	});
+
+	it('speaks of confirming to the milestone’s confirmer', () => {
+		const prompt = systemPrompt({
+			...facts,
+			party: headTeacher,
+			about: milestone('m3-books-delivered')
+		});
+		expect(prompt).toContain('they are its confirmer');
+	});
+
+	it('changes nothing about filing: a reminder is not a yes', () => {
+		const without = systemPrompt({ ...facts, party: contractor });
+		const withIt = systemPrompt({ ...facts, party: contractor, about: milestone('m2-walls') });
+
+		expect(withIt).toContain('The reminder is not a yes to filing');
+		// Every line the assistant had before is still there, in the same order.
+		const added = withIt.split('\n').filter((line) => !without.split('\n').includes(line));
+		expect(added.every((line) => !line.includes('file only after'))).toBe(true);
+		const start = withIt.indexOf(`\n${HEADING}`);
+		const end = withIt.indexOf('\nHow filing works');
+		expect(withIt.slice(0, start) + withIt.slice(end)).toBe(without);
 	});
 });
 
