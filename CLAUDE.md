@@ -122,7 +122,7 @@ message, changes them.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
   one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid story
   of the end-to-end suite (`e2e/`, see `e2e/README.md`). By the owner's decision of 15
-  November 2026 it runs by itself, after a release or on that workflow's own timer, never
+  November 2026 it runs by itself, after a release or started by the run before it, never
   started by hand, under the cap set in `.github/workflows/e2e.yml`. It files real deposits as the two test people (a work log,
   0.10; a milestone claim, 1.00; its confirmation, 1.00), each run on a campaign it creates
   through the campaign API. It may also pay one donation, of the smallest amount on sale, on
