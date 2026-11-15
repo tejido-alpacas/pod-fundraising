@@ -122,8 +122,11 @@ message, changes them.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
   one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid story
   of the end-to-end suite (`e2e/`, see `e2e/README.md`). By the owner's decision of 15
-  November 2026 it runs by itself, after a release or on that workflow's own timer, never
-  started by hand, under the cap set in `.github/workflows/e2e.yml`. It files real deposits as the two test people (work logs,
+  November 2026 ("Switch to manual e2e runs from now on so we can manage the refunds and the
+  money flow") it never runs by itself: it is told only by a run of
+  `.github/workflows/e2e.yml` that a person starts by hand with "paid" ticked. An agent starts
+  such a run only when the owner asks for it in their own message, one run per ask. A run that
+  follows a release never moves money. It files real deposits as the two test people (work logs,
   0.10 each; milestone claims and their confirmations, 1.00 each; up to 6.20 a run), each run
   on a campaign it creates through the campaign API. It may also pay one donation, of the
   smallest amount on sale, on Qatom's checkout page as a test person, to the run's own
