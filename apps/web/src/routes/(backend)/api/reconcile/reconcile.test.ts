@@ -960,3 +960,78 @@ describe('POST /api/reconcile', () => {
 		});
 	});
 });
+
+describe('the line each pass writes to the logs', () => {
+	let logged: string[];
+
+	beforeEach(() => {
+		logged = [];
+		vi.spyOn(console, 'log').mockImplementation((...parts: unknown[]) => {
+			logged.push(parts.map(String).join(' '));
+		});
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	const lines = () => logged.filter((line) => line.startsWith('Reconcile:'));
+
+	it('holds the summary’s numbers, for a pass that verified a receipt', async () => {
+		await giveCampaignItems();
+		ledgers[LOG_HASH] = [sale('41aa', '2026-11-13T17:02:10.000Z', `https://${CONTRACTOR_WALLET}`)];
+		ledgers[HIT_HASH] = [];
+		await run();
+
+		expect(lines()).toEqual([
+			'Reconcile: campaigns 1 (0 on the shared items), ledgers read 2, ledger errors 0, ' +
+				'matched 1 (verified 1, flagged 0, incomplete 0), ' +
+				'unmatched 1 (ambiguous 0, waiting for wallet 0, paying wallet not comparable 0), ' +
+				'rows unreadable 0, rows not payments 0, ' +
+				'operations seen: send 0, receive 1, transfer 0, split 0, other 0, none 0.'
+		]);
+	});
+
+	it('is written for every pass, also one that found nothing new', async () => {
+		await giveCampaignItems();
+		ledgers[LOG_HASH] = [];
+		ledgers[HIT_HASH] = [];
+		await run();
+		await run();
+
+		expect(lines()).toHaveLength(2);
+		expect(lines()[1]).toContain('matched 0 ');
+		expect(lines()[1]).toContain('unmatched 2 ');
+	});
+
+	it('says how many ledgers failed and nothing about which, and names nobody', async () => {
+		await giveCampaignItems();
+		ledgers[LOG_HASH] = { status: 503 };
+		ledgers[HIT_HASH] = [sale('41bb', '2026-11-13T17:02:10.000Z', `https://${CONTRACTOR_WALLET}`)];
+		const { body } = await run();
+
+		expect(body.ledgerErrors).toHaveLength(1);
+		const [line] = lines();
+		expect(line).toContain('ledger errors 1,');
+		// Only words from a fixed list and whole numbers: no id, hash, wallet, email or amount.
+		expect(line).toMatch(/^Reconcile: [a-z0-9 ,():]+\.$/);
+		for (const text of [
+			CONTRACTOR_WALLET,
+			'wallets',
+			LOG_HASH,
+			HIT_HASH,
+			fixtures.campaign.id,
+			String(fixtures.campaign.logWorkCommodityId),
+			'503',
+			'41bb',
+			'@',
+			'https'
+		]) {
+			expect(line, text).not.toContain(text);
+		}
+	});
+
+	it('is not written for a caller without the secret', async () => {
+		await run({});
+		expect(lines()).toEqual([]);
+	});
+});
