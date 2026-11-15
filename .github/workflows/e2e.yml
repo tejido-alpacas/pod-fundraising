@@ -6,12 +6,19 @@ name: End-to-end
 # story (real filing deposits from the two test people's wallets) tells itself after a release,
 # at most once in the time set below, and never in a run started by hand. It is a workflow of
 # its own, so it can never fail or hold up a deploy.
+#
+# UNTIL E2E_FAST_UNTIL (below) it also starts by itself every five minutes, so paid stories
+# follow one another without waiting for a release: the owner, 15 November 2026, "paid runs
+# should go every 5 minutes please", "just for the next 24 hours". After that moment a run the
+# timer starts ends at its first step and does nothing. Remove the `schedule` block then.
 on:
   workflow_run:
     workflows: [CI]
     types: [completed]
     branches: [main]
   workflow_dispatch:
+  schedule:
+    - cron: '*/5 * * * *'
 
 permissions:
   contents: read
@@ -29,9 +36,10 @@ concurrency:
 jobs:
   e2e:
     # After CI: only when that run was a push to `main` and every job in it, the deploy
-    # included, succeeded. By hand: always.
+    # included, succeeded. By hand, and on the five-minute timer: always.
     if: >-
       github.event_name == 'workflow_dispatch' ||
+      github.event_name == 'schedule' ||
       (github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main')
@@ -52,6 +60,11 @@ jobs:
       E2E_CONFIRMER_PARTY_ID: e2e-confirmer
       # At most one paid story starts within this many minutes. One number, easy to change.
       E2E_PAID_EVERY_MINUTES: 15
+      # The fast pace the owner asked for, for 24 hours. Until this moment (UTC) the five-minute
+      # timer above starts runs and a paid story may start every E2E_FAST_EVERY_MINUTES. After
+      # it the timer's runs do nothing and the number above applies again.
+      E2E_FAST_UNTIL: '2026-11-16T11:30:00Z'
+      E2E_FAST_EVERY_MINUTES: 5
       # The campaign a paid run creates is titled with this, so it can be found and removed.
       E2E_RUN_LABEL: ${{ github.run_number }}
     steps:
@@ -60,6 +73,13 @@ jobs:
       - name: Check that the inbox is set up
         id: inbox
         run: |
+          # The five-minute timer is for the fast pace only. Once its time is over, a run it
+          # starts ends here, green, having done nothing.
+          if [[ $GITHUB_EVENT_NAME == schedule && ! $(date -u +%Y-%m-%dT%H:%M:%SZ) < $E2E_FAST_UNTIL ]]; then
+            echo "::notice::The five-minute timer's time ended at $E2E_FAST_UNTIL, so this run does nothing. Remove the schedule block from this workflow."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           missing=()
           for name in E2E_INBOX_QUEUE_URL E2E_INBOX_DOMAIN E2E_AWS_ROLE_ARN; do
             [[ -n ${!name} ]] || missing+=("$name")
@@ -151,9 +171,9 @@ jobs:
 
       # The paid story files a work log, a milestone claim and its confirmation as the two test
       # people: 2.10 in real deposits, on a campaign the run creates. It tells itself, after a
-      # release, never by hand (CLAUDE.md, "Never move money to test something"). Earlier paid
-      # runs are the ones whose job has the step named below, finished. If they cannot be read,
-      # the run is unpaid.
+      # release or on the five-minute timer while the fast pace lasts, never by hand (CLAUDE.md,
+      # "Never move money to test something"). Earlier paid runs are the ones whose job has the
+      # step named below, finished. If they cannot be read, the run is unpaid.
       - name: Decide whether this run tells the paid story
         id: paid
         if: steps.inbox.outputs.ready == 'true'
@@ -161,12 +181,16 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PAID_STEP: Note that this run tells the paid story
           SIGNS_IN: ${{ steps.signin.outputs.sign_in }}
-          THIS_COMMIT: ${{ github.event.workflow_run.head_sha }}
+          THIS_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           say() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
           unpaid() { say "$1"; echo "paid=false" >> "$GITHUB_OUTPUT"; exit 0; }
 
-          [[ $GITHUB_EVENT_NAME == workflow_run ]] || unpaid "Unpaid run: it was started by hand. The paid story only runs by itself after a release."
+          # The gap between paid stories: the fast one until E2E_FAST_UNTIL, the usual one after.
+          every=$E2E_PAID_EVERY_MINUTES
+          if [[ $(date -u +%Y-%m-%dT%H:%M:%SZ) < $E2E_FAST_UNTIL ]]; then every=$E2E_FAST_EVERY_MINUTES; fi
+
+          [[ $GITHUB_EVENT_NAME == workflow_run || $GITHUB_EVENT_NAME == schedule ]] || unpaid "Unpaid run: it was started by hand. The paid story only runs by itself."
           [[ $SIGNS_IN == true ]] || unpaid "Unpaid run: this run does not sign in, so it cannot file."
 
           if ! runs=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/e2e.yml/runs?per_page=30" \
@@ -189,9 +213,9 @@ jobs:
 
           if ((${#paid_runs[@]} > 0)); then
             read -r last_started last_conclusion last_sha <<< "${paid_runs[0]}"
-            since=$(date -u -d "$E2E_PAID_EVERY_MINUTES minutes ago" +%Y-%m-%dT%H:%M:%SZ)
+            since=$(date -u -d "$every minutes ago" +%Y-%m-%dT%H:%M:%SZ)
             if [[ $last_started > $since ]]; then
-              unpaid "Unpaid run: a paid story started at $last_started, and at most one starts every $E2E_PAID_EVERY_MINUTES minutes."
+              unpaid "Unpaid run: a paid story started at $last_started, and at most one starts every $every minutes."
             fi
             if ((${#paid_runs[@]} > 1)); then
               read -r _ before_conclusion _ <<< "${paid_runs[1]}"
