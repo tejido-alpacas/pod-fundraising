@@ -37,4 +37,6 @@ export * from './checkin-rules.ts';
 // What is due and overdue, and the reminders recorded for it. Used by the cadence scheduler.
 export * from './schedule.ts';
 export * from './reminders.ts';
+// Removing a campaign the automatic tests created, with everything of its own.
+export * from './test-campaigns.ts';
 export { checkEvidence, evidenceStoreOrigin, type EvidenceVerdict } from './evidence.ts';
