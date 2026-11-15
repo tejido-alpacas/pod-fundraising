@@ -15,6 +15,7 @@ import {
 } from '@tejido/contracts';
 import { fixtures } from '@tejido/contracts/fixtures';
 import {
+	campaigns,
 	deposits,
 	entries,
 	listDeposits,
@@ -30,6 +31,7 @@ import { createMerchantAccount } from '@tejido/qatom/account';
 import { eq } from 'drizzle-orm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RefundReport } from '#lib/server/backend/refunds.ts';
+import { SHARED_ITEM_COMMODITY_ID } from '#lib/server/backend/reconciler.ts';
 import { PASS_LIMIT, type TestRefundReport } from '#lib/server/backend/test-account-refunds.ts';
 import { POST as postProductRefunds } from '../refunds/+server.ts';
 import { POST } from './+server.ts';
@@ -482,6 +484,48 @@ describe('a test person on a confirmed milestone', () => {
 		expect(skippedReasons(report)).toEqual(['unexpected_deposit_amount']);
 		expect(report.needs_a_person).toBe(true);
 		expect(requests).toEqual([]);
+	});
+});
+
+describe('which item’s twin pays', () => {
+	it('a campaign with no item ids of its own is refunded under the two shared items', async () => {
+		// What the campaign builder makes, and so what the paid tests file on.
+		await test.db
+			.update(campaigns)
+			.set({ logWorkCommodityId: null, milestoneHitCommodityId: null })
+			.where(eq(campaigns.id, CAMPAIGN));
+		const run = await confirmedRun();
+		const { report } = await pass();
+
+		// The stand-in for Qatom knows only the shared ids, so these went out under them.
+		expect(SHARED_ITEM_COMMODITY_ID).toEqual({ log_work: LOG_ID, milestone_hit: HIT_ID });
+		expect(report.skipped).toEqual([]);
+		expect(report.sent).toHaveLength(3);
+		expect(twinTransfers().map(({ origin, body }) => ({ from: origin, body }))).toEqual([
+			{ from: twinOf(LOG_TWIN), body: { amount: 0.1, destination: `https://${CONTRACTOR_AGENT}` } },
+			{ from: twinOf(HIT_TWIN), body: { amount: 1, destination: `https://${CONTRACTOR_AGENT}` } },
+			{ from: twinOf(HIT_TWIN), body: { amount: 1, destination: `https://${CONFIRMER_AGENT}` } }
+		]);
+		for (const id of [run.contractorLog, run.contractorClaim, run.confirmation]) {
+			expect(await refundedAt(id), id).not.toBeNull();
+		}
+	});
+
+	it('a campaign that stores an id of its own is read under that id, not the shared one', async () => {
+		// An id the stand-in for Qatom does not know: if the shared item were used instead,
+		// the work log would be refunded.
+		await test.db
+			.update(campaigns)
+			.set({ logWorkCommodityId: 9999 })
+			.where(eq(campaigns.id, CAMPAIGN));
+		await confirmedRun();
+		const { report } = await pass();
+
+		expect(report.sent.map(({ item }) => item)).toEqual(['milestone_hit', 'milestone_hit']);
+		expect(report.skipped).toEqual([
+			expect.objectContaining({ item: 'log_work', reason: 'qatom_unavailable' })
+		]);
+		expect(twinTransfers().every(({ origin }) => origin === twinOf(HIT_TWIN))).toBe(true);
 	});
 });
 

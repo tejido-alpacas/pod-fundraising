@@ -14,6 +14,9 @@
  *
  * ONE TRANSFER is one party's deposits on one milestone for one catalog item: the two items
  * are sold from two different twins, and a twin can only pay back what was paid into it.
+ * WHICH ITEM: the one the campaign stores an id for, and otherwise the shared item
+ * (SHARED_ITEM_COMMODITY_ID in reconciler.ts), exactly as the reconciler reads it. Campaigns
+ * made with the builder, which is what the paid tests file on, store none.
  * Its amount is the sum of exactly the deposits it claims, and each deposit must be the
  * item's fixed price.
  *
@@ -47,6 +50,7 @@ import {
 	type MerchantAccount
 } from '@tejido/qatom/account';
 import { randomUUID } from 'node:crypto';
+import { SHARED_ITEM_COMMODITY_ID } from './reconciler.ts';
 
 /**
  * The most one pass may ask twins to send, in Tejido's unit: 10.00.
@@ -72,8 +76,6 @@ export type TestRefundSkipReason =
 	| 'unexpected_deposit_amount'
 	/** The party has no agent wallet registered: they have not signed in with Qatom. */
 	| 'no_agent_wallet'
-	/** The campaign does not have the catalog item's commodity id stored. */
-	| 'no_commodity_id'
 	/** This one transfer alone would be more than a whole pass may send. Never sent here. */
 	| 'transfer_over_limit'
 	/** This pass has already asked for as much as one pass may. Waits for the next pass. */
@@ -158,7 +160,6 @@ function reasonToSkip(row: ConfirmedUnrefundedDeposit): TestRefundSkipReason | n
 	if (row.entry.twistId === null || row.entry.status === 'filed') return 'entry_not_verified';
 	if (row.deposit.amount !== DEPOSIT_AMOUNT[row.entry.item]) return 'unexpected_deposit_amount';
 	if (row.party.agentWalletHostname === null) return 'no_agent_wallet';
-	if (row.commodityId === null) return 'no_commodity_id';
 	return null;
 }
 
@@ -234,10 +235,14 @@ export async function refundTestAccounts(
 	let askedTotal: Amount = 0;
 	for (const group of ready.values()) {
 		const first = group[0]!;
-		const { party, commodityId, campaignId, milestoneId } = first;
+		const { party, campaignId, milestoneId } = first;
+		// The item's own id if the campaign stores one, otherwise the shared item: the same
+		// choice, from the same constant, as the reconciler made when it matched the payment.
+		// So the refund is paid out of the twin whose ledger that payment was found in.
+		const commodityId = first.commodityId ?? SHARED_ITEM_COMMODITY_ID[first.entry.item];
 		const agentWalletHostname = party.agentWalletHostname;
-		// reasonToSkip already refused these; the types do not know it.
-		if (agentWalletHostname === null || commodityId === null) continue;
+		// reasonToSkip already refused this; the types do not know it.
+		if (agentWalletHostname === null) continue;
 
 		// The amount is the sum of exactly the deposits this refund will claim.
 		const amount = total(group);

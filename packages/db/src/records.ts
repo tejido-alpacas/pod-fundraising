@@ -681,7 +681,10 @@ export interface ConfirmedUnrefundedDeposit extends UnrefundedDeposit {
 	campaignId: string;
 	milestoneId: string;
 	party: Pick<Party, 'id' | 'name' | 'email' | 'agentWalletHostname'>;
-	/** The commodity id of the item the entry was filed with, as its campaign names it. */
+	/**
+	 * The commodity id of the item the entry was filed with, as its campaign stores it. Null
+	 * when the campaign stores none of its own: the caller then reads the shared item.
+	 */
 	commodityId: number | null;
 	/** True when any refund has ever covered this deposit, whatever came of it. */
 	attempted: boolean;
