@@ -13,6 +13,19 @@ import { z } from 'zod';
 import { QatomHttpError, QatomResponseError, QatomUnknownCommodityError } from '../errors.ts';
 import { apiUrl, DEFAULT_TIMEOUT_MS, send, SLOW_TIMEOUT_MS } from '../http.ts';
 import { fromQatomAmount, toQatomAmount } from './amounts.ts';
+import {
+	refundTestPersonFromItemTwin,
+	type ItemTwinRefundRequest,
+	type ItemTwinRefundResult
+} from './item-twin-refund.ts';
+
+export {
+	E2E_TEST_EMAIL_DOMAIN,
+	isEndToEndTestEmail,
+	type ItemTwinRefundRefusal,
+	type ItemTwinRefundRequest,
+	type ItemTwinRefundResult
+} from './item-twin-refund.ts';
 
 export interface MerchantAccountConfig {
 	/** PAYMENT_API_URL */
@@ -236,6 +249,17 @@ export interface MerchantAccount {
 	 * is unknown: look with `findCatalogItem` before creating again.
 	 */
 	createCatalogItem(request: NewCatalogItem): Promise<CatalogItem>;
+
+	/**
+	 * FOR THE END-TO-END TEST PEOPLE ONLY: sends a test person's deposits back to their AGENT
+	 * wallet, out of the twin the item is sold from, by that twin's own API. The one exception
+	 * to "refunds go to the primary wallet only"; see item-twin-refund.ts for the rules.
+	 *
+	 * It refuses a party whose email is not at the test inbox domain. The transfer is sent
+	 * ONCE and never again. The twin's hostname and key are read from Qatom for this one call
+	 * and are not kept, returned or logged.
+	 */
+	refundTestPersonFromItemTwin(request: ItemTwinRefundRequest): Promise<ItemTwinRefundResult>;
 }
 
 // Qatom returns a token with five minutes or more left as it is. Asking only in the last
@@ -415,7 +439,7 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 		return hash;
 	}
 
-	return {
+	const account: MerchantAccount = {
 		resolveCommodityHash(commodityId) {
 			if (!Number.isSafeInteger(commodityId) || commodityId <= 0) {
 				return Promise.reject(new RangeError('commodityId must be a positive whole number'));
@@ -694,6 +718,18 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 				throw new QatomResponseError(operation, 'the item is for another commodity');
 			}
 			return { catalogItemId: parsed.data.item.id, commodityId };
+		},
+
+		refundTestPersonFromItemTwin(request) {
+			return refundTestPersonFromItemTwin(
+				{
+					paymentApiUrl: config.paymentApiUrl,
+					authorized,
+					readItem: (commodityHash) => account.listCommodityTransactions(commodityHash)
+				},
+				request
+			);
 		}
 	};
+	return account;
 }
