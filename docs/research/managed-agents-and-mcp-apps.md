@@ -2,59 +2,65 @@
 
 Research only. No code, setting or secret was changed, and nothing was called that costs money
 or files a report. Written 15 November 2026. Every fact names its source: a file in this
-repository, a file in Qatom's MCP server repository (`TODAQmicro/mcp`, which the owner let this
-session read, at commit `5143e38` of 15 November 2026), or a page read that day. Statements that
-could not be checked are marked **unverified** and listed again at the end.
+repository, a file in one of two Qatom repositories the owner let this session read
+(`TODAQmicro/mcp` at commit `5143e38` of 15 November 2026, and `TODAQmicro/dashboard` at commit
+`145ba3d` of 5 November 2026), or a page read that day. Statements that could not be checked are
+marked **unverified** and listed again at the end.
+
+Part-way through, the owner sharpened the goal: make the App's chat work like the Qatom
+dashboard's assistant, which can show MCP Apps, so that log work and milestone appear as real
+MCP Apps that capture the form, with real tool use and real Qatom purchases. The summary is
+written to that goal. Managed Agents is answered briefly there and in full in section A.
 
 ## Summary
 
-**A. Should the assistant become a managed agent? Not now. Try it after the hackathon, for one
-reason only.**
+**The main answer: yes, the App's chat can host MCP Apps the way the dashboard's assistant does,
+and most of the code already exists there. Two things stand between today and "log work as an
+MCP App form". One is ours, one is Qatom's.**
 
-- Today's assistant is already close to one. Anthropic already runs the tool calls for us; our
-  server only relays text. Moving would not make the assistant smarter or cheaper.
-- The one thing we would gain matters: **a real stop before money moves.** Today the rule "file
-  only after the person says yes" is an instruction to the model and nothing else in our App
-  enforces it. A managed agent can be set so every Qatom tool call pauses until our page sends
-  an explicit allow. The review card would then show what is truly about to be filed, not the
-  model's description of it.
-- Each person's own Qatom sign-in is supported: one "vault" per person holds their token,
-  Anthropic refreshes it, and the model never sees it. Two catches. Our sign-in client's secret
-  would have to be stored at Anthropic, and only one side may refresh a Qatom token, so we
-  would have to stop refreshing it ourselves. Whether Anthropic copes with Qatom's single-use
-  refresh tokens is **unverified** and is what the experiment must settle.
-- Cost is the same tokens plus about 8 US cents per hour of active running. It fits a
-  Cloudflare Worker. It needs a new database table and two new settings.
+- **Ours: our server has to become the MCP client.** Today Anthropic's "MCP connector" makes the
+  tool calls for us, and our server never speaks MCP. That connector passes on tool calls only.
+  It does not give us a tool's interface or let us hold a call. The dashboard does it the other
+  way: its own server connects to Qatom's MCP server as the signed-in user, the model only asks
+  for a tool by name, and the server makes the call and fetches the tool's interface. We should
+  copy that. It also gives a **real stop before filing, in code**, because our server decides
+  when the call is made, and the person's token stops being sent to Anthropic at all.
+- **Qatom's: the two filing tools have no MCP App.** Qatom's MCP server ships MCP Apps for its
+  checkout card and account view, but a featured catalog item is registered as a plain tool.
+  Until Qatom's server attaches an interface to featured tools, a host has nothing to draw for
+  log work or milestone.
+- **One gap in the reference itself.** The dashboard's host is display-only by design: a card
+  can open links and nothing more. It cannot send a filled-in form back. Capturing a form needs
+  one deliberate addition to the host, described in B.5.
+- **Photos stay ours.** A sandboxed card cannot use our upload endpoint. The chat page keeps its
+  own camera and file buttons and hands the result to the form.
 
-**B. Can the filing tools carry MCP Apps? Yes, but on Qatom's server, and Qatom has to add it.**
+**A. Managed Agents: not needed for this, and a distraction from it.** It moves the loop to
+Anthropic's side, which is the opposite of what hosting MCP Apps needs. Its one real attraction,
+a pause before each tool call, comes for free once our own server makes the calls. Detail in
+section A.
 
-- MCP Apps is a stable standard (26 January 2026). Claude on web, desktop and phones, ChatGPT,
-  VS Code and others draw them.
-- Qatom's MCP server already ships two MCP Apps (the checkout card and the account view). A
-  campaign's two filing tools carry none: featured catalog items are registered as plain tools.
-  Adding a card to them is a change in Qatom's code, not ours.
-- Of our three pieces: the **review card** and the **guided form** can be MCP Apps. The **photo
-  step** mostly cannot: Claude's phone apps give an MCP App no camera, and our upload endpoint
-  only accepts a signed-in browser on our own site. In Claude, a person would be sent to our
-  upload page by a link, as the assistant already asks today.
-- Qatom's server is built and tested for a contractor to connect Tejido's Qatom tools to Claude
-  as themselves (not tried here), and the deposit still comes from their own agent wallet. They
-  lose our assistant's rules and must type their private filing code themselves.
-- Our chat page could become an MCP Apps host. It is the most work of anything here and is not
-  worth it until Qatom's cards exist.
+**B. MCP Apps** is a stable standard (26 January 2026) drawn by Claude on web, desktop and
+phones, ChatGPT, VS Code and others. An interface Qatom adds to featured tools would therefore
+also appear when a contractor files from Claude or ChatGPT, not only in our App.
 
-**C. Together, in order.**
+**C. Build plan, in order.** Sizes are my estimates.
 
-1. Now, no build: nothing. Keep the chat as it is for the demo.
-2. Next (about three days, Track B plus one table): the hard stop before filing, by managed
-   agent, after a one-day experiment on staging.
-3. Then, a request to Qatom: a "review before you pay" card on every featured tool. That puts
-   our review step into Claude and ChatGPT for free.
-4. Last, only if contractors really file from Claude: guided form and upload as MCP Apps.
+| Step | What                                                                                                                          | Needs from Qatom                                               | Needs the owner's word                                                                                                                        | Size        |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| 1    | Our server becomes the MCP client and runs the tool loop itself. Port the dashboard's `mcp.ts`, `loop.ts`, `tools.ts`         | Nothing                                                        | New dependency `@modelcontextprotocol/sdk`; a change in the shared `packages/qatom`; permission to copy from the private dashboard repository | 2 to 3 days |
+| 2    | A stop in code: a filing tool is not called until the person presses "File this entry". The review card shows the real inputs | Nothing                                                        | Nothing new                                                                                                                                   | 1 day       |
+| 3    | The chat page draws MCP Apps. Port the dashboard's `apps.ts`, `appHost.ts`, `AppFrame.svelte`                                 | Nothing                                                        | Nothing new (no dependency, no second address)                                                                                                | 1 to 2 days |
+| 4    | Qatom's MCP server attaches an MCP App to every featured tool: a form drawn from the item's inputs, then the receipt          | **This is the Qatom work**: one repository (`mcp`), a few days | Qatom's decision                                                                                                                              | Qatom's     |
+| 5    | The host lets the form send its values back, and routes them through step 2's stop                                            | The step 4 view must be written to match                       | Nothing new                                                                                                                                   | 2 days      |
+| 6    | Photos: the page's own buttons upload, and the form is given each file's address and fingerprint                              | Nothing                                                        | Nothing                                                                                                                                       | under 1 day |
 
-**What to do next:** decide whether a person on the team may run the staging experiment in
-section A.6 (it uses the model, so it costs a few cents; it can be run so that no deposit
-moves), and whether to raise section B.7's request with Qatom.
+Steps 1 to 3 need nothing from Qatom and leave the product working as now, with a real stop
+added. No new setting or secret is needed anywhere in the plan. Step 4 is the critical path:
+without it the host shows Qatom's existing cards but still nothing for log work.
+
+**What to do next:** the owner's word on the new dependency and on copying from the dashboard,
+and a decision at Qatom on step 4.
 
 ---
 
@@ -205,25 +211,27 @@ code is in those inputs and must be left out of what the page is sent.
   works. Two new failure points: session creation, and Anthropic's refresh of the person's
   token.
 
-### A.6 Recommendation and the smallest experiment
+### A.6 Recommendation
 
-**Move later.** Do not move during the hackathon: it touches the database, the shared
-configuration and the sign-in, for no visible change in the demo. Move afterwards if the
-experiment passes, because a stop that code enforces is worth more to this product than
-anything else on this page. If the experiment fails on token refresh, build the same stop with
-custom tools instead.
+**Do not move to Managed Agents.** When this section was first written, a pause before each tool
+call looked like a reason to move later. The dashboard's assistant shows a simpler way to the
+same thing (section B.5): our own server makes the MCP calls, so it can hold a filing until the
+person says yes, and the person's token never goes to Anthropic at all. That also happens to be
+what hosting MCP Apps requires. A managed agent would work against it, because the tool calls
+would again run on Anthropic's side, where we cannot read a tool's interface. Whether a
+managed-agent session passes a tool's `_meta` or its `ui://` resources through to us is
+**unverified**; nothing Anthropic documents says it does.
 
-The experiment, about a day, on staging, run by a person (it uses the model, so it costs a few
-cents, and this research was not allowed to run it):
+The dashboard's own code leaves a door open for a hosted agent later (`AgentRuntime` in
+`TODAQmicro/dashboard` `src/lib/server/agent/runtime.ts`: "an agent that brings its own loop
+... using the same MCP session for its tools"). If we ever want that, the route is custom
+tools executed by our server (A.3, last paragraph), not the vault.
 
-1. Create one agent with only the Qatom MCP tools (no shell, no web), one environment with
-   networking limited to MCP servers, and one vault holding a staging test party's tokens.
-2. Ask a wallet question. This shows the connection works as that person with a token bound to
-   the MCP server.
-3. Ask it to file a work log. Check that the session pauses and shows the exact inputs. **Send
-   deny.** No deposit moves. Check the model reports that nothing was filed.
-4. Wait past the access token's expiry and ask again. This is the rotation test.
-5. Note the time from sending a message to the first words of the reply.
+If someone still wants to try the vault route, the experiment is about a day on staging, run by
+a person (it uses the model, so it costs a few cents): one agent with only the Qatom MCP tools,
+one environment, one vault with a staging test party's tokens; ask a wallet question; ask it to
+file a work log and **send deny** so no deposit moves; wait past the token's expiry and ask
+again, which is the rotation test.
 
 ---
 
@@ -276,11 +284,11 @@ Qatom's MCP server already uses MCP Apps. From `TODAQmicro/mcp`:
 
 So there are three ways to get a card onto our two tools.
 
-| Option                                                            | What changes                                                                                                                                                                         | For whom                                                   | Verdict                                                                       |
-| ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| **1. Qatom draws one generic card for every featured tool**       | Qatom's MCP server: register featured tools with a card that shows the item, its price and the inputs about to be sent. No change to payment, the dashboard or Tejido                | Every Qatom merchant gets it. We control none of its words | Smallest. Ask for this                                                        |
-| **2. Qatom lets a merchant supply its own card per catalog item** | Qatom's payment API, dashboard and MCP server: a new field on the catalog item, carried to the server, and a security review, because a merchant's HTML would run under Qatom's name | Tejido gets its own form and review card on Qatom's server | Large, and it reverses Qatom's "self-contained, fetch nothing" rule. Not soon |
-| **3. Tejido runs its own MCP server in front**                    | A new deployed service of ours with its own sign-in. To file, it would have to call Qatom as the person                                                                              | Us                                                         | See below. Not recommended                                                    |
+| Option                                                            | What changes                                                                                                                                                                                   | For whom                                                   | Verdict                                                                       |
+| ----------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| **1. Qatom draws one generic card for every featured tool**       | Qatom's MCP server: register featured tools with one shared view: a form drawn from the item's inputs before the purchase, the receipt after it. No change to payment, the dashboard or Tejido | Every Qatom merchant gets it. We control none of its words | Smallest. Ask for this                                                        |
+| **2. Qatom lets a merchant supply its own card per catalog item** | Qatom's payment API, dashboard and MCP server: a new field on the catalog item, carried to the server, and a security review, because a merchant's HTML would run under Qatom's name           | Tejido gets its own form and review card on Qatom's server | Large, and it reverses Qatom's "self-contained, fetch nothing" rule. Not soon |
+| **3. Tejido runs its own MCP server in front**                    | A new deployed service of ours with its own sign-in. To file, it would have to call Qatom as the person                                                                                        | Us                                                         | See below. Not recommended                                                    |
 
 Why not option 3. The stamp is a Qatom purchase by the person's own wallet. A Tejido server in
 front would hold a token issued for itself, not for Qatom's server, and would need to exchange
@@ -310,11 +318,11 @@ conversation and does not file by itself.
 
 ### B.4 Our three pieces
 
-| Piece                 | As an MCP App?                                                                                                               | What it cannot do in a host                                                                                                                                                                                                                                                                                                                           | In Claude                                                                                                                                                       | In our App                                                 |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
-| **Review card**       | Yes. It only displays inputs and a deposit line                                                                              | It cannot be the gate. The gate is the host's approval and Qatom's                                                                                                                                                                                                                                                                                    | Claude's own approval prompt, then (with option 1) Qatom's card with the inputs                                                                                 | Our card, as now; with section A, drawn from the real call |
-| **Guided form**       | Yes. Fields, checks and a send button work in the frame; the result goes back with `ui/update-model-context` or `ui/message` | It cannot read our database. Milestones and rules must arrive in the tool's inputs or result. Our checks (`report-form.ts`) would have to be repeated inside the card                                                                                                                                                                                 | Only with option 2 or 3. Otherwise the model asks question by question                                                                                          | Our form, as now                                           |
-| **Photo and SHA-256** | Mostly no                                                                                                                    | Camera: none on Claude's phone apps ("Apps on mobile have no camera, microphone, or location access"), optional elsewhere. Choosing a file from the device: **unverified**. Upload: our endpoint wants our own session cookie and refuses posts from another origin (`apps/app/src/routes/api/evidence/+server.ts`), and a card in Claude has neither | A link to our upload page, opened by the host; the person signs in there, uploads, and pastes back the address and fingerprint. This works today with no change | Camera and file buttons in the page, as now                |
+| Piece                 | As an MCP App?                                                                                                               | What it cannot do in a host                                                                                                                                                                                                                                                                                                                           | In Claude                                                                                                                                                       | In our App                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| **Review card**       | Yes. It only displays inputs and a deposit line                                                                              | It cannot be the gate. The gate is the host's approval and Qatom's                                                                                                                                                                                                                                                                                    | Claude's own approval prompt, then (with option 1) Qatom's card with the inputs                                                                                 | Our own card, drawn from the real call once our server makes the calls (B.5) |
+| **Guided form**       | Yes. Fields, checks and a send button work in the frame; the result goes back with `ui/update-model-context` or `ui/message` | It cannot read our database. Milestones and rules must arrive in the tool's inputs or result. Our checks (`report-form.ts`) would have to be repeated inside the card                                                                                                                                                                                 | With option 1, a generic form from the item's inputs; our own wording and checks only with option 2                                                             | The same Qatom form, hosted in our chat (B.5), or our own form as now        |
+| **Photo and SHA-256** | Mostly no                                                                                                                    | Camera: none on Claude's phone apps ("Apps on mobile have no camera, microphone, or location access"), optional elsewhere. Choosing a file from the device: **unverified**. Upload: our endpoint wants our own session cookie and refuses posts from another origin (`apps/app/src/routes/api/evidence/+server.ts`), and a card in Claude has neither | A link to our upload page, opened by the host; the person signs in there, uploads, and pastes back the address and fingerprint. This works today with no change | Camera and file buttons in the page, as now                                  |
 
 To make upload work from inside a card we would have to build a second way into the evidence
 endpoint: a short-lived upload ticket handed out by a tool, and permission for the host's card
@@ -327,21 +335,85 @@ Contractors use phones in the field (`docs/design-system/README.md`, rule 7 of t
 the phone is exactly where a card has no camera. For photos, our own App stays the better
 place.
 
-### B.5 Our chat page as an MCP Apps host
+### B.5 Our chat page as an MCP Apps host, like the dashboard's assistant
 
-Possible. The SDK has a host side (`@modelcontextprotocol/ext-apps/app-bridge`, class
-`AppBridge`) that is plain TypeScript, so Svelte is fine. What it needs:
+**How the dashboard does it.** From `TODAQmicro/dashboard` (a SvelteKit and Svelte 5 app, as
+ours is, but on a Node server, not a Cloudflare Worker):
 
-- a second origin of ours to serve the sandbox frame from (the specification requires the host
-  and the sandbox to be on different origins): a new hostname and deployment, so `infra/`;
-- our server to fetch the card and relay the card's tool calls to Qatom as the person, because
-  the person's token must not reach the browser;
-- two new dependencies (the Apps SDK and the MCP SDK).
+- **The model loop is its own.** `src/lib/server/agent/loop.ts` asks the model for a step, runs
+  the tools it asked for, sends the results back, up to 24 steps. The model is reached through
+  a small adapter per provider (`providers/`), Claude among them.
+- **Its server is the MCP client.** `src/lib/server/agent/mcp.ts` connects to Qatom's MCP server
+  with `@modelcontextprotocol/sdk`, carrying the signed-in user's own access token. Its own
+  words: "The token never leaves the dashboard's backend: not to the browser, and not to the
+  model provider — the model asks for a tool by name, and this process makes the call."
+- **It draws MCP Apps without any Apps library.** For a tool whose `_meta.ui.resourceUri` names
+  a `ui://` view, the server reads that view with the user's token, puts a
+  Content-Security-Policy in front of it that allows nothing the view did not declare
+  (`src/lib/server/agent/apps.ts`), and sends the document and the tool's result to the
+  browser as one event. The page frames it with `sandbox="allow-scripts"` and nothing else
+  (`src/lib/agent/AppFrame.svelte`), which gives the card an origin of its own with no access
+  to the page, its cookies or its storage. There is **no second hostname and no sandbox
+  proxy**. A small class answers the card's messages (`src/lib/agent/appHost.ts`).
+- **The host is display-only, on purpose.** "A view can open links and nothing more: it cannot
+  call tools, read resources or write to the conversation, and offering one of those is a host
+  capability added there, deliberately" (`CLAUDE.md` in that repository). A card is drawn after
+  its tool has answered, from the result.
+- **Approvals** reach its panel as a link to Qatom's review page
+  (`mcp.ts`, URL elicitation). At the commit of Qatom's MCP server I read, the server hands
+  back an approval link in the tool's result and does not wait (`TODAQmicro/mcp`
+  `src/approvals.ts`); which of the two is current in production is **unverified**.
 
-Each of those is a stop-and-ask item under `CLAUDE.md`. It would give one interface in both
-places for the review card and the form, never for the photo step. It only pays once Qatom's
-server carries cards worth showing (options 1 or 2). Until then our Svelte components do the
-same job with none of this.
+**Can we host MCP Apps while the tool calls run through Anthropic's connector? No, not
+usefully.** Anthropic's page says of the connector that only tool calls are supported. To find
+out that a tool has an interface, and to fetch it, our server would have to connect to Qatom's
+MCP server itself anyway. And because the connector runs the call inside Anthropic's request,
+we could not show a form before the call or hold the call for a yes. Whether the connector's
+result even carries the structured part a card is drawn from is **unverified**. So our server
+must become the MCP client, as the dashboard's is.
+
+**Does that give a real confirmation gate? Yes.** Once our loop makes the calls, a filing tool
+is simply not called until the page sends the person's yes. The model asking is no longer
+enough. A filing tool can be recognised without guessing by what Qatom's server already puts
+on it: `_meta["qatom/catalog_item_id"]` and the "every call is a purchase" marker
+(`TODAQmicro/mcp` `src/managed/tools.ts`).
+
+**What "capture the form" adds beyond the dashboard.** Two changes to the host, both ours:
+
+1. Draw the tool's view when the model asks for the tool, **before** the call is made, giving
+   it the inputs the model has so far. The specification sends a view the tool's inputs first
+   and the result later, so this is the standard order; the dashboard just skips to the result.
+2. Accept one message back from the view: the completed values. The standard way is the view
+   asking the host to call its tool (`tools/call`). Our host would not run that directly. It
+   would show our own review card with those values and the deposit, and call Qatom only when
+   the person presses "File this entry". The card is Qatom-served HTML; the yes must be
+   pressed in our own page, not inside the frame.
+
+Then the result goes to the view, which shows the receipt, and to the model.
+
+**What can be reused.** About 900 lines in the dashboard do all of the above except the two
+additions: `mcp.ts` (177 lines), `loop.ts` (106), `tools.ts` (103), `apps.ts` (134),
+`appHost.ts` (126), `AppFrame.svelte` (134), the Claude adapter (177), and their tests. They
+are written for Svelte 5 and SvelteKit like ours. What differs: the dashboard uses Anthropic's
+SDK (`@anthropic-ai/sdk`) where we call the API with `fetch`, so the Claude adapter is rewritten
+or the SDK is added; it follows a light and dark theme where ours is light only; and it keeps
+tokens in its session where ours are sealed in the database. The dashboard repository is
+private with no licence file, so copying from it needs the owner's word.
+
+**What it needs here.**
+
+- One new dependency, `@modelcontextprotocol/sdk`. Writing an MCP client by hand would be
+  guessing at a protocol, which `CLAUDE.md` forbids.
+- The connection belongs in `packages/qatom`, on the person side, because "all Qatom calls go
+  through `packages/qatom`". That is a shared file.
+- No new setting or secret: `QATOM_MCP_URL` and `ANTHROPIC_API_KEY` are already there, and the
+  sealed per-person tokens are used as now.
+- That the MCP SDK's client runs inside a Cloudflare Worker is **unverified**. It uses `fetch`
+  and our Workers have Node compatibility switched on (`apps/app/wrangler.jsonc`), so it
+  should; the first hour of step 1 settles it.
+- Photos: a sandboxed card has no cookie of ours and cannot post to `/api/evidence`. The page
+  keeps its own camera and file buttons (they exist: `+page.svelte`, `chat-upload.ts`) and
+  passes each file's address and fingerprint into the form's inputs.
 
 ### B.6 Signing in from an outside host
 
@@ -370,34 +442,54 @@ phone (https://claude.com/docs/connectors/custom/add-unlisted.md).
 
 ### B.7 Recommendation and the smallest experiment
 
-**Do not build a Tejido MCP server, and do not turn our chat into a host yet.** Ask Qatom for
-option 1: a generic "review before you pay" card on every featured tool. The owner leads
-engineering at Qatom, the server already has the card machinery and a second format for
-ChatGPT, and every Qatom merchant benefits.
+**Build the host in our App the dashboard's way (steps 1 to 3 of the plan), and ask Qatom to
+attach an MCP App to featured tools (step 4).** Do not build a Tejido MCP server.
 
-Smallest experiment, about an hour, no money: a person adds the **staging** Qatom MCP server to
-Claude as a custom connector, signs in as a test party, and asks Claude to prepare a work log.
-Look at what Claude's own approval prompt shows for the tool's inputs, then **decline**. That
-tells us how much of a review step exists in Claude today with no work from anyone. Do the same
-on a phone.
+What to ask Qatom for, concretely: in `syncCatalogTools`, register each featured item with
+`registerAppTool` and one shared view, as `guest_checkout` already is. The view draws a form
+from the item's inputs before the purchase and the receipt after it. The owner leads
+engineering at Qatom, the server already has the card machinery and a second format for
+ChatGPT, and every Qatom merchant gets it. Two things to settle in that design: how the view
+learns the item's input schema (the specification's host context may carry the tool's
+definition; **unverified**), and the `photos` list, which a generic form cannot fill and which
+our host fills from its own upload buttons.
+
+Smallest experiment, no money, about an hour: after step 3, open the App's chat on staging and
+ask the assistant for a checkout link for any item. Qatom's checkout card should appear inside
+our chat. That proves the host end to end before any Qatom change. Do not pay the link.
 
 ---
 
 ## C. Together
 
-### C.1 A staged path
+### C.1 The build plan
 
-Build times are my estimates, not measurements.
+The summary's table is the plan. Detail per step, with what each delivers to a contractor.
 
-| Stage                                                  | What a contractor gets                                                                                                                                      | Cost to build                                                                                 | Depends on Qatom for                                                                             |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
-| **0. Today**                                           | Chat in our App with form, review card and camera. Can also file from Claude, without our rules                                                             | Nothing                                                                                       | Nothing                                                                                          |
-| **1. A stop that code enforces**                       | In our App, nothing is sent to Qatom until they press "File this entry", and the card shows the real entry. A dropped connection no longer loses the answer | 1 day experiment, then about 3 days in Track B, a table (Track C) and two settings (shared)   | Nothing to change. Needs Qatom's refresh tokens to work with Anthropic's vault                   |
-| **2. Qatom's review card on featured tools**           | In Claude and ChatGPT, a Qatom-drawn card showing what is about to be filed and the deposit                                                                 | None for us. For Qatom, a change in one repository, a few days with tests                     | Qatom building it                                                                                |
-| **3. Form and upload as MCP Apps; our chat as a host** | The same guided form in Claude and in our App                                                                                                               | Weeks: Qatom option 2 or a Tejido server, an upload ticket, a second origin, new dependencies | A per-item card field across payment, dashboard and MCP server, or token exchange for our client |
+1. **Our server becomes the MCP client.** Delivers nothing visible, and one invisible
+   improvement: the person's token no longer leaves our server. The request to Claude stops
+   using the connector (`mcp_servers`, `mcp_toolset` and the `mcp-client` beta header go) and
+   carries the tools as ordinary tools; our loop runs each call. Files: `agent.ts` and the chat
+   endpoint (Track B), a person-side MCP connection in `packages/qatom` (shared). Needs the MCP
+   SDK dependency. The tests that stub `fetch` are rewritten.
+2. **The stop in code.** Delivers: nothing is filed until "File this entry" is pressed, and the
+   review card shows the real entry, not the model's description of it. The marker line and its
+   parser (`REVIEW_MARKER`, `chatReview`) go. Since the page holds the conversation, the
+   pending call travels with it; the person pressing the button is the authority, and it is
+   their own money.
+3. **The page draws MCP Apps.** Delivers: Qatom's existing cards (checkout, cart) appear in our
+   chat. Nothing yet for log work.
+4. **Qatom attaches an MCP App to featured tools.** Delivers: log work and milestone show as
+   MCP Apps in our chat, and in Claude and ChatGPT too. Qatom's work, in `TODAQmicro/mcp` only.
+   Merging there rolls every managed server (`CLAUDE.md` in that repository), so it is planned
+   with a release.
+5. **The form sends its values back.** Delivers: the person fills the form in the card instead
+   of answering questions one at a time. Our `ReportForm.svelte` can then be retired, or kept
+   until the Qatom form is good enough.
+6. **Photos.** Delivers: camera and file buttons beside the form, as now.
 
-Stages 1 and 2 are independent and can go in either order. Stage 3 should wait for evidence
-that contractors file from Claude at all.
+Not in the plan: Managed Agents (section A), a Tejido MCP server (B.2), and the Apps SDK
+`@modelcontextprotocol/ext-apps`, which the dashboard shows is not needed for a host.
 
 ### C.2 Risks to the trust model
 
@@ -405,27 +497,28 @@ The rules are in `docs/design-system/README.md` ("The rules that matter most") a
 assistant's instructions in `agent.ts`.
 
 - **A filing only after an explicit yes.** The weakest point today (A.1), and the build plan's
-  advice to raise the auto-approve limit removes Qatom's own stop. Stage 1 fixes it inside our
-  App. Outside our App it rests on the host's prompt, which a person can set to "always allow",
+  advice to raise the auto-approve limit removes Qatom's own stop. Steps 1 and 2 of the plan fix it inside
+  our App. Outside our App it rests on the host's prompt, which a person can set to "always allow",
   and on Qatom's approval. Never build a card whose button calls the paid tool directly, and
-  never use the "auto" permission for filing tools.
-- **The three layers never merged.** A card drawn by Qatom (stage 2) is a payment receipt in
+  never let a button inside a Qatom-served frame count as the yes: it is pressed in our own
+  page.
+- **The three layers never merged.** A card drawn by Qatom (step 4) is a payment receipt in
   Qatom's words and look. It shows that a filing was paid for. It must not be read as "the
-  milestone is confirmed". In our own page it would sit next to our status badges, so if we
-  ever host it, it goes in the "recorded" layer only. A generic card cannot say "I can't check
+  milestone is confirmed". In our own page it would sit next to our status badges, so when
+  we host it, it goes in the "recorded" layer only. A generic card cannot say "I can't check
   the work myself"; ours does.
 - **Nothing claimed that was not recorded.** Our instructions tie each word to a fact (a tool
   answered, the answer said accepted). In Claude, another model with other instructions may say
-  "filed" early or "verified" loosely. A managed-agent session helps inside our App: the tool's
-  real result is in the session history, so the page can show "Recorded" from the result and
-  not from the model's sentence.
-- **Who filed.** Unchanged in every stage, as long as the call is made with the person's own
+  "filed" early or "verified" loosely. Once our server makes the calls (step 1), the page can show
+  "Recorded" from the tool's real result and not from the model's sentence.
+- **Who filed.** Unchanged at every step, as long as the call is made with the person's own
   token and paid from their own agent wallet. A Tejido server in front (B.2, option 3) is the
   one design here that puts this at risk, which is the main reason to avoid it.
-- **The two Qatom identities.** Nothing here uses the merchant account. A vault holds only a
-  person's token. Storing `OIDC_CLIENT_SECRET` in a vault keeps it on the person side, but it
-  is a secret of ours held by a third party, and `CLAUDE.md` makes any change to where a secret
-  lives a decision for a person.
+- **The two Qatom identities.** Nothing here uses the merchant account. The new MCP connection
+  (step 1) is made with the person's token only and belongs on the person side of
+  `packages/qatom`. It is an improvement on today: the person's token stops being sent to
+  Anthropic. The Managed Agents route would have gone the other way and put
+  `OIDC_CLIENT_SECRET` in a third party's keeping (A.3).
 - **Evidence.** An upload path for cards would be a second door into evidence storage. The
   check-in endpoint's rule that every photo address points at our own storage and matches the
   stored hash must hold whichever door was used.
@@ -444,6 +537,11 @@ In this repository:
 - `apps/app/src/routes/api/evidence/+server.ts`, `apps/app/src/lib/server/evidence.ts`
 - `docs/architecture.md`, `docs/build-plan.md`, `docs/design-system/README.md`, `CLAUDE.md`,
   `.env.example` (names only)
+
+In `TODAQmicro/dashboard` at commit `145ba3d` (5 Nov 2026): `CLAUDE.md` ("The assistant"),
+`package.json`, `src/lib/server/agent/mcp.ts`, `loop.ts`, `tools.ts`, `apps.ts`, `runtime.ts`,
+`config.ts`, `providers/anthropic.ts`, `src/lib/agent/appHost.ts`, `AppFrame.svelte`,
+`protocol.ts`, `src/routes/api/agent/chat/+server.ts`, `svelte.config.js`, `Dockerfile`.
 
 In `TODAQmicro/mcp` at commit `5143e38` (15 Nov 2026): `CLAUDE.md`, `package.json`,
 `src/managed/tools.ts`, `src/managed/index.ts`, `src/managed/types.ts`, `src/approvals.ts`,
@@ -503,3 +601,13 @@ Read on the web on 15 Nov 2026:
     the option this report advises against).
 12. Nothing here was run against Anthropic or Qatom. Every statement about how the two would
     behave together is from reading, not from a test.
+13. Whether the MCP SDK's client runs inside a Cloudflare Worker. The dashboard runs it on a
+    Node server.
+14. Whether Anthropic's MCP connector, or a managed-agent session, passes on a tool's `_meta`,
+    its `ui://` resources or the structured part of a result. Anthropic's page says the
+    connector supports tool calls only.
+15. Whether Qatom's MCP server in production waits for an approval and offers its link by URL
+    elicitation (as the dashboard's client expects) or returns the link at once (as the server
+    code I read does).
+16. How a view learns its tool's input schema from the host. I did not confirm the field in the
+    specification.
