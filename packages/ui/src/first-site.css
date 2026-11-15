@@ -12,8 +12,13 @@
 	themselves, not styles.css). A change to a value here needs the same change there, and the
 	other way round.
 
-	The status colours (confirmed, in progress, attention, overdue, flagged, record) are left as
-	the design system sets them. They carry meaning, and the trust vocabulary depends on them.
+	Status colours. Two of them take the first site's blues in the App: a confirmed milestone and
+	one in progress (see "Milestone colours" below). The shapes that carry the meaning are
+	untouched: claimed is dashed, confirmed is solid, and every state keeps its word and icon.
+	The warnings (attention, overdue, flagged) and the indigo "record" tone are left as the
+	design system sets them: a warning must never look like the brand. This one block is NOT in
+	the Campaign Site's file: donors' pages keep the design system's teal for a confirmed
+	milestone.
 
 	The fonts themselves are loaded by the app's root layout (Poppins 600 and 700, Rubik 400,
 	500 and 600). Light only: there is no dark block here and there must never be one.
@@ -44,6 +49,25 @@
 	--radius-lg: 12px;
 	--radius-xl: 16px;
 	--shadow-1: 0 1px 1px rgba(11, 19, 34, 0.03), 0 10px 30px -8px rgba(11, 40, 90, 0.14);
+}
+
+/*
+	Milestone colours: the first site's blue family in place of the design system's teal
+	(confirmed) and steel blue (in progress). Confirmed is the brand blue, solid, with the darkest
+	blue for its text; in progress is a lighter outline in the link blue. Anything else drawn in
+	these two tones follows them ("Deposit refunded", a file that is uploading, the "Submitted"
+	step of the review card), so one state is one colour everywhere in the App.
+*/
+:root {
+	--status-confirmed-text: #04478f;
+	--status-confirmed-icon: #0559b8;
+	--status-confirmed-bg: #e6f1fd;
+	--status-confirmed-border: #9cc7f5;
+	--status-confirmed-solid: #0173e6;
+	--status-progress-text: #0559b8;
+	--status-progress-icon: #0173e6;
+	--status-progress-bg: #f1f7fe;
+	--status-progress-border: #b9d6f8;
 }
 
 /*

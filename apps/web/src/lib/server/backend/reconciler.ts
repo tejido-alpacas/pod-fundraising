@@ -42,6 +42,19 @@
  * An entry whose party has not linked a wallet yet is left waiting, not flagged: there is no
  * registered wallet to compare with until they sign in.
  *
+ * WHICH LEDGER ROWS ARE LOOKED AT. A row is left out when it says it is money going out (its
+ * `operation` is `send`), or when it names a commodity other than the one whose ledger was
+ * read. Qatom's ledger also lists `receive`, `transfer` and `split`; it is NOT SETTLED which
+ * of those a sale is listed as, so none of them is left out, and a row with no operation is
+ * kept. The summary counts what was left out and which operations were seen.
+ *
+ * A PAYING ADDRESS WE CANNOT COMPARE IS NEVER A REASON TO FLAG. It is NOT SETTLED whether the
+ * ledger's `fromAddress` is a wallet hostname or a 66-character hexadecimal address. A
+ * registered wallet is a hostname, so only a hostname (or a twin URL) can be told apart from
+ * it. When the only transaction that fits an entry has a paying address in any other form,
+ * the entry is left as it is and counted as `payingWalletNotComparable`. A wrong flag on a
+ * donor's page is worse than a pending receipt.
+ *
  * An `incomplete` entry paid from the registered wallet gets its transaction recorded but
  * stays `incomplete`, with its reason: it is still missing something. So a stamped incomplete
  * entry was always paid from the right wallet. Paid from another wallet, it becomes `flagged`.
@@ -64,7 +77,7 @@ import {
 	type EntryStamp,
 	type UnreconciledEntry
 } from '@tejido/db';
-import { QatomError, sameTwin } from '@tejido/qatom';
+import { QatomError, sameTwin, twinHostname } from '@tejido/qatom';
 import type { LedgerTransaction, MerchantAccount } from '@tejido/qatom/account';
 
 /**
@@ -82,9 +95,9 @@ const STATUS_REASON_MAX = 500;
 /**
  * The ledger's `amount` in our units (see money.ts in @tejido/contracts).
  *
- * THE ONE PLACE that knows the ledger's unit. Qatom's document does not state it. We assume
- * it is the same smallest unit as prices and transfers, so a 0.10 work log reads 100. If
- * staging shows otherwise (README, "Still to confirm on staging"), convert here and nowhere else.
+ * Nothing is converted here. Qatom reports decimal USD-TDN (a 0.10 work log reads 0.1) and
+ * @tejido/qatom turns it into our thousandths before this module sees it (amounts.ts there,
+ * the one place that converts). So a 0.10 work log arrives as 100. Do not scale it again.
  */
 function ledgerAmountInUnits(transaction: LedgerTransaction): Amount {
 	return transaction.amount;
@@ -98,6 +111,34 @@ function ledgerAmountInUnits(transaction: LedgerTransaction): Amount {
  */
 function paidFrom(transaction: LedgerTransaction, agentWalletHostname: string): boolean {
 	return sameTwin(transaction.payingAddress, agentWalletHostname);
+}
+
+/**
+ * Whether the paying address is in a form that can be compared with a registered wallet: a
+ * hostname with a dot in it, bare or as a twin URL. A 66-character hexadecimal address is not.
+ * Only a comparable address can show that a deposit was paid from ANOTHER wallet.
+ */
+function payingWalletComparable(transaction: LedgerTransaction): boolean {
+	return twinHostname(transaction.payingAddress)?.includes('.') ?? false;
+}
+
+/** The operations Qatom's ledger lists. Any other value is counted as `other`. */
+const LEDGER_OPERATIONS = ['send', 'receive', 'transfer', 'split'] as const;
+
+/**
+ * Whether a ledger row may be a payment for the item whose ledger it is on.
+ *
+ * THE ONE PLACE that decides which rows are looked at. `send` is money going out, so it is
+ * never a payment in. It is not settled which of `receive`, `transfer` and `split` a sale is
+ * listed as, so those are all kept, as is a row with no operation: leaving out the wrong one
+ * would hide every payment. A row naming another commodity is not a sale of this one.
+ */
+function mayBePayment(transaction: LedgerTransaction, commodityHash: string): boolean {
+	if (transaction.operation?.toLowerCase() === 'send') return false;
+	return (
+		transaction.commodityHash === null ||
+		transaction.commodityHash.toLowerCase() === commodityHash.toLowerCase()
+	);
 }
 
 export interface ReconcileSummary {
@@ -124,14 +165,32 @@ export interface ReconcileSummary {
 	flagged: number;
 	/** Paid from the registered wallet, but the entry is still missing something. */
 	stampedIncomplete: number;
-	/** Entries still without a transaction after this pass, including the two counts below. */
+	/** Entries still without a transaction after this pass, including the three counts below. */
 	unmatched: number;
 	/** Unmatched because more than one pairing was possible. */
 	ambiguous: number;
 	/** Unmatched because the party has not linked a wallet yet. */
 	waitingForWallet: number;
+	/**
+	 * Unmatched, and deliberately NOT flagged: the one transaction that fits the entry has a
+	 * paying address that is not a hostname (for example a hexadecimal address), so we cannot
+	 * tell whether it is the party's registered wallet. Above zero means Qatom's ledger does
+	 * not give the paying wallet in the form we registered, and the owner must tell us the form.
+	 */
+	payingWalletNotComparable: number;
 	/** Ledger rows we could not use: a field missing, or a time that is not a time. */
 	unreadableTransactions: number;
+	/**
+	 * Ledger rows left out because they are not payments for the item: money going out
+	 * (`send`), or a row naming another commodity.
+	 */
+	rowsNotPayments: number;
+	/**
+	 * How many readable ledger rows carried each operation, before any was left out. `other`
+	 * is a value not in Qatom's list; `none` is a row with no operation. Counts only: it shows
+	 * which operation a real sale is listed as.
+	 */
+	operationsSeen: Record<(typeof LEDGER_OPERATIONS)[number] | 'other' | 'none', number>;
 }
 
 interface Candidate {
@@ -187,7 +246,12 @@ function matchLedger(
 	waiting: UnreconciledEntry[],
 	candidates: Candidate[],
 	now: string
-): { stamps: EntryStamp[]; ambiguous: number; waitingForWallet: number } {
+): {
+	stamps: EntryStamp[];
+	ambiguous: number;
+	waitingForWallet: number;
+	payingWalletNotComparable: number;
+} {
 	const stamps: EntryStamp[] = [];
 	const stamp = (
 		{ entry }: UnreconciledEntry,
@@ -245,6 +309,15 @@ function matchLedger(
 			otherPairs.delete(row);
 		}
 	}
+	// Flagging says "paid from another wallet". That can only be said of an address that can
+	// be compared with a registered wallet. Otherwise the entry is left exactly as it is.
+	const notComparable = new Set<UnreconciledEntry>();
+	for (const [row, candidate] of otherPairs) {
+		if (!payingWalletComparable(candidate.transaction)) {
+			notComparable.add(row);
+			otherPairs.delete(row);
+		}
+	}
 	for (const [row, candidate] of otherPairs) {
 		const reason = `The deposit was paid from a wallet that is not the one registered for ${row.party.name}.`;
 		const earlier = row.entry.status === 'incomplete' ? row.entry.statusReason : null;
@@ -253,13 +326,18 @@ function matchLedger(
 
 	let ambiguous = 0;
 	for (const row of waiting) {
-		if (ownPairs.has(row) || otherPairs.has(row) || row.party.agentWalletHostname === null) {
+		if (
+			ownPairs.has(row) ||
+			otherPairs.has(row) ||
+			notComparable.has(row) ||
+			row.party.agentWalletHostname === null
+		) {
 			continue;
 		}
 		const had = (fromOwnWallet.get(row)?.length ?? 0) + (fromElsewhere.get(row)?.length ?? 0);
 		if (had > 0) ambiguous += 1;
 	}
-	return { stamps, ambiguous, waitingForWallet };
+	return { stamps, ambiguous, waitingForWallet, payingWalletNotComparable: notComparable.size };
 }
 
 /** One commodity's ledger, and everything waiting on it across every campaign that names it. */
@@ -293,7 +371,10 @@ export async function reconcile(
 		unmatched: 0,
 		ambiguous: 0,
 		waitingForWallet: 0,
-		unreadableTransactions: 0
+		payingWalletNotComparable: 0,
+		unreadableTransactions: 0,
+		rowsNotPayments: 0,
+		operationsSeen: { send: 0, receive: 0, transfer: 0, split: 0, other: 0, none: 0 }
 	};
 
 	// First, gather. Campaigns that name the same commodity share one ledger, so their waiting
@@ -331,7 +412,13 @@ export async function reconcile(
 			// The ledger is read by hash. The account looks it up from the id and remembers it.
 			const commodityHash = await account.resolveCommodityHash(commodityId);
 			const ledger = await account.listCommodityTransactions(commodityHash);
-			transactions = ledger.transactions;
+			for (const { operation } of ledger.transactions) {
+				const known = LEDGER_OPERATIONS.find((name) => name === operation?.toLowerCase());
+				summary.operationsSeen[known ?? (operation === null ? 'none' : 'other')] += 1;
+			}
+			// Only rows that may be payments for this item are looked at.
+			transactions = ledger.transactions.filter((row) => mayBePayment(row, commodityHash));
+			summary.rowsNotPayments += ledger.transactions.length - transactions.length;
 			summary.ledgersRead += 1;
 			summary.unreadableTransactions += ledger.incompleteTransactions;
 		} catch (error) {
@@ -364,7 +451,11 @@ export async function reconcile(
 			candidates.push({ transaction, atMs, stampedAt });
 		}
 
-		const { stamps, ambiguous, waitingForWallet } = matchLedger(waiting, candidates, now);
+		const { stamps, ambiguous, waitingForWallet, payingWalletNotComparable } = matchLedger(
+			waiting,
+			candidates,
+			now
+		);
 		const stamped = new Set(await stampEntries(db, stamps));
 		for (const stamp of stamps) {
 			if (!stamped.has(stamp.entryId)) continue;
@@ -376,6 +467,7 @@ export async function reconcile(
 		}
 		summary.ambiguous += ambiguous;
 		summary.waitingForWallet += waitingForWallet;
+		summary.payingWalletNotComparable += payingWalletNotComparable;
 	}
 	return summary;
 }

@@ -70,7 +70,8 @@ from `@tejido/db`; they never call Qatom. No donor's wallet or transaction id is
   says why. What was stored before stays.
 - `POST /api/funding` runs one pass. It needs the `X-Tejido-Checkin-Secret` header, like
   `POST /api/reconcile`. Nothing calls it on a schedule yet.
-- Not yet run against real Qatom. The ledger's amount unit is assumed, as in the reconciler.
+- Not yet run against real Qatom. Qatom reports amounts in decimal USD-TDN; `@tejido/qatom`
+  converts them to our thousandths, so nothing here scales an amount.
 
 ## Cadence scheduler (`schedule.ts`, `POST /api/schedule`)
 

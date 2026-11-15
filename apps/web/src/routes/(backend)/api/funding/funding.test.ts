@@ -20,7 +20,8 @@ const CAMPAIGN = fixtures.campaign.id;
 const GOAL = 5000;
 /** The donation item's commodity id, and the hash Qatom's catalog gives for it. */
 const DONATION_ID = 3154;
-const DONATION_HASH = 'donationhash333';
+// A UUID with hyphens, as Qatom's server gives a commodity hash.
+const DONATION_HASH = '5c8e2f1a-7b94-4d63-9a0e-1f2d3c4b5a69';
 /** The twin that owns the donation commodity: where donations are paid to. */
 const DONATION_TWIN = 'donations.micro.biz.todaq.net';
 const DONOR_A = 'donor-a.micro.biz.todaq.net';
@@ -59,7 +60,8 @@ beforeEach(async () => {
 		if (address === `${API}/v4/account/oauth/token`) {
 			return answer({
 				access_token: 'account-token',
-				expires_at: Math.floor(Date.now() / 1000) + 3600
+				// A string of digits, as Qatom's server sends it.
+				expires_at: String(Math.floor(Date.now() / 1000) + 3600)
 			});
 		}
 		const { pathname, searchParams } = new URL(address);
@@ -76,7 +78,7 @@ beforeEach(async () => {
 					: [{ id: 42, commodity_id: commodityId, commodity_hash: listing, active: true }];
 			return answer({ items, total: items.length, limit: null, offset: 0 });
 		}
-		const hash = /^\/v4\/commodity\/(\w+)\/transactions$/.exec(pathname)?.[1];
+		const hash = /^\/v4\/commodity\/([\w-]+)\/transactions$/.exec(pathname)?.[1];
 		const ledger = hash === undefined ? undefined : ledgers[hash];
 		if (ledger === undefined) return Promise.reject(new Error(`unexpected request: ${address}`));
 		if (ledger instanceof Error) return Promise.reject(ledger);
@@ -109,7 +111,10 @@ async function setCampaign(
 		.where(eq(campaigns.id, CAMPAIGN));
 }
 
-/** One ledger row, as Qatom returns it for a donation. */
+/**
+ * One ledger row, as Qatom returns it for a donation. The amount is given here in our
+ * thousandths and put on the row as Qatom reports it, in decimal USD-TDN: our 1200 reads 1.2.
+ */
 function donation(
 	twistId: string,
 	amount: number,
@@ -119,7 +124,7 @@ function donation(
 	return {
 		twistId,
 		timestamp,
-		amount,
+		amount: amount / 1000,
 		fromAddress,
 		destinationAddress: DONATION_TWIN,
 		operation: 'transfer',
@@ -458,6 +463,46 @@ describe('POST /api/funding', () => {
 			const { body } = await run();
 
 			expect(body.updated[0]).toMatchObject({ raised: 1200, donations: 1, rowsNotCounted: 1 });
+		});
+
+		it('does not count money going out, whatever its addresses say', async () => {
+			ledgers[DONATION_HASH] = {
+				rows: [donation('d1', 1200), { ...donation('x1', 700), operation: 'send' }]
+			};
+
+			const { body } = await run();
+
+			expect(body.updated[0]).toMatchObject({ raised: 1200, donations: 1, rowsNotCounted: 1 });
+		});
+
+		it('stores nothing when a row cannot be told to be money coming in: no receiving address, or one that is not a hostname', async () => {
+			const { destinationAddress: _none, ...noReceiver } = donation('d2', 700);
+			const hexReceiver = { ...donation('d2', 700), destinationAddress: `41${'ab'.repeat(32)}` };
+			for (const row of [noReceiver, hexReceiver]) {
+				ledgers[DONATION_HASH] = { rows: [donation('d1', 1200), row] };
+
+				const { body } = await run();
+
+				expect(body.updated).toEqual([]);
+				expect(body.ledgerErrors).toEqual([
+					{ campaignId: CAMPAIGN, problem: expect.stringContaining('receiving address') }
+				]);
+				expect(await stored()).toEqual([]);
+			}
+		});
+
+		it("reads Qatom's decimal amounts: 0.1, 1 and 1.1 add up to 2.20", async () => {
+			ledgers[DONATION_HASH] = {
+				rows: [
+					{ ...donation('d1', 0), amount: 0.1 },
+					{ ...donation('d2', 0), amount: 1 },
+					{ ...donation('d3', 0), amount: 1.1 }
+				]
+			};
+
+			await run();
+
+			expect(await funding()).toMatchObject({ raised: 2200, donations: 3 });
 		});
 
 		it('accepts the receiving address as a twin URL as well as a bare hostname', async () => {
