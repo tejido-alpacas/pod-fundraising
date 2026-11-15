@@ -11,6 +11,7 @@
  */
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { openChat, replyAfter, reviewCard } from '../lib/chat.ts';
+import { readPaidEntries } from '../lib/paid-entries.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
 import type { E2eConfig } from '../lib/config.ts';
 import type { Locator, Page } from '@playwright/test';
@@ -47,9 +48,17 @@ test('the form offers what each milestone takes, and says what is missing', asyn
 	const form = await openForm(page, cfg);
 	const messages = countMessages(page);
 
-	// The contractor's three milestones, and the two reports a contractor can make on one.
+	// The contractor's three milestones, and the two reports a contractor can make on one. On a
+	// paid run the phone confirms the third before the desktop gets here, and a confirmed
+	// milestone takes no more reports: the form then offers the two that are left.
+	const confirmed = readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'confirmation');
 	const milestone = form.getByLabel('Milestone', { exact: true });
-	await expect(milestone.locator('option')).toHaveCount(3);
+	await expect(
+		milestone.locator('option'),
+		confirmed
+			? 'This run confirmed the third milestone, so the form should offer the other two.'
+			: 'The form should offer the contractor’s three milestones.'
+	).toHaveCount(confirmed ? 2 : 3);
 	await expect(form.getByRole('radio', { name: /^Work log/ })).toBeChecked();
 	await expect(form.getByRole('radio', { name: /^Confirm the milestone/ })).toHaveCount(0);
 	await waypoint(page, 'form-open');
