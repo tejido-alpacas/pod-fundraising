@@ -1,4 +1,6 @@
-/* Everything a root layout needs, in order: tokens, the component stylesheet, our additions. */
+/* Everything a root layout needs, in order: tokens, the component stylesheet, our additions,
+   and last the first site's look (its fonts, blues, page colour and corners). */
 @import './tokens.css';
 @import './tejido.css';
 @import './extras.css';
+@import './first-site.css';

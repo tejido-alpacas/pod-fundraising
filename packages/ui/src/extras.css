@@ -45,6 +45,15 @@ a.tj-btn {
 	color: var(--accent);
 	border-radius: var(--radius-md);
 }
+/* The home link drawn as a logo: the picture keeps its shape and the link stays 48px tall. */
+.tj-fieldheader__home--logo {
+	padding-inline: var(--space-2);
+}
+.tj-fieldheader__home--logo img {
+	display: block;
+	width: auto;
+	max-width: none;
+}
 .tj-fieldheader__end {
 	display: flex;
 	gap: var(--space-2);

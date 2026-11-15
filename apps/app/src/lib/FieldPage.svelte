@@ -13,6 +13,7 @@
 	import { page } from '$app/state';
 	import { FieldHeader } from '@tejido/ui';
 	import type { Snippet } from 'svelte';
+	import { BRAND_NAME, LOGO, MARK } from './brand.ts';
 	import MobileNav from './MobileNav.svelte';
 
 	let {
@@ -25,7 +26,7 @@
 	}: {
 		title: string;
 		subtitle?: string;
-		/** Inside a task: where the back arrow goes. It replaces the weave mark. */
+		/** Inside a task: where the back arrow goes. It replaces the logo. */
 		back?: string;
 		children: Snippet;
 		/** The page's primary action, kept in reach of a thumb. */
@@ -33,6 +34,10 @@
 		/** The phone's tab bar. Only on the home page: a task flow has no tab bar. */
 		tabs?: { current: string; incompleteReports: number };
 	} = $props();
+
+	// The first site's logo. Where the header's title is the product's own name the full logo
+	// stands in for it; where the title is the project's name, the mark sits beside it.
+	const logo = $derived(title === BRAND_NAME ? LOGO : MARK);
 
 	// From 900px there is no tab bar, so the home page's header carries the same links.
 	const links = $derived.by(() => {
@@ -50,7 +55,7 @@
 </script>
 
 <div class="tj-fieldapp app-frame">
-	<FieldHeader {title} {subtitle} {back} {links} current={tabs?.current}>
+	<FieldHeader {title} {subtitle} {back} {logo} {links} current={tabs?.current}>
 		{#snippet end()}
 			{#if page.data.nav}
 				<form method="POST" action="/auth/sign-out">
