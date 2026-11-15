@@ -9,7 +9,6 @@ import {
 	nothingPaid,
 	paysFromWallet,
 	quietly,
-	sameFunding,
 	smallestGift,
 	thousandths,
 	topUpNeeded,
@@ -147,7 +146,6 @@ describe('fundingMove', () => {
 
 	it('sees no change', () => {
 		expect(fundingMove(before, { ...before }, 1000)).toBe('unchanged');
-		expect(sameFunding(before, { ...before })).toBe(true);
 	});
 
 	it('sees exactly one donation of the amount', () => {
@@ -162,7 +160,6 @@ describe('fundingMove', () => {
 		expect(fundingMove(before, { raised: 4000, contributions: 3 }, 1000)).toBe('other');
 		expect(fundingMove(before, { raised: 13_000, contributions: 4 }, 1000)).toBe('other');
 		expect(fundingMove(before, { raised: 3000, contributions: 4 }, 1000)).toBe('other');
-		expect(sameFunding(before, { raised: 3000, contributions: 4 })).toBe(false);
 	});
 });
 
@@ -268,12 +265,9 @@ describe('the endings', () => {
 		);
 	});
 
-	it('say apart whether the donation was then taken back out', () => {
-		expect(ENDINGS.undone(1000, before)).toMatch(/^THE TEST DONATION WAS TAKEN BACK OUT/);
-		expect(ENDINGS.notUndone(1000, before, after)).toMatch(
-			/^THE DONATION WAS PAID AND RECORDED, BUT IT WAS NOT TAKEN BACK OUT within 6 minutes/
-		);
-		expect(ENDINGS.undoUnread(1000)).toContain('IS NOT KNOWN');
+	it('say that nothing sends the donation back by itself', () => {
+		expect(ENDINGS.recorded(1000, before, after)).toContain('the owner returns test money by hand');
+		expect(topUpNeeded(1000)).toContain('nothing sends it back by itself');
 	});
 
 	it('never suggests paying again', () => {

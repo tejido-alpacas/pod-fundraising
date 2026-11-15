@@ -1,22 +1,22 @@
 /**
- * A REAL DONATION, PAID ON QATOM'S CHECKOUT PAGE, THEN UNDONE BY TEJIDO. Part of the paid story
- * (CLAUDE.md, "Never move money to test something": the owner, 15 November 2026, "Yes pay real
- * donation is totally fine, make one, then remove it then refund the donation like the other
- * e2e tests").
+ * A REAL DONATION, PAID ON QATOM'S CHECKOUT PAGE. Part of the paid story (CLAUDE.md, "Never move
+ * money to test something").
  *
- * IT DOES NOT RUN YET. Every test here is skipped, saying no donation was paid, unless ALL of
- * these hold, and today the first does not:
+ * NOTHING SENDS THE DONATION BACK BY ITSELF. The owner returns test money by hand. Each run
+ * that gives costs the test contractor's primary wallet the smallest amount on sale, and the
+ * donation stays in the test campaign's total until the cleanup removes the campaign.
  *
- *   - `E2E_PAID_DONATION` is exactly `true`. Only the workflow may set it, and it does not yet.
- *     `E2E_PAID` alone does not switch it on. Never set it by hand, and never run this suite
- *     from a session;
- *   - it runs in a Playwright project named `donation`, which comes after both sign-ins (the
- *     App's, which registers the payer's wallets with Tejido, and the Campaign Site's, which
- *     publishes the campaign);
+ * Every test here is skipped, saying no donation was paid, unless ALL of these hold:
+ *
+ *   - `E2E_PAID_DONATION` is exactly `true`. Only the workflow may set it, on a run that tells
+ *     the paid story. `E2E_PAID` alone does not switch it on. Never set it by hand, and never
+ *     run this suite from a session;
+ *   - it runs in the Playwright project named `donation`, which comes after both sign-ins (the
+ *     App's, the test contractor's; and the Campaign Site's, which publishes the campaign);
  *   - the run is a paid run with a campaign of its own (specs/create-campaign.spec.ts).
  *
- * NO RUN HAS EVER TRIED THIS. Qatom's checkout page is written from Qatom's source, read by the
- * coordinator; this suite has never driven it (lib/donation.ts).
+ * WHEN THIS WAS WRITTEN NO RUN HAD TRIED IT. Qatom's checkout page is written from Qatom's
+ * source, read by the coordinator; this suite had never driven it (lib/donation.ts).
  *
  * The story, in order, stopping at the first step that does not pass:
  *
@@ -29,14 +29,11 @@
  *      a card, never a second press, never a retry. Then, for up to 3 minutes, the campaign's
  *      Funding block must come to show exactly one more contribution and the amount more.
  *      Qatom tells Tejido about the payment itself: the suite never calls `/api/donations`.
- *   3. For up to 6 minutes more, the Funding block must go back to what it was: Tejido takes a
- *      test donation out of the total and sends it back to the wallet that paid, by itself.
- *      This step is reported apart, so "paid and recorded" is never hidden by a slow undo.
  *
  * Every way out says what is known about the money (lib/donation-outcome.ts): nothing was
- * paid; top up needed (nothing was paid); paid and recorded; paid but not recorded in 3
- * minutes; it may have been paid; it is not known; and then undone, or not undone in 6 minutes.
- * No picture is ever taken of Qatom's checkout page and its address is never written: whoever
+ * paid; top up needed (nothing was paid, and the step is skipped, not failed); paid and
+ * recorded; paid but not recorded in 3 minutes; it may have been paid; or it is not known. No
+ * picture is ever taken of Qatom's checkout page and its address is never written: whoever
  * holds it could pay it.
  */
 import { existsSync } from 'node:fs';
@@ -46,9 +43,7 @@ import {
 	payDonation,
 	publishIfDraft,
 	smallestGiftOnSale,
-	startCheckout,
-	waitForUndo,
-	type Given
+	startCheckout
 } from '../lib/donation.ts';
 import { expect, test } from '../lib/harness.ts';
 import { sqsInboxQueue } from '../lib/inbox.ts';
@@ -65,15 +60,12 @@ test.describe.configure({ mode: 'serial', retries: 0 });
 // failure can happen on Qatom's checkout page.
 test.use({ ...DESKTOP, storageState: { cookies: [], origins: [] }, screenshot: 'off' });
 // Longer than every wait in one step added together (the emailed code, the wallets, the 3
-// minutes; or the 6 minutes), so the test's own clock never cuts in while money may be moving.
+// minutes), so the test's own clock never cuts in while money may be moving.
 test.setTimeout(900_000);
-
-/** What the second step gave, for the third. Null until a donation was paid and recorded. */
-let given: Given | null = null;
 
 type Cfg = Parameters<typeof donationRunRefusal>[0];
 
-/** Skipped on every run today. Throws on a run that was switched on wrongly. */
+/** Skipped unless the workflow switched it on. Throws on a run that was switched on wrongly. */
 function paidDonationOnly(cfg: Cfg, project: string, retry: number): void {
 	const refusal = donationRunRefusal(cfg, readRunCampaign()?.campaignId ?? null);
 	if (refusal !== null && 'skip' in refusal) {
@@ -136,22 +128,10 @@ test.describe('as a donor, signed out', () => {
 		const checkout = await startCheckout(page, cfg.siteUrl, gift);
 		try {
 			// `payDonation` leaves Qatom's checkout page before it returns or throws.
-			given = await payDonation(checkout, cfg, gift, sqsInboxQueue(cfg.inbox), waypoint, testInfo);
+			await payDonation(checkout, cfg, gift, sqsInboxQueue(cfg.inbox), waypoint, testInfo);
 		} finally {
 			// Qatom's checkout does not send the donor back: a window it opened is closed.
 			if (checkout !== page) await checkout.close().catch(() => undefined);
 		}
-	});
-
-	test('Tejido takes the test donation back out of the campaign’s total', async ({
-		page,
-		cfg,
-		waypoint
-	}, testInfo) => {
-		paidDonationOnly(cfg, testInfo.project.name, testInfo.retry);
-		test.skip(given === null, 'No donation was paid and recorded in this run, so none is undone.');
-		if (given === null) return;
-
-		await waitForUndo(page, cfg, given, waypoint, testInfo);
 	});
 });

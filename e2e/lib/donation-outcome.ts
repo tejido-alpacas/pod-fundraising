@@ -5,11 +5,11 @@
  * the network.
  *
  * The donation is real money: it leaves a test person's own Qatom wallet for Tejido's merchant
- * account. Tejido then undoes a test donation by itself (CLAUDE.md, "Qatom": the one exception),
- * taking it out of the campaign's total and sending it back to the wallet that paid. So every
- * ending says, in capitals, what is known about the money: nothing was paid; it was paid and
- * recorded; it was paid but Tejido did not record it in the time allowed; it may have been
- * paid; it is not known; and, separately, whether it was then taken back out of the total.
+ * account. NOTHING SENDS IT BACK BY ITSELF: the owner returns test money by hand (CLAUDE.md,
+ * "Never move money to test something"), and the donation stays in the test campaign's total
+ * until the cleanup removes the campaign. So every ending says, in capitals, what is known
+ * about the money: nothing was paid; it was paid and recorded; it was paid but Tejido did not
+ * record it in the time allowed; it may have been paid; or it is not known.
  */
 import { PRODUCTION_SITE_URL, type E2eConfig } from './config.ts';
 import { describeSeenPage, tidy, type SeenPage } from './stuck-page.ts';
@@ -17,12 +17,9 @@ import { describeSeenPage, tidy, type SeenPage } from './stuck-page.ts';
 /** How long Tejido is given to show the donation on the campaign's page after the one press. */
 export const RECORD_WAIT_MS = 180_000;
 export const RECORD_WAIT_WORDS = '3 minutes';
-/** How long Tejido is then given to take the test donation back out of the total. */
-export const UNDO_WAIT_MS = 360_000;
-export const UNDO_WAIT_WORDS = '6 minutes';
 /**
- * The most a test may ever give, in thousandths of a USD-TDN: 10.00. Tejido undoes a test
- * donation only up to this much, so the smallest amount on sale is refused if it is more.
+ * The most a test may ever give, in thousandths of a USD-TDN: 10.00. The smallest amount on
+ * sale is refused if it is more: a test's donation is not sent back by itself.
  */
 export const MOST_THOUSANDTHS = 10_000;
 /**
@@ -52,7 +49,7 @@ export function donationRunRefusal(
 		return {
 			skip:
 				`Not run: ${SWITCH} is not "true", so NO DONATION WAS PAID and no checkout was made. ` +
-				'Only the workflow may set it, and it does not yet.'
+				'Only the workflow may set it, on a run that tells the paid story.'
 		};
 	}
 	if (!cfg.signIn) {
@@ -178,10 +175,6 @@ export function fundingMove(
 	return raised === amount && contributions === 1 ? 'recorded' : 'other';
 }
 
-export function sameFunding(a: Funding, b: Funding): boolean {
-	return a.raised === b.raised && a.contributions === b.contributions;
-}
-
 const shownFunding = (funding: Funding) =>
 	`${written(funding.raised)} raised (${funding.contributions})`;
 
@@ -297,8 +290,8 @@ export function topUpNeeded(amount: number): string {
 	return (
 		'TOP UP NEEDED: NOTHING WAS PAID. Qatom’s checkout says the wallet does not hold enough for ' +
 		'this purchase, and this test never uses a card. Add funds to the wallet the test ' +
-		`contractor pays from on Qatom’s checkout (a donation costs ${written(amount)}; Tejido ` +
-		'sends a test donation back afterwards).'
+		`contractor pays from on Qatom’s checkout: their primary wallet (a donation costs ` +
+		`${written(amount)}, and nothing sends it back by itself).`
 	);
 }
 
@@ -307,7 +300,7 @@ export const ENDINGS = {
 	recorded: (amount: number, before: Funding, after: Funding) =>
 		`THE DONATION WAS PAID AND RECORDED: ${written(amount)} USD-TDN left the test contractor’s ` +
 		`wallet, and the campaign’s Funding block went from ${shownFunding(before)} to ` +
-		`${shownFunding(after)}. Whether Tejido then takes it back out is the next step’s to say.`,
+		`${shownFunding(after)}. Nothing sends it back by itself: the owner returns test money by hand.`,
 	recordedOddly: (amount: number, before: Funding, after: Funding) =>
 		'THE DONATION WAS PAID, AND THE CAMPAIGN’S TOTAL MOVED BY THE WRONG AMOUNT. One donation of ' +
 		`${written(amount)} should add ${written(amount)} and one contribution. The Funding block ` +
@@ -324,20 +317,5 @@ export const ENDINGS = {
 		`${RECORD_WAIT_WORDS}. ${LOOK_FIRST}\nWhat Qatom’s page showed after the press:\n${shown}`,
 	notKnown: (amount: number, why: string) =>
 		'IT IS NOT KNOWN WHETHER THE DONATION WAS PAID. The pay button was pressed once, and then ' +
-		`${why} ${written(amount)} USD-TDN may have left the test contractor’s wallet. ${LOOK_FIRST}`,
-
-	undone: (amount: number, before: Funding) =>
-		`THE TEST DONATION WAS TAKEN BACK OUT OF THE TOTAL: the campaign’s Funding block is back ` +
-		`to ${shownFunding(before)}. Tejido sends the ${written(amount)} back to the wallet that ` +
-		'paid in the same pass; this test cannot see a wallet, so it does not say the money arrived.',
-	notUndone: (amount: number, before: Funding, now: Funding) =>
-		`THE DONATION WAS PAID AND RECORDED, BUT IT WAS NOT TAKEN BACK OUT within ${UNDO_WAIT_WORDS}. ` +
-		`The campaign’s Funding block reads ${shownFunding(now)}; before the donation it read ` +
-		`${shownFunding(before)}. ${written(amount)} USD-TDN of test money is still in the ` +
-		'campaign’s total and, as far as the page shows, has not been sent back. Tejido undoes a ' +
-		'test donation only within 60 minutes of receiving it, so look at the undo pass soon.',
-	undoUnread: (amount: number) =>
-		'THE DONATION WAS PAID AND RECORDED. WHETHER IT WAS TAKEN BACK OUT IS NOT KNOWN: the ' +
-		`campaign’s page could not be read even once in ${UNDO_WAIT_WORDS}. ${written(amount)} ` +
-		'USD-TDN of test money may still be in the campaign’s total.'
+		`${why} ${written(amount)} USD-TDN may have left the test contractor’s wallet. ${LOOK_FIRST}`
 };

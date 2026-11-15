@@ -2,11 +2,12 @@
  * Paying one real donation on Qatom's checkout page, and finding out what happened.
  * THIS MOVES REAL MONEY. Only specs/paid-donation.spec.ts calls it, on a paid run, and only when
  * `E2E_PAID_DONATION` is exactly `true` (CLAUDE.md, "Never move money to test something").
- * NO RUN HAS EVER REACHED THIS CODE.
+ * WHEN THIS WAS WRITTEN NO RUN HAD REACHED THIS CODE.
  *
- * The donor here is the test CONTRACTOR, with nobody signed in on Tejido: Tejido undoes a test
- * donation only when it was paid from a wallet it has registered to a test person, and it
- * registers a party's wallets when they sign in to the App.
+ * The donor here is the test CONTRACTOR, with nobody signed in on Tejido, paying from their own
+ * PRIMARY wallet, which is the one Qatom's checkout offers. NOTHING SENDS THE DONATION BACK BY
+ * ITSELF: the owner returns test money by hand, and the donation stays in the test campaign's
+ * total until the cleanup removes the campaign.
  *
  * QATOM'S CHECKOUT PAGE, as written here, is FROM QATOM'S SOURCE (read by the coordinator, 15
  * November 2026), NEVER YET DRIVEN BY THIS SUITE. One page at one address, no reload (a reload
@@ -44,11 +45,9 @@ import {
 	paysFromWallet,
 	quietly,
 	RECORD_WAIT_MS,
-	sameFunding,
 	smallestGift,
 	TEST_ORGANISER,
 	topUpNeeded,
-	UNDO_WAIT_MS,
 	walletOption,
 	withoutAddresses,
 	withoutBalances,
@@ -229,10 +228,12 @@ export async function startCheckout(page: Page, siteUrl: string, gift: Gift): Pr
 		const opened = context.pages().find((other) => !known.has(other));
 		if (opened && onCheckout(opened.url())) return opened;
 		if (onCheckout(page.url())) return page;
-		const problem = page.getByRole('alert');
-		if (!opened && onOrigin(page.url(), siteUrl) && (await problem.isVisible())) {
+		// A refusal is the Give page itself with a notice, drawn in the new window when one opened.
+		const refused = opened ?? page;
+		const problem = refused.getByRole('alert');
+		if (onOrigin(refused.url(), siteUrl) && (await problem.isVisible())) {
 			said = (await problem.innerText()).trim();
-			return page;
+			return refused;
 		}
 		return null;
 	});
@@ -287,13 +288,6 @@ async function screenOf(page: Page): Promise<string> {
 	return describeCheckoutScreen(await seenOn(page), await fieldsOn(page));
 }
 
-/** What was given, and the Funding block on each side of it. */
-export interface Given {
-	amount: number;
-	before: Funding;
-	after: Funding;
-}
-
 /**
  * On Qatom's checkout page (`checkout`, from `startCheckout`): signs the test contractor in with
  * an emailed code, chooses their wallet, pays the donation with ONE press, and waits for the
@@ -310,7 +304,7 @@ export async function payDonation(
 	queue: InboxQueue,
 	waypoint: Waypoint,
 	testInfo: TestInfo
-): Promise<Given> {
+): Promise<void> {
 	// The campaign's page is read in a tab of its own, so the checkout page is never reloaded.
 	let site: Page | null = null;
 	try {
@@ -330,7 +324,7 @@ async function throughCheckout(
 	queue: InboxQueue,
 	waypoint: Waypoint,
 	testInfo: TestInfo
-): Promise<Given> {
+): Promise<void> {
 	const payer = cfg.contractor.email;
 	let step = 0;
 	/** What the run met, step by step: the first real runs are how this page is confirmed. */
@@ -531,7 +525,7 @@ async function throughCheckout(
 		const ending = ENDINGS.recorded(amount, before, after);
 		console.log(ending);
 		testInfo.annotations.push({ type: 'paid', description: ending });
-		return { amount, before, after };
+		return;
 	}
 	if (move === 'other') {
 		await waypoint(site, 'campaign-with-the-donation').catch(() => undefined);
@@ -561,34 +555,4 @@ async function throughCheckout(
 		);
 	}
 	throw new Error(ENDINGS.mayHaveBeenPaid(shown));
-}
-
-/**
- * After a donation was paid and recorded: waits for Tejido to take it back out of the
- * campaign's total, as a visitor reading the campaign's page would see. Tejido undoes a test
- * donation by itself; nothing here asks it to. Throws when the total is not back in time.
- */
-export async function waitForUndo(
-	page: Page,
-	cfg: E2eConfig,
-	given: Given,
-	waypoint: Waypoint,
-	testInfo: TestInfo
-): Promise<void> {
-	const deadline = Date.now() + UNDO_WAIT_MS;
-	let now: Funding | null = null;
-	for (;;) {
-		now = await readFunding(page, cfg.siteUrl, cfg.campaignId).catch(() => now);
-		if (now !== null && sameFunding(now, given.before)) break;
-		if (Date.now() >= deadline) break;
-		await pause(10_000);
-	}
-	await waypoint(page, 'campaign-after-the-undo').catch(() => undefined);
-	if (now === null) throw new Error(ENDINGS.undoUnread(given.amount));
-	if (!sameFunding(now, given.before)) {
-		throw new Error(ENDINGS.notUndone(given.amount, given.before, now));
-	}
-	const ending = ENDINGS.undone(given.amount, given.before);
-	console.log(ending);
-	testInfo.annotations.push({ type: 'undone', description: ending });
 }

@@ -83,7 +83,7 @@ export interface E2eConfig {
 	/**
 	 * True only when `E2E_PAID_DONATION` is exactly `true`: on a paid run,
 	 * specs/paid-donation.spec.ts then pays one real donation to the run's own campaign (CLAUDE.md,
-	 * "Never move money to test something"). Only the workflow may set it, and it does not yet.
+	 * "Never move money to test something"). Only the workflow may set it, on a paid run.
 	 * `E2E_PAID` alone does not switch it on, and it does nothing without `E2E_PAID`.
 	 */
 	paidDonation: boolean;
