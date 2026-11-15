@@ -12,7 +12,7 @@
  */
 import type { Page } from '@playwright/test';
 import { expect, test } from '../lib/harness.ts';
-import { GIVE, amountButtons, campaignIdOf, giveWords } from '../lib/give-page.ts';
+import { GIVE, amountButtons, campaignIdOf, giveWords, say } from '../lib/give-page.ts';
 import { whole } from '../lib/site-words.ts';
 
 test.use({ storageState: { cookies: [], origins: [] }, actionTimeout: 15_000 });
@@ -81,16 +81,17 @@ test('a campaign in each state other than raising money offers no way to give', 
 		const id = campaignIdOf(address);
 		const title = await expectNoWayToGive(page, cfg.siteUrl, id);
 		await waypoint(page, `give-closed-${status.toLowerCase().replace(/[^a-z]+/g, '-')}`);
-		testInfo.annotations.push({
-			type: 'found',
-			description: `"${status}": "${title}" has no Give button, and its Give page says it is not raising money.`
-		});
+		say(
+			testInfo,
+			`"${status}": "${title}" has no Give button, and its Give page says it is not raising money.`
+		);
 	}
 	if (missing.length > 0) {
-		testInfo.annotations.push({
-			type: 'not checked',
-			description: `No campaign on the site is in these states now: ${missing.join(', ')}.`
-		});
+		say(
+			testInfo,
+			`No campaign on the site is in these states now: ${missing.join(', ')}.`,
+			'not checked'
+		);
 	}
 });
 
@@ -107,8 +108,5 @@ test('the example campaign, which is reporting on its work, offers no way to giv
 	expect(response?.status(), 'The example campaign’s page should open.').toBe(200);
 	const title = await expectNoWayToGive(page, cfg.siteUrl, EXAMPLE_CAMPAIGN);
 	await waypoint(page, 'give-closed-example');
-	testInfo.annotations.push({
-		type: 'found',
-		description: `"${title}" has no Give button, and its Give page says it is not raising money.`
-	});
+	say(testInfo, `"${title}" has no Give button, and its Give page says it is not raising money.`);
 });
