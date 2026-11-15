@@ -10,8 +10,17 @@ Cron Trigger in `apps/web/wrangler.jsonc`, `triggers.crons`) calls the `schedule
 `worker.ts`, which hands the Worker's own request handler a `POST /api/reconcile` with the
 shared-secret header. No network hop, and the same route a person's call goes through.
 
-- Reconcile only. `/api/funding` and `/api/schedule` are not on the timer; adding one is one
-  more call in `worker.ts`. `/api/refunds` moves money and must never be put there.
+- Reconcile, and then one more thing. `/api/funding` and `/api/schedule` are not on the timer;
+  adding one is one more call in `worker.ts`. `/api/refunds` moves money and must never be put
+  there: the product's refunds go to primary wallets and only when a person asks.
+- The one more thing is for the end-to-end test accounts only (`CLAUDE.md`, "Qatom": the one
+  exception, the owner's decision of 15 November 2026). After a reconcile pass that worked, the
+  timer asks for `POST /api/test-account-refunds`. A party whose email is at the test inbox
+  domain gets their deposits on a confirmed milestone back in the agent wallet they were paid
+  from, out of the twin the item is sold from, so the automatic paid tests keep themselves
+  funded. Nobody else is refunded that way. The rules are in `test-account-refunds.ts`; the
+  Qatom calls are in `packages/qatom/src/account/item-twin-refund.ts`. To turn it off, remove
+  the `refundTestAccountsOnTimer` call in `worker.ts`.
 - `worker.ts` is the Worker's entry (`main` in `wrangler.jsonc`). SvelteKit's adapter has no
   option for a timer, so the entry is the Worker the build generates plus the handler. The
   build writes the generated Worker to the path in `apps/web/wrangler.build.jsonc`.

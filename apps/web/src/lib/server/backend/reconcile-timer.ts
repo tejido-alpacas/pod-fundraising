@@ -39,3 +39,27 @@ export async function reconcileOnTimer(options: ReconcileOnTimerOptions): Promis
 	}
 	return response.status;
 }
+
+/**
+ * The second thing the timer does, after the reconcile pass: one pass of refunds for the
+ * END-TO-END TEST PEOPLE ONLY (`POST /api/test-account-refunds`), asked for in the same way.
+ * Only the status of the answer is looked at.
+ *
+ * This is not `/api/refunds`, which refunds everyone else, to primary wallets, and is never
+ * put on a timer.
+ */
+export async function refundTestAccountsOnTimer(options: ReconcileOnTimerOptions): Promise<number> {
+	const request = new Request(new URL('/api/test-account-refunds', options.origin), {
+		method: 'POST',
+		headers: { origin: options.origin, [CHECKIN_SECRET_HEADER]: options.secret }
+	});
+
+	const response = await options.respond(request);
+	await response.body?.cancel();
+	if (!response.ok) {
+		throw new Error(
+			`Test-account refunds on the timer failed: POST /api/test-account-refunds answered ${response.status}.`
+		);
+	}
+	return response.status;
+}
