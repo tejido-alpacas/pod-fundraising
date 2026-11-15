@@ -43,13 +43,19 @@
 	/** The request never got an answer. */
 	let failed = $state(false);
 
-	/** What the publish action last answered on this page, if anything. */
-	const answer = $derived.by((): 'published' | 'not_draft' | 'refused' | null => {
-		const form: unknown = page.form;
-		if (typeof form !== 'object' || form === null || !('published' in form)) return null;
-		if (form.published === true) return 'published';
-		return 'reason' in form && form.reason === 'not_draft' ? 'not_draft' : 'refused';
-	});
+	type Answer = 'published' | 'not_draft' | 'refused';
+
+	/** Reads what the publish action answered: `{ published, reason? }`. */
+	function read(data: unknown): Answer | null {
+		if (typeof data !== 'object' || data === null || !('published' in data)) return null;
+		if (data.published === true) return 'published';
+		return 'reason' in data && data.reason === 'not_draft' ? 'not_draft' : 'refused';
+	}
+
+	/** What the button's last press was answered. Kept here: refreshing the page clears `page.form`. */
+	let pressed = $state<Answer | null>(null);
+	/** Without JavaScript the answer arrives with the page instead. */
+	const answer = $derived(pressed ?? read(page.form));
 </script>
 
 {#if draft}
@@ -63,15 +69,18 @@
 				use:enhance={() => {
 					busy = true;
 					failed = false;
+					pressed = null;
 					return async ({ result }) => {
 						busy = false;
-						if (result.type === 'error') {
+						if (result.type === 'success' || result.type === 'failure') {
+							pressed = read(result.data);
+							// Whatever was answered, show the campaign as it now is.
+							await invalidateAll();
+						} else if (result.type === 'redirect') {
+							await applyAction(result);
+						} else {
 							failed = true;
-							return;
 						}
-						await applyAction(result);
-						// Whatever was answered, show the campaign as it now is.
-						await invalidateAll();
 					};
 				}}
 			>
