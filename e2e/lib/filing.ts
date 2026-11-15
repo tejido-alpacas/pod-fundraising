@@ -23,6 +23,21 @@ export interface Filing {
 	who: string;
 	/** The deposit, as the product words it: "0.10" or "1.00". */
 	deposit: string;
+	/**
+	 * Say `true` when the report is MEANT to be saved incomplete (a scenario that files without
+	 * something the milestone needs, to complete it afterwards). Then an incomplete entry is not
+	 * a failure: `fileFromReview` returns with `incomplete: true`. Left out, an incomplete entry
+	 * fails the step.
+	 */
+	incompleteExpected?: boolean;
+}
+
+/** What `fileFromReview` gives back once the entry is on the public pages. */
+export interface Filed {
+	/** The public path of the entry's proof page on the Campaign Site. */
+	proofPath: string;
+	/** Whether Tejido saved the report as incomplete (its deposit is paid either way). */
+	incomplete: boolean;
 }
 
 const FILING_MS = 300_000;
@@ -32,7 +47,8 @@ const UNKNOWN =
 
 /**
  * Files what the review card shows, then finds the entry, by `reference`, on the campaign's
- * public timeline and opens its proof page. Returns with the browser on that proof page.
+ * public timeline and opens its proof page. Returns with the browser on that proof page, and
+ * gives that page's public path and whether the report was saved incomplete.
  */
 export async function fileFromReview(
 	page: Page,
@@ -41,7 +57,7 @@ export async function fileFromReview(
 	card: Locator,
 	reference: string,
 	filing: Filing
-): Promise<void> {
+): Promise<Filed> {
 	// From here on, money may have moved. Every way out says what is and is not known.
 	const bubbles = page.locator('.log .tj-msg--assistant');
 	const before = await bubbles.count();
@@ -225,11 +241,13 @@ export async function fileFromReview(
 	const incomplete = page
 		.getByRole('note')
 		.filter({ hasText: 'can add what is missing without paying again' });
-	if ((await incomplete.count()) > 0) {
+	const savedIncomplete = (await incomplete.count()) > 0;
+	if (savedIncomplete && filing.incompleteExpected !== true) {
 		throw new Error(
 			`The ${filing.what} "${reference}" was filed and its deposit paid, but Tejido saved it as ` +
 				`INCOMPLETE. The public page says: "${tidy(await incomplete.first().innerText(), 500)}". ` +
 				'Do not file again to fix it: the App’s fix page is where a report is completed.'
 		);
 	}
+	return { proofPath: new URL(page.url()).pathname, incomplete: savedIncomplete };
 }

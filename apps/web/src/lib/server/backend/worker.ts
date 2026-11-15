@@ -13,8 +13,9 @@
  * ONE EXCEPTION, FOR THE END-TO-END TEST PEOPLE ONLY (CLAUDE.md, "Qatom"; the owner's decision
  * of 15 November 2026). After a reconcile pass that worked, the timer asks, in the same
  * in-process way, for `POST /api/test-account-refunds`: the deposits of the test accounts
- * (email at the test inbox domain) on confirmed milestones go back to their agent wallets, so
- * the automatic paid tests keep themselves funded. That route is its own, checks the same
+ * (email at the test inbox domain) go back to their agent wallets, a confirmed milestone's
+ * at once and any other once it is 20 minutes old, so the automatic paid tests keep
+ * themselves funded. That route is its own, checks the same
  * secret, and refunds nobody else. TO TURN IT OFF, remove the `refundTestAccountsOnTimer`
  * call below; nothing else calls that route.
  *
