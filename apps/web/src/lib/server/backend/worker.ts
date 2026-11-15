@@ -5,10 +5,18 @@
  * option for a timer. This file is that Worker, unchanged, plus the handler Cloudflare calls
  * for the Cron Trigger in wrangler.jsonc (`triggers.crons`, once a minute).
  *
- * The timer runs the reconciler and nothing else. It does so by handing the generated Worker
- * a `POST /api/reconcile` request in-process: no network hop, the same route and the same
+ * The timer runs the reconciler. It does so by handing the generated Worker a
+ * `POST /api/reconcile` request in-process: no network hop, the same route and the same
  * shared-secret check a person's call goes through. Never put `/api/refunds` here: it moves
- * money.
+ * money, and the product's refunds are sent only when a person asks.
+ *
+ * ONE EXCEPTION, FOR THE END-TO-END TEST PEOPLE ONLY (CLAUDE.md, "Qatom"; the owner's decision
+ * of 15 November 2026). After a reconcile pass that worked, the timer asks, in the same
+ * in-process way, for `POST /api/test-account-refunds`: the deposits of the test accounts
+ * (email at the test inbox domain) on confirmed milestones go back to their agent wallets, so
+ * the automatic paid tests keep themselves funded. That route is its own, checks the same
+ * secret, and refunds nobody else. TO TURN IT OFF, remove the `refundTestAccountsOnTimer`
+ * call below; nothing else calls that route.
  *
  * Wrangler bundles this file when it deploys or runs `wrangler dev`; the SvelteKit build does
  * not see it. So the configuration is parsed here from the `env` Cloudflare hands the handler,
@@ -16,7 +24,7 @@
  */
 import { parseConfig } from '@tejido/config';
 import sveltekit from 'tejido:sveltekit-worker';
-import { reconcileOnTimer } from './reconcile-timer.ts';
+import { reconcileOnTimer, refundTestAccountsOnTimer } from './reconcile-timer.ts';
 
 export default {
 	...sveltekit,
@@ -27,12 +35,21 @@ export default {
 	 */
 	async scheduled(_controller: unknown, env: Readonly<Record<string, unknown>>): Promise<void> {
 		const config = parseConfig(env);
-		const status = await reconcileOnTimer({
-			respond: (request) => sveltekit.fetch(request, env),
+		const pass = {
+			respond: (request: Request) => sveltekit.fetch(request, env),
 			// The Campaign Site's own origin: this Worker's address.
 			origin: new URL(config.WEB_OIDC_REDIRECT_URI).origin,
 			secret: config.CHECKIN_SHARED_SECRET
-		});
+		};
+		const status = await reconcileOnTimer(pass);
 		console.log(`Reconcile on the timer: POST /api/reconcile answered ${status}.`);
+
+		// The end-to-end test people's refunds, only after a reconcile pass that worked. Like
+		// the reconcile pass, a failure throws with the status only, and only this timer event
+		// fails: page requests are separate events.
+		const refunds = await refundTestAccountsOnTimer(pass);
+		console.log(
+			`Test-account refunds on the timer: POST /api/test-account-refunds answered ${refunds}.`
+		);
 	}
 };
