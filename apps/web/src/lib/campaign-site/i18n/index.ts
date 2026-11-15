@@ -38,6 +38,18 @@ const NEW_STRINGS = {
 		'Des campagnes qui collectent des fonds maintenant.',
 		'Campanhas arrecadando agora.'
 	],
+	tile_start: [
+		'Inicia una campaña',
+		'Start a campaign',
+		'Lancez une campagne',
+		'Comece uma campanha'
+	],
+	tile_start_d: [
+		'Recauda para un proyecto y muestra cada entrega.',
+		'Raise money for a project and show each delivery.',
+		'Collectez des fonds pour un projet et montrez chaque livraison.',
+		'Arrecade para um projeto e mostre cada entrega.'
+	],
 	tile_about_d: [
 		'Cómo seguimos cada aporte hasta su entrega.',
 		'How every gift is followed through to delivery.',
