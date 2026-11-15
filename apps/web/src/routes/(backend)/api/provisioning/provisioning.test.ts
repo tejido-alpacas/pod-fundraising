@@ -22,7 +22,6 @@ const SITE = 'https://tejido.net';
 const DQ = '41dq';
 const TWIN_KEY = '00000000-0000-4000-8000-000000000000';
 const CAMPAIGN = fixtures.campaign.id;
-const MILESTONES = fixtures.milestones.map((milestone) => milestone.id) as [string, ...string[]];
 
 interface Recorded {
 	method: string;
@@ -300,7 +299,7 @@ describe('POST /api/provisioning', () => {
 			body: {
 				commodity_id: commodityId,
 				service_method: 'POST',
-				service_schema: itemInputJsonSchema(kind, MILESTONES),
+				service_schema: itemInputJsonSchema(kind),
 				external_endpoint: 'https://tejido.net/api/checkins',
 				active: true,
 				featured: true,
