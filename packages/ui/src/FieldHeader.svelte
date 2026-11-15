@@ -8,6 +8,11 @@
     {#snippet end()}…{/snippet}
   </FieldHeader>
   <FieldHeader title="Add evidence" back="/chat" />
+
+  With `logo`, the home link shows that picture instead of the weave mark. A logo that already
+  spells the name can stand in for the title: `standsForTitle`.
+  <FieldHeader title="Tejido" subtitle="Field app"
+               logo={{ src: '/tejido-logo-on-light.svg', width: 142, height: 34, standsForTitle: true }} />
 -->
 <script lang="ts">
 	import type { Snippet } from 'svelte';
@@ -19,6 +24,7 @@
 		subtitleTitle = undefined,
 		home = '/',
 		back = undefined,
+		logo = undefined,
 		links = [],
 		current = undefined,
 		end = undefined
@@ -30,6 +36,12 @@
 		home?: string;
 		/** In a flow, where the back button goes. It replaces the mark. */
 		back?: string;
+		/**
+		 * A picture for the home link, in place of the weave mark. Not drawn when `back` is set.
+		 * `standsForTitle`: the picture spells the name, so the title is kept for screen readers
+		 * only and not drawn a second time.
+		 */
+		logo?: { src: string; width: number; height: number; standsForTitle?: boolean };
 		links?: { href: string; label: string }[];
 		/** The current path. The link with this href is marked as the current page. */
 		current?: string;
@@ -43,12 +55,20 @@
 			<Icon name="arrow-left" size={22} />
 		</a>
 	{:else}
-		<a class="tj-fieldheader__home" href={home} aria-label="Tejido home">
-			<Icon name="weave" size={24} />
+		<a
+			class={logo ? 'tj-fieldheader__home tj-fieldheader__home--logo' : 'tj-fieldheader__home'}
+			href={home}
+			aria-label="Tejido home"
+		>
+			{#if logo}
+				<img src={logo.src} alt="" width={logo.width} height={logo.height} />
+			{:else}
+				<Icon name="weave" size={24} />
+			{/if}
 		</a>
 	{/if}
 	<div class="tj-fieldheader__title">
-		<p>{title}</p>
+		<p class={back === undefined && logo?.standsForTitle ? 'tj-vh' : undefined}>{title}</p>
 		{#if subtitle}<small title={subtitleTitle}>{subtitle}</small>{/if}
 	</div>
 	{#if end}<div class="tj-fieldheader__end">{@render end()}</div>{/if}
