@@ -163,6 +163,82 @@ const NEW_STRINGS = {
 		'O login com o Qatom não terminou: o tempo acabou, foi cancelado ou o Qatom não respondeu. Nada foi alterado. Você pode tentar de novo.'
 	],
 	signin_try_again: ['Intentar de nuevo', 'Try again', 'Réessayer', 'Tentar de novo'],
+	// Giving to one campaign: /give/<campaign>. The payment itself happens on Qatom's page.
+	give_title: ['Dar a {title}', 'Give to {title}', 'Donner à {title}', 'Doar para {title}'],
+	give_choose: ['Elige un monto', 'Choose an amount', 'Choisissez un montant', 'Escolha um valor'],
+	give_amount: [
+		'Dar {amount} {unit}',
+		'Give {amount} {unit}',
+		'Donner {amount} {unit}',
+		'Doar {amount} {unit}'
+	],
+	give_lead: [
+		'Pagas en la página de pago de Qatom. Aquí no se cobra nada.',
+		'You pay on Qatom’s checkout page. Nothing is charged here.',
+		'Vous payez sur la page de paiement de Qatom. Rien n’est débité ici.',
+		'Você paga na página de pagamento do Qatom. Nada é cobrado aqui.'
+	],
+	give_after: [
+		'Después de pagar, vuelve a la página de la campaña y recárgala para ver el nuevo total.',
+		'After you pay, come back to the campaign’s page and reload it to see the new total.',
+		'Après le paiement, revenez sur la page de la campagne et rechargez-la pour voir le nouveau total.',
+		'Depois de pagar, volte à página da campanha e recarregue-a para ver o novo total.'
+	],
+	give_private: [
+		'Tejido no guarda tu nombre, tu correo ni tu billetera con el aporte.',
+		'Tejido keeps no name, email or wallet of yours with the gift.',
+		'Tejido ne conserve ni votre nom, ni votre e-mail, ni votre portefeuille avec le don.',
+		'O Tejido não guarda seu nome, e-mail ou carteira com a doação.'
+	],
+	give_raised_goal: [
+		'{raised} {unit} recaudados de una meta de {goal}',
+		'{raised} {unit} raised of a {goal} goal',
+		'{raised} {unit} collectés sur un objectif de {goal}',
+		'{raised} {unit} arrecadados de uma meta de {goal}'
+	],
+	give_raised: [
+		'{raised} {unit} recaudados',
+		'{raised} {unit} raised',
+		'{raised} {unit} collectés',
+		'{raised} {unit} arrecadados'
+	],
+	give_count: ['aportes: {n}', 'gifts: {n}', 'dons : {n}', 'doações: {n}'],
+	give_goal: [
+		'Meta: {goal} {unit}',
+		'Goal: {goal} {unit}',
+		'Objectif : {goal} {unit}',
+		'Meta: {goal} {unit}'
+	],
+	give_closed: [
+		'Esta campaña no está recaudando fondos ahora.',
+		'This campaign is not raising money right now.',
+		'Cette campagne ne collecte pas de fonds en ce moment.',
+		'Esta campanha não está arrecadando agora.'
+	],
+	give_problem_closed: [
+		'Esta campaña ya no está recaudando fondos. No se cobró nada.',
+		'This campaign is no longer raising money. Nothing was charged.',
+		'Cette campagne ne collecte plus de fonds. Rien n’a été débité.',
+		'Esta campanha não está mais arrecadando. Nada foi cobrado.'
+	],
+	give_problem_gone: [
+		'Ese monto ya no está disponible. No se cobró nada. Elige otro.',
+		'That amount is no longer available. Nothing was charged. Choose another.',
+		'Ce montant n’est plus disponible. Rien n’a été débité. Choisissez-en un autre.',
+		'Esse valor não está mais disponível. Nada foi cobrado. Escolha outro.'
+	],
+	give_problem_unavailable: [
+		'No se puede dar en este momento. No se cobró nada. Inténtalo de nuevo más tarde.',
+		'Giving is not available right now. Nothing was charged. Please try again later.',
+		'Il n’est pas possible de donner pour le moment. Rien n’a été débité. Réessayez plus tard.',
+		'Não é possível doar agora. Nada foi cobrado. Tente de novo mais tarde.'
+	],
+	give_back: [
+		'Volver a la campaña',
+		'Back to the campaign',
+		'Retour à la campagne',
+		'Voltar à campanha'
+	],
 	// The button a signed-in person sees in the header. The same words as the home page's tile.
 	start_campaign: [
 		'Inicia una campaña',
