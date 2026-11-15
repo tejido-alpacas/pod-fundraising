@@ -20,11 +20,16 @@
  * the document does let us check are checked, and a row failing either is not counted:
  *
  *   - if the row names a commodity (`commodityHash`), it is the donation commodity;
+ *   - if the row's `operation` is `send`, it is money going out, and is not counted;
  *   - if the ledger names the twin that owns the commodity (`commodity.hostname`), the row's
  *     receiving address is that twin: money that came in, not anything that went out.
  *
- * A row listed twice (the same `twistId`) is one donation. The row's `operation` and `fileType`
- * are not used: the document lists them without saying what values they take.
+ * When the ledger names the owning twin but a row's receiving address is missing, or is not a
+ * hostname (it is NOT SETTLED whether Qatom gives addresses as hostnames or as hexadecimal
+ * addresses), that check cannot be made. Then the ledger is refused whole, as below, and the
+ * summary says why: a total we cannot check is not stored.
+ *
+ * A row listed twice (the same `twistId`) is one donation. The row's `fileType` is not used.
  *
  * ALL OR NOTHING PER LEDGER. The ledger is read whole (the document gives this call no paging)
  * and its total replaces the stored one. So if any row cannot be read (a field missing, or an
@@ -37,18 +42,16 @@
  */
 import { amountSchema, type Amount, type FundingTotals } from '@tejido/contracts';
 import { listCampaigns, recordFundingTotals, type Database } from '@tejido/db';
-import { QatomError, sameTwin } from '@tejido/qatom';
+import { QatomError, sameTwin, twinHostname } from '@tejido/qatom';
 import type { CommodityLedger, LedgerTransaction, MerchantAccount } from '@tejido/qatom/account';
 
 /**
  * The ledger's `amount` in our units (see money.ts in @tejido/contracts), or null when it is
  * not a donation we can count: not a positive whole number.
  *
- * THE ONE PLACE here that knows the ledger's unit, as `ledgerAmountInUnits` is in the
- * reconciler. Qatom's document does not state it. We assume, as the reconciler does, that it is
- * the same smallest unit as prices and transfers. If staging shows otherwise (README, "Still
- * to confirm on staging"), convert here. Until then a ledger in another unit is refused whole,
- * not rounded.
+ * Nothing is converted here. Qatom reports decimal USD-TDN and @tejido/qatom turns it into our
+ * thousandths before this module sees it (amounts.ts there, the one place that converts). Do
+ * not scale it again.
  */
 function donationAmountInUnits(transaction: LedgerTransaction): Amount | null {
 	const amount = amountSchema.safeParse(transaction.amount);
@@ -104,18 +107,31 @@ export function totalDonations(ledger: CommodityLedger): Totalled {
 
 		const aboutThisCommodity =
 			transaction.commodityHash === null || transaction.commodityHash === ledger.commodityHash;
-		const paidIn =
-			ledger.twinHostname === null || sameTwin(transaction.receivingAddress, ledger.twinHostname);
-		if (!aboutThisCommodity || !paidIn) {
+		if (!aboutThisCommodity || transaction.operation?.toLowerCase() === 'send') {
 			rowsNotCounted += 1;
 			continue;
+		}
+		if (ledger.twinHostname !== null) {
+			const receiver = transaction.receivingAddress;
+			// Only a hostname (bare or as a twin URL) can be compared with the owning twin.
+			if (receiver === null || !(twinHostname(receiver)?.includes('.') ?? false)) {
+				return {
+					ok: false,
+					problem:
+						'The ledger has a row whose receiving address is missing or is not a wallet hostname, so it cannot be told whether the money came in. Its total cannot be trusted.'
+				};
+			}
+			if (!sameTwin(receiver, ledger.twinHostname)) {
+				rowsNotCounted += 1;
+				continue;
+			}
 		}
 		const amount = donationAmountInUnits(transaction);
 		if (amount === null) {
 			return {
 				ok: false,
 				problem:
-					'The ledger has a donation whose amount is not a positive whole number of the smallest unit, so its total cannot be trusted.'
+					'The ledger has a donation whose amount is not a positive whole number of thousandths, so its total cannot be trusted.'
 			};
 		}
 		raised += amount;
