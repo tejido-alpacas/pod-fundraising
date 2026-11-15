@@ -20,7 +20,9 @@ shared-secret header. No network hop, and the same route a person's call goes th
   from, out of the twin the item is sold from, so the automatic paid tests keep themselves
   funded. Nobody else is refunded that way. The rules are in `test-account-refunds.ts`; the
   Qatom calls are in `packages/qatom/src/account/item-twin-refund.ts`. To turn it off, remove
-  the `refundTestAccountsOnTimer` call in `worker.ts`.
+  the `refundTestAccountsOnTimer` call in `worker.ts`. A pass that had something to consider
+  writes one line to the Worker's logs, such as `Test-account refunds: 0 sent, 3 skipped
+(item_twin_balance_too_low 3), a person needs to look: no.` Counts and reason names only.
 - `worker.ts` is the Worker's entry (`main` in `wrangler.jsonc`). SvelteKit's adapter has no
   option for a timer, so the entry is the Worker the build generates plus the handler. The
   build writes the generated Worker to the path in `apps/web/wrangler.build.jsonc`.
