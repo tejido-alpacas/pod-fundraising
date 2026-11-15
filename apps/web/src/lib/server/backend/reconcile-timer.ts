@@ -84,3 +84,27 @@ export async function undoTestDonationsOnTimer(options: ReconcileOnTimerOptions)
 	}
 	return response.status;
 }
+
+/**
+ * The last thing the timer does: one pass that DELETES the campaigns the automatic
+ * end-to-end tests created and are finished with (`POST /api/test-campaign-cleanup`), asked
+ * for in the same way, with no body: the caller names nothing. Only the status of the answer
+ * is looked at.
+ */
+export async function cleanUpTestCampaignsOnTimer(
+	options: ReconcileOnTimerOptions
+): Promise<number> {
+	const request = new Request(new URL('/api/test-campaign-cleanup', options.origin), {
+		method: 'POST',
+		headers: { origin: options.origin, [CHECKIN_SECRET_HEADER]: options.secret }
+	});
+
+	const response = await options.respond(request);
+	await response.body?.cancel();
+	if (!response.ok) {
+		throw new Error(
+			`Test-campaign cleanup on the timer failed: POST /api/test-campaign-cleanup answered ${response.status}.`
+		);
+	}
+	return response.status;
+}

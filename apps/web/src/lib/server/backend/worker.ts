@@ -24,6 +24,12 @@
  * wallet it was paid from and takes it out of the campaign's total. Nobody else's donation is
  * touched. TO TURN IT OFF, remove the `undoTestDonationsOnTimer` call below.
  *
+ * LAST, THE TEST CAMPAIGNS ARE CLEANED UP (the owner, 15 November 2026). The timer asks for
+ * `POST /api/test-campaign-cleanup`, which DELETES the campaigns the automatic end-to-end
+ * tests created and are finished with: never the fixed test campaign, never a campaign with
+ * anybody on it who is not a test person. The rules are in test-campaign-cleanup.ts. TO TURN
+ * IT OFF, remove the `cleanUpTestCampaignsOnTimer` call below; nothing else calls that route.
+ *
  * Wrangler bundles this file when it deploys or runs `wrangler dev`; the SvelteKit build does
  * not see it. So the configuration is parsed here from the `env` Cloudflare hands the handler,
  * against the one schema in @tejido/config, as src/lib/server/context.ts does for requests.
@@ -31,6 +37,7 @@
 import { parseConfig } from '@tejido/config';
 import sveltekit from 'tejido:sveltekit-worker';
 import {
+	cleanUpTestCampaignsOnTimer,
 	reconcileOnTimer,
 	refundTestAccountsOnTimer,
 	undoTestDonationsOnTimer
@@ -67,6 +74,14 @@ export default {
 		const undos = await undoTestDonationsOnTimer(pass);
 		console.log(
 			`Test-donation undos on the timer: POST /api/test-donation-undos answered ${undos}.`
+		);
+
+		// Last of all: delete the campaigns the automatic tests created and are finished with.
+		// After the passes above, so a refund or an undo recorded in this same minute is seen.
+		// A failure throws with the status only.
+		const cleanup = await cleanUpTestCampaignsOnTimer(pass);
+		console.log(
+			`Test-campaign cleanup on the timer: POST /api/test-campaign-cleanup answered ${cleanup}.`
 		);
 	}
 };
