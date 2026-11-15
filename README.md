@@ -1,20 +1,54 @@
 # Tejido: proof-of-delivery fundraising
 
-Tejido is a fundraising platform. This repository adds proof of delivery: once a campaign is
-funded, the third parties doing the work (contractors, suppliers) log their work on a schedule
-and claim milestones, and an independent confirmer signs each milestone off.
+Tejido is a fundraising platform with proof of delivery. A campaign names, before it raises
+anything, who will do the work and who will confirm it. Donors give through Qatom's hosted
+checkout. Then the third parties doing the work (contractors, suppliers) log their work on a
+schedule and claim milestones, and an independent confirmer signs each milestone off. Every
+report is public, under the name of the person who filed it.
 
-Every log and claim is filed by buying a catalog item on Qatom, a payments platform we use as it
-is. Qatom calls an endpoint of ours each time an item is bought, and we read its ledger afterwards
-to verify who paid. Each purchase is a small deposit from the filer's own Qatom wallet: 0.10 for a
-work log, 1.00 for a milestone claim or confirmation. When a milestone is confirmed we send the
-deposits paid on it back.
+Every log, claim and confirmation is filed by buying a catalog item on Qatom, a payments platform
+we use as it is. Qatom calls an endpoint of ours each time an item is bought, and afterwards we
+ask Qatom for its own record of that purchase before the report's receipt is shown as verified.
+Each purchase is a small deposit from the filer's own Qatom wallet: 0.10 for a work log, 1.00 for
+a milestone claim or confirmation. When a milestone is confirmed, the deposits paid on it are
+returned to the people who filed them.
 
-This is the hackathon build. Three people work in it in parallel, one track each. The existing
-site at tejido.net is a separate app and is not used here.
+This is the hackathon build, and it is live: the Campaign Site at https://tejido.net and the App
+at https://app.tejido.net. Three people work in it in parallel, one track each, and every merge
+to `main` is released to both sites.
 
 The design is in [`docs/architecture.md`](docs/architecture.md) and the schedule in
-[`docs/build-plan.md`](docs/build-plan.md).
+[`docs/build-plan.md`](docs/build-plan.md). The code is under the MIT licence
+([`LICENSE`](LICENSE)).
+
+## What works today
+
+Each of these was done on the live site on 15 November 2026 by the end-to-end run, with real
+money where money is involved:
+
+- **Sign in with Qatom**: third parties and confirmers in the App, creators and donors on the
+  Campaign Site.
+- **Start a campaign** in the builder at `/campaigns/new`: the project, the goal, the
+  milestones, who does the work and who confirms each one, and the reporting schedule. Creating
+  it gives one invitation link per person, and its creator then publishes it.
+- **Give to a campaign** at `/give/<campaign>`: pressing an amount opens Qatom's checkout in a
+  new window, and the campaign's total goes up when Qatom tells us the payment settled.
+- **File a report in the App**, by talking to its assistant or filling in its form: a work log,
+  a milestone claim (construction, a delivery, a service) or a confirmation. The person reads a
+  review card and says yes before anything is filed or paid. A report that is missing something
+  is saved as incomplete and can be completed without paying again.
+- **Public proof**: a report is on the campaign's timeline at once, with a proof page of its
+  own. Within about a minute Tejido checks its deposit with Qatom, and the receipt reads
+  verified, pending or flagged.
+
+Not finished:
+
+- **Returning deposits is not automatic.** A person sends the refunds for a confirmed milestone
+  (`POST /api/refunds`), and that has not yet been done on the live site.
+- **The reporting schedule is not run on a timer.** What is due and overdue is worked out by
+  `POST /api/schedule`, which nothing calls by itself yet.
+- **Languages.** Home, Explore, Give and About are in Spanish, English, French and Portuguese.
+  The campaign pages, the builder and the App are in English.
 
 ## Prerequisites
 
@@ -44,7 +78,7 @@ npm run dev
 apps. Both are Cloudflare Workers; locally Wrangler emulates the database (D1) and the evidence
 store (R2) and keeps them in `./data`, so nothing here needs a Cloudflare account:
 
-- the Campaign Site at http://localhost:5173. Its index page lists every surface by track, and
+- the Campaign Site at http://localhost:5173. Its home page is the donors' home, and
   http://localhost:5173/campaigns/library-wing shows the fixture campaign from the database.
 - the App at http://localhost:5174, for third parties and confirmers.
 
@@ -89,7 +123,7 @@ to run it, what it costs and how to read a failure are in [`e2e/README.md`](e2e/
 
 ## Configuration
 
-Configuration is parsed once at startup against one zod schema in `packages/config`. All ten
+Configuration is parsed once at startup against one zod schema in `packages/config`. All eleven
 values are required. Locally they come from `.env`; deployed, they are Worker secrets. Nothing
 else in the repository reads the environment.
 
@@ -121,6 +155,8 @@ packages/config       the one configuration schema
 packages/db           our database: Drizzle schema, client, migrations, seed (Cloudflare D1)
 packages/qatom        the one place that talks to Qatom
 infra                 Terraform for the D1 database and R2 bucket, and the deploy script
+e2e                   the Playwright suite that walks the live site (see e2e/README.md)
+docs                  the design, the build plan, the campaign API, setting up donations
 ```
 
 Packages are plain TypeScript, imported as source. There is no build step for them, and a change
@@ -149,8 +185,8 @@ layout and index page, and the root configuration files.
   working timeline. Copy its pattern for the other pages.
 - Track B: `apps/app/src/routes/auth/callback/+server.ts`, where a sign-in lands and the wallets
   are stored. The invite page is `apps/app/src/routes/invite/[partyId]/`.
-- Track C: `apps/web/src/routes/(backend)/api/checkins/+server.ts`, the endpoint Qatom calls. The
-  `TODO(Track C)` marks where the milestone rules go.
+- Track C: `apps/web/src/routes/(backend)/api/checkins/+server.ts`, the endpoint Qatom calls. Its
+  rules are in `packages/db/src/checkin-rules.ts`.
 
 ## Two apps, one system
 
@@ -158,11 +194,11 @@ Both apps are SvelteKit 3 with Svelte 5 and the Cloudflare adapter. Each is depl
 Worker, and they share everything underneath: the same packages, the same D1 database and the
 same eleven configuration values.
 
-|       | Campaign Site (`apps/web`)                             | App (`apps/app`)                                    |
-| ----- | ------------------------------------------------------ | --------------------------------------------------- |
-| For   | Creators and donors, and Qatom's calls                 | Third parties and confirmers                        |
-| Local | http://localhost:5173                                  | http://localhost:5174                               |
-| Holds | Campaign pages, `POST /api/checkins`, the backend jobs | Invite, chat, upload, sign-in, `POST /api/evidence` |
+|       | Campaign Site (`apps/web`)                                              | App (`apps/app`)                                     |
+| ----- | ----------------------------------------------------------------------- | ---------------------------------------------------- |
+| For   | Creators and donors, and Qatom's calls                                  | Third parties and confirmers                         |
+| Local | http://localhost:5173                                                   | http://localhost:5174                                |
+| Holds | Campaign pages, the builder, the Give page, what Qatom calls, the timer | Invite, chat, report form, upload, fix page, sign-in |
 
 - **Sign-in lives in the App.** `OIDC_REDIRECT_URI` points at it, and so does the session cookie.
   Donors sign in on the Campaign Site separately, through `WEB_OIDC_REDIRECT_URI` and its own
@@ -174,6 +210,11 @@ same eleven configuration values.
   writes that must land together go in one `db.batch([...])`.
 - **The campaign builder's endpoints** (`POST /api/campaigns/check`, `POST /api/campaigns`) are
   described in [`docs/campaign-api.md`](docs/campaign-api.md).
+- **Donations** go through Qatom's hosted checkout, one catalog item per amount. Setting the
+  items up is in [`docs/donations-setup.md`](docs/donations-setup.md).
+- **The backend's timer.** Once a minute Cloudflare runs the Campaign Site Worker's scheduled
+  handler (`apps/web/src/lib/server/backend/worker.ts`). It checks the waiting receipts with
+  Qatom and deletes the campaigns the end-to-end tests are finished with. It moves no money.
 - In production each app is a Worker at its own hostname. `infra/deploy.sh` deploys both.
 
 ## The two Qatom identities
@@ -188,8 +229,8 @@ apart in configuration, in code and in naming.
 Creators, third parties and confirmers sign in through Qatom's OpenID Connect provider. A sign-in
 returns two wallet hostnames:
 
-- `agent_twin_hostname`, the **agent wallet**. Deposits are paid _from_ it, so it is the address we
-  expect as the payer in the ledger.
+- `agent_twin_hostname`, the **agent wallet**. Deposits are paid _from_ it: it is the only wallet
+  the App's assistant may spend from.
 - `twin_hostname`, the **primary wallet**. Refunds are sent _to_ it. Never to the agent wallet.
 
 Both are stored on the party. In code they are two different types (`AgentWalletHostname`,
@@ -197,10 +238,15 @@ Both are stored on the party. In code they are two different types (`AgentWallet
 
 **2. Tejido's merchant account.** `QATOM_ACCOUNT_CLIENT_ID`, `QATOM_ACCOUNT_CLIENT_SECRET`. Code:
 `@tejido/qatom/account`.
-It owns every campaign's catalog items, so only it can read their ledgers, and refunds are paid
-from its wallet. Its functions take no token from the caller: the account fetches its own. No
+It owns the catalog items, so only it can read their purchases and ledgers and make a checkout
+for a donation, and refunds are paid from its wallet. Its functions take no token from the caller: the account fetches its own. No
 person's token is ever used for a ledger read or a transfer, and its credentials never reach the
 browser.
+
+**What a verified receipt means.** Qatom confirms a settled sale of the item the report was
+filed with, for exactly its deposit, tied to the report by the transaction id Qatom sent with
+it. It does not show which wallet paid: Qatom's records name the payer only in a form that
+cannot be compared with a wallet registered at sign-in.
 
 ## Setting up the two catalog items in Qatom
 
@@ -218,24 +264,27 @@ one Milestone hit at 1.00. There is no pair per campaign. Both items need:
   schema before it charges, so a list of one campaign's milestones would lock every other
   campaign out.
 
-Then store each item's commodity id (a whole number) on the campaign (`logWorkCommodityId`,
-`milestoneHitCommodityId`) so the reconciler knows which ledgers to read. Qatom reads a ledger by
-the commodity's hash; the merchant account looks each hash up from its id
-(`resolveCommodityHash`) and remembers it. The example campaign's two ids are real and exist in
-one Qatom environment only: the one its items were created in.
+The two items' commodity ids are in `SHARED_ITEM_COMMODITY_ID`
+(`apps/web/src/lib/server/backend/reconciler.ts`). A campaign with no ids of its own uses them,
+so a new campaign needs nothing set up in Qatom. The ids are real and exist in one Qatom
+environment only: the one the items were created in.
 
-## Still to confirm on staging
+Qatom sends the sale's transaction id with each call (`X-Qatom-Transaction-Id`). The check-in
+endpoint keeps it beside the report, and the reconciler looks the purchase up by it
+(`GET /v4/catalog/purchases/{transaction_id}`) to verify the receipt.
 
-The Qatom client follows Qatom's published API document, and was written without credentials. It
-has not run against the live service. Check these first:
+## What has and has not met live Qatom
 
-- **Amount units.** We store amounts as whole numbers of Qatom's smallest unit and assume one unit
-  is 0.001 (so 0.10 is `100`). The document says transfers are "in the smallest unit" but not the
-  scale, and does not say what unit the ledger's `amount` is in. Buy one 0.10 item and look. The
-  constant is `AMOUNT_UNITS_PER_USD_TDN` in `packages/contracts/src/money.ts`.
-- **Ledger addresses.** Whether the ledger's paying address is a bare hostname or a twin URL. Use
-  `sameTwin()` from `@tejido/qatom` to compare; it accepts both.
-- **The `twin` scope.** That the sign-in client may request it. Without it, sign-in fails with
-  `missing_claims`.
-- **A transfer's digital quantity.** `POST /v4/transfer` requires the DQ hash. The ledger returns
-  it as `dq`; pass that through.
+Met, on the live site on 15 November 2026: sign-in with the `twin` scope; buying both items
+through the App's assistant; Qatom's calls to `/api/checkins` and `/api/donations`; the purchase
+lookup that verifies a receipt; and the hosted checkout for a donation.
+
+- **Amount units.** Qatom's API speaks decimal USD-TDN (`"0.100"`). We store whole thousandths
+  (0.10 is `100`, `AMOUNT_UNITS_PER_USD_TDN` in `packages/contracts/src/money.ts`) and convert in
+  one place, `packages/qatom/src/account/amounts.ts`.
+- **Ledger addresses.** Qatom's ledger names a payer as a 66-character address, not a wallet
+  hostname, and the two cannot be compared. That is why a receipt is verified by Qatom's purchase
+  record and not from the ledger.
+- **Not yet met: a refund.** `POST /api/refunds` sends a confirmed milestone's deposits to the
+  filers' primary wallets through Qatom's `POST /v4/transfer`. It has not been called on the live
+  site.
