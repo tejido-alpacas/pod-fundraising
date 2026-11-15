@@ -11,6 +11,7 @@
 export * from './primitives.ts';
 export * from './money.ts';
 export * from './items.ts';
+export * from './cadence.ts';
 export * from './campaign.ts';
 export * from './funding.ts';
 export * from './donation.ts';

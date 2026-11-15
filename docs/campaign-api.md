@@ -123,9 +123,26 @@ does the work.
 
 ### `schedule`: how often work is reported
 
-| Field     | What it is                                        | Required | Allowed values                                           |
-| --------- | ------------------------------------------------- | -------- | -------------------------------------------------------- |
-| `cadence` | How often the people doing the work report on it. | Yes      | `weekly` (every week) or `fortnightly` (every two weeks) |
+| Field     | What it is                                        | Required | Allowed values                    |
+| --------- | ------------------------------------------------- | -------- | --------------------------------- |
+| `cadence` | How often the people doing the work report on it. | Yes      | One of the four in the next table |
+
+| `cadence`      | Work is reported                                                              |
+| -------------- | ----------------------------------------------------------------------------- |
+| `weekly`       | Every week: one work report every 7 days.                                     |
+| `fortnightly`  | Every two weeks: one work report every 14 days.                               |
+| `daily`        | Every day.                                                                    |
+| `days:mon,thu` | On chosen days of the week: here every Monday and Thursday. Any days you like |
+
+Chosen days are written `days:` followed by one to seven of `mon`, `tue`, `wed`, `thu`, `fri`,
+`sat` and `sun`, separated by commas with no spaces: `days:fri`, `days:mon,tue`,
+`days:mon,tue,thu,sat`. They may be sent in any order and are stored Monday first. At least one
+day is needed: `days:` alone is answered with "Choose at least one day of the week.", and a word
+that is not one of the seven with "Choose days of the week from mon, tue, wed, thu, fri, sat and
+sun."
+
+A work report is due on each chosen day, and covers the days since the chosen day before it. A
+day runs from midnight to midnight UTC, like every other date here.
 
 ### Keys
 

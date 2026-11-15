@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { cadenceSchema } from './cadence.ts';
 import { shownRelationship, type Party, type PartyRelationship } from './party.ts';
 import { amountSchema } from './money.ts';
 import { dateSchema, emailSchema, idSchema, timestampSchema } from './primitives.ts';
@@ -16,10 +17,6 @@ export const campaignStatusSchema = z.enum([
 	'delivered'
 ]);
 export type CampaignStatus = z.infer<typeof campaignStatusSchema>;
-
-/** How often each third party owes a work log. */
-export const cadenceSchema = z.enum(['weekly', 'fortnightly']);
-export type Cadence = z.infer<typeof cadenceSchema>;
 
 /**
  * Identifies a commodity in Qatom: the `commodity_id` of a catalog item, a positive whole
