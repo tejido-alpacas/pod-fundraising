@@ -96,7 +96,7 @@
 				bind:value={milestone.dueDate}
 				error={errors[`${at}.dueDate`]}
 			/>
-			<div class="foot">
+			<div class="item-foot">
 				<ItemActions
 					{what}
 					first={index === 0}
@@ -146,7 +146,7 @@
 	.editing {
 		gap: var(--space-4);
 	}
-	.foot {
+	.item-foot {
 		display: flex;
 		flex-wrap: wrap;
 		gap: var(--space-3);

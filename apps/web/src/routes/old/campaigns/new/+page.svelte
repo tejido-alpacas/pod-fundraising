@@ -236,7 +236,7 @@
 				};
 			}}
 		>
-			<div class="top">
+			<div class="builder-top">
 				<div class="progress">
 					<p class="tj-stepper">
 						<span>Step {index + 1} of {STEPS.length} · {STEP_NAME[step]}</span>
@@ -425,7 +425,7 @@
 		gap: var(--space-5);
 		min-width: 0;
 	}
-	.top {
+	.builder-top {
 		display: grid;
 		gap: var(--space-5);
 	}
