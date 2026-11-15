@@ -7,8 +7,8 @@
  */
 import { emptyDraft, reviveDraft, type BuilderDraft, type CreatedCampaign } from './draft.ts';
 
-const DRAFT_KEY = 'tejido.old.builder.draft';
-const CREATED_KEY = 'tejido.old.builder.created';
+const DRAFT_KEY = 'tejido.builder.draft';
+const CREATED_KEY = 'tejido.builder.created';
 
 function read(key: string): unknown {
 	try {
