@@ -81,7 +81,7 @@ function paidStoryOnly(project: string, paid: boolean, retry: number): void {
 const openBuildMilestone = (page: Page, siteUrl: string, campaignId: string): Promise<void> =>
 	openMilestone(page, siteUrl, campaignId, BUILD_MILESTONE);
 
-/** How long each of the two waits after the filings may last. */
+/** How long the wait for the receipts, after the filings, may last. */
 const WAIT_MS = 240_000;
 /** How long between two looks at the public pages. Tejido's timer runs once a minute. */
 const LOOK_EVERY_MS = 15_000;
