@@ -1,0 +1,10 @@
+// Read only by the build (the adapter's `config` option in vite.config.ts). It tells SvelteKit
+// where to write the Worker it generates. wrangler.jsonc cannot say this itself: its `main` is
+// the entry that adds the timer handler, and the build overwrites whatever file `main` names.
+// Nothing is deployed from this file. Keep `assets` the same as in wrangler.jsonc.
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "tejido-web",
+	"main": ".svelte-kit/cloudflare/_worker.js",
+	"assets": { "binding": "ASSETS", "directory": ".svelte-kit/cloudflare" }
+}
