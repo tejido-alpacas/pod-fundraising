@@ -4,7 +4,7 @@ import { campaignSchema, milestoneSchema, partySchema } from '@tejido/contracts'
 import { campaigns, milestones, parties } from '@tejido/db';
 import { createTestDatabase, type TestDatabase } from '@tejido/db/testing';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { checkDraft, noticesFor, readGoal } from '#lib/campaign-site/builder/check.ts';
+import { checkDraft, noticesFor, readCadence, readGoal } from '#lib/campaign-site/builder/check.ts';
 import { reviveDraft, type BuilderDraft } from '#lib/campaign-site/builder/draft.ts';
 import { CREATED_PER_HOUR } from '#lib/campaign-site/server/create-campaign.ts';
 import { load as home } from '../../../+page.server.ts';
@@ -267,6 +267,46 @@ describe('checking one step', () => {
 		expect(errorsOf(await post('check', draft, 'schedule'))).toEqual({
 			'schedule.cadence': 'Choose how often work is reported.'
 		});
+	});
+
+	it('schedule: takes daily, and chosen days of the week', async () => {
+		for (const cadence of ['weekly', 'fortnightly', 'daily', 'days:mon', 'days:mon,tue,thu,sat']) {
+			const draft = { ...validDraft(), schedule: { cadence } };
+			expect(await post('check', draft, 'schedule'), cadence).toEqual({
+				action: 'check',
+				step: 'schedule',
+				passed: true
+			});
+		}
+	});
+
+	it('schedule: chosen days need at least one day, and only days of the week', async () => {
+		const none = { ...validDraft(), schedule: { cadence: 'days:' } };
+		expect(errorsOf(await post('check', none, 'schedule'))).toEqual({
+			'schedule.cadence': 'Choose at least one day of the week.'
+		});
+		for (const cadence of ['days:funday', 'days:mon,', 'days:mon tue', 'days:monday']) {
+			const draft = { ...validDraft(), schedule: { cadence } };
+			expect(errorsOf(await post('check', draft, 'schedule')), cadence).toEqual({
+				'schedule.cadence': 'Choose days of the week from mon, tue, wed, thu, fri, sat and sun.'
+			});
+		}
+	});
+
+	it('schedule: puts chosen days in order, each once, however they were sent', () => {
+		const draft = reviveDraft({ ...validDraft(), schedule: { cadence: 'days:thu,mon,thu' } });
+		expect(checkDraft(draft).value?.cadence).toBe('days:mon,thu');
+		expect(readCadence('daily')).toEqual({ ok: true, value: 'daily' });
+	});
+
+	it('schedule: a stored draft keeps chosen days, and drops what is not a cadence', () => {
+		const kept = (cadence: unknown) => reviveDraft({ schedule: { cadence } }).schedule.cadence;
+		expect(kept('daily')).toBe('daily');
+		expect(kept('days:mon,thu')).toBe('days:mon,thu');
+		expect(kept('days:')).toBe('days:');
+		expect(kept('monthly')).toBe('');
+		expect(kept(`days:${'mon,'.repeat(40)}`)).toBe('');
+		expect(kept(7)).toBe('');
 	});
 });
 
