@@ -95,8 +95,8 @@ write one row in `donations`. Pages read the sum with `getFundingSummary` from `
 
 ### Starting a donation (`donation-items.ts`)
 
-The Give page (`/give/<campaign>`, Track A) offers amounts and sends the donor to Qatom's
-checkout page. Nothing names the donation items in our configuration or database:
+The Give page (`/give/<campaign>`, Track A) offers amounts and opens Qatom's checkout page
+for the chosen one in a new window, because Qatom's page does not bring the donor back. Nothing names the donation items in our configuration or database:
 `listDonationOptions` asks Qatom for the merchant account's own items and keeps those that are
 on sale, whose external endpoint is this site's `/api/donations/<amount>` over https, and whose
 price equals that amount. This site's origin is the origin of `WEB_OIDC_REDIRECT_URI`.
