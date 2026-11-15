@@ -3,7 +3,7 @@
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
 	import { cadenceSchema } from '@tejido/contracts';
-	import { Banner, Button } from '@tejido/ui';
+	import { Banner, Icon } from '@tejido/ui';
 	import { onMount, untrack } from 'svelte';
 	import { checkDraft, noticesFor } from '#lib/campaign-site/builder/check.ts';
 	import Created from '#lib/campaign-site/builder/Created.svelte';
@@ -399,20 +399,36 @@
 				<StepReview {draft} {notices} />
 			{/if}
 
+			<!--
+				The floating bar reads as the header's sibling: the same rounded, frosted bar, with
+				the first site's buttons (`btn`, from the root stylesheet) in place of the design
+				system's, which are squarer.
+			-->
 			<div class="tj-stickyactions bar">
 				<div class="bar-inner">
 					{#if previous}
-						<Button size="field" href="?step={previous}" icon="arrow-left">Back</Button>
+						<a class="btn btn-ghost" href="?step={previous}">
+							<Icon name="arrow-left" />
+							<span>Back</span>
+						</a>
 					{:else}
-						<Button size="field" href={HOME} variant="quiet">Cancel</Button>
+						<a class="btn btn-ghost" href={HOME}><span>Cancel</span></a>
 					{/if}
-					<Button type="submit" size="field" variant="primary" {busy} disabled={busy}>
-						{#if step === 'review'}
-							{busy ? 'Creating…' : 'Create campaign'}
-						{:else if next}
-							Continue to {STEP_NAME[next].toLowerCase()}
-						{/if}
-					</Button>
+					<button
+						class="btn btn-blue"
+						type="submit"
+						disabled={busy}
+						aria-busy={busy ? 'true' : undefined}
+					>
+						{#if busy}<span class="tj-spinner" aria-hidden="true"></span>{/if}
+						<span>
+							{#if step === 'review'}
+								{busy ? 'Creating…' : 'Create campaign'}
+							{:else if next}
+								Continue to {STEP_NAME[next].toLowerCase()}
+							{/if}
+						</span>
+					</button>
 				</div>
 			</div>
 		</form>
@@ -468,15 +484,58 @@
 	.choices legend {
 		margin-bottom: var(--space-2);
 	}
-	/* The bar runs the full width of the screen on a phone, as in the design. */
+	/*
+		The floating Back / Continue bar, in the header's family: `header.top` in the first
+		site's stylesheet is a 16px-rounded, frosted white bar held 10px clear of the screen
+		edge. This is the same bar at the bottom. Its values are that stylesheet's own.
+	*/
 	.bar {
-		margin-inline: calc(-1 * var(--layout-gutter));
-		margin-top: var(--space-3);
+		--bar-inset: 8px;
+		/* Clear of the bottom edge, and of the phone's home indicator and keyboard safe area. */
+		bottom: calc(10px + env(safe-area-inset-bottom));
 		z-index: 2;
+		/* The buttons line up with the cards above; the bar itself sits a little outside them. */
+		margin-inline: calc(-1 * var(--bar-inset));
+		margin-top: var(--space-3);
+		padding: var(--bar-inset);
+		border: 1px solid var(--glass-edge);
+		border-radius: var(--r);
+		/* A little more opaque than the header: form text passes under it, not a page background. */
+		background: var(--glass-strong);
+		-webkit-backdrop-filter: var(--blur);
+		backdrop-filter: var(--blur);
+		box-shadow: var(--hi), var(--shadow);
+	}
+	/* Without backdrop-filter the bar is solid, as the header is. */
+	@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+		.bar {
+			background: rgba(255, 255, 255, 0.95);
+		}
+	}
+	/*
+		Up to 1000px the site's tab bar is fixed to the bottom of the screen (8px up, 68px tall).
+		The bar floats 8px above it rather than underneath it.
+	*/
+	@media (max-width: 1000px) {
+		.bar {
+			bottom: calc(84px + env(safe-area-inset-bottom));
+		}
 	}
 	.bar-inner {
 		display: grid;
 		grid-template-columns: auto minmax(0, 1fr);
 		gap: var(--space-2);
+	}
+	/* A long label ("Continue to milestones") wraps on a narrow phone instead of overflowing. */
+	.bar-inner .btn {
+		white-space: normal;
+		text-align: center;
+	}
+	/*
+		A field reached with Tab or by a problem's link stops well above the bar (and the tab
+		bar on a phone), never underneath it.
+	*/
+	form :global(:is(input, textarea, select, button, a, [tabindex])) {
+		scroll-margin-bottom: 11rem;
 	}
 </style>
