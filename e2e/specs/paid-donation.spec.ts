@@ -5,14 +5,14 @@
  * e2e tests").
  *
  * IT DOES NOT RUN YET. Every test here is skipped, saying no donation was paid, unless ALL of
- * these hold, and today none of the first two does:
+ * these hold, and today the first does not:
  *
  *   - `E2E_PAID_DONATION` is exactly `true`. Only the workflow may set it, and it does not yet.
  *     `E2E_PAID` alone does not switch it on. Never set it by hand, and never run this suite
  *     from a session;
  *   - it runs in a Playwright project named `donation`, which comes after both sign-ins (the
  *     App's, which registers the payer's wallets with Tejido, and the Campaign Site's, which
- *     publishes the campaign). That project is not in playwright.config.ts yet;
+ *     publishes the campaign);
  *   - the run is a paid run with a campaign of its own (specs/create-campaign.spec.ts).
  *
  * NO RUN HAS EVER TRIED THIS. Qatom's checkout page is written from Qatom's source, read by the
