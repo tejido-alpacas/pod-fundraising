@@ -15,6 +15,8 @@ import { apiUrl, DEFAULT_TIMEOUT_MS, send, SLOW_TIMEOUT_MS } from '../http.ts';
 import { fromQatomAmount, toQatomAmount } from './amounts.ts';
 import {
 	refundTestPersonFromItemTwin,
+	returnTestDonationFromItemTwin,
+	type ItemTwinDonationReturnRequest,
 	type ItemTwinRefundRequest,
 	type ItemTwinRefundResult
 } from './item-twin-refund.ts';
@@ -22,6 +24,8 @@ import {
 export {
 	E2E_TEST_EMAIL_DOMAIN,
 	isEndToEndTestEmail,
+	isWalletHostname,
+	type ItemTwinDonationReturnRequest,
 	type ItemTwinRefundRefusal,
 	type ItemTwinRefundRequest,
 	type ItemTwinRefundResult
@@ -167,6 +171,13 @@ export interface OwnCatalogItem {
 	price: number | null;
 	/** The URL Qatom calls after a sale, or null when the item calls nothing. */
 	externalEndpoint: string | null;
+	/** `commodity_id`: the commodity the item sells, or null when Qatom gave none usable. */
+	commodityId: number | null;
+	/**
+	 * `commodity_hash`: what that commodity's ledger is read by (`listCommodityTransactions`),
+	 * or null when Qatom gave none in the form a hash has.
+	 */
+	commodityHash: string | null;
 }
 
 export interface NewCheckout {
@@ -303,6 +314,19 @@ export interface MerchantAccount {
 	 * and are not kept, returned or logged.
 	 */
 	refundTestPersonFromItemTwin(request: ItemTwinRefundRequest): Promise<ItemTwinRefundResult>;
+
+	/**
+	 * FOR THE END-TO-END TEST PEOPLE ONLY: sends a donation a test person paid back to the
+	 * wallet they paid it from (primary or agent), out of the donation item's own twin, by that
+	 * twin's own API. Part of the same one exception; see item-twin-refund.ts for the rules.
+	 *
+	 * It refuses a payer whose email is not at the test inbox domain. The transfer is sent
+	 * ONCE and never again. The twin's hostname and key are read from Qatom for this one call
+	 * and are not kept, returned or logged.
+	 */
+	returnTestDonationFromItemTwin(
+		request: ItemTwinDonationReturnRequest
+	): Promise<ItemTwinRefundResult>;
 }
 
 // Qatom returns a token with five minutes or more left as it is. Asking only in the last
@@ -378,7 +402,10 @@ const ownItemSchema = z.object({
 	id: z.number().int().positive(),
 	active: z.boolean().optional(),
 	commodity_cost: z.unknown().optional(),
-	external_endpoint: z.string().nullish()
+	external_endpoint: z.string().nullish(),
+	// Read leniently: an item whose commodity is given in another form is still an item.
+	commodity_id: z.unknown().optional(),
+	commodity_hash: z.unknown().optional()
 });
 
 // The 201 of POST /v4/payment/checkout also carries the checkout's `hash`. Whoever holds it
@@ -798,10 +825,16 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 				// Trust the filter only as far as the answer shows it was applied.
 				if (item.data.active === false) continue;
 				const price = fromQatomAmount(item.data.commodity_cost);
+				const { commodity_id: commodityId, commodity_hash: commodityHash } = item.data;
 				items.push({
 					catalogItemId: item.data.id,
 					price: price !== null && price > 0 ? price : null,
-					externalEndpoint: item.data.external_endpoint || null
+					externalEndpoint: item.data.external_endpoint || null,
+					commodityId: typeof commodityId === 'number' && isId(commodityId) ? commodityId : null,
+					commodityHash:
+						typeof commodityHash === 'string' && COMMODITY_HASH.test(commodityHash)
+							? commodityHash
+							: null
 				});
 			}
 			return items;
@@ -833,6 +866,17 @@ export function createMerchantAccount(config: MerchantAccountConfig): MerchantAc
 
 		refundTestPersonFromItemTwin(request) {
 			return refundTestPersonFromItemTwin(
+				{
+					paymentApiUrl: config.paymentApiUrl,
+					authorized,
+					readItem: (commodityHash) => account.listCommodityTransactions(commodityHash)
+				},
+				request
+			);
+		},
+
+		returnTestDonationFromItemTwin(request) {
+			return returnTestDonationFromItemTwin(
 				{
 					paymentApiUrl: config.paymentApiUrl,
 					authorized,
