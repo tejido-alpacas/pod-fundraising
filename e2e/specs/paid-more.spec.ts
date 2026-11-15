@@ -3,13 +3,23 @@
  * when E2E_PAID is exactly `true`, which only the workflow sets, under its cap (CLAUDE.md,
  * "Never move money to test something"). Nobody starts it by hand.
  *
- * It runs after paid-filing.spec.ts in the same run (Playwright takes a project's files in
- * alphabetical order, one at a time, and "paid-filing" sorts before "paid-more"), on the same
- * campaign that run created, and on the two milestones that story leaves alone. So that
- * story's result never depends on anything here.
+ * It runs on the same campaign the run created, on the two milestones the first paid story
+ * leaves alone, and after that story has ended: that story is told by the phone project and
+ * this one by the DESKTOP project, which comes after it. So that story's result never depends
+ * on anything here.
  *
- * Two scenarios, each through the App's chat and its review card as a real filer, each found
+ * Why the desktop project: this file ends with all three milestones confirmed, and a campaign
+ * with nothing left to report changes what the App shows a signed-in person (the report form
+ * offers no milestone, there is nothing to confirm). The desktop project's checks of the App
+ * run before this file ("app-" and "chat-" sort before "paid-more"); told on the phone, this
+ * file would run before them and they would fail. Only the donor's pages are walked after it.
+ *
+ * Three scenarios, each through the App's chat and its review card as a real filer, each found
  * afterwards on the campaign's public pages as a donor would find it:
+ *
+ *   A work log sent from the chat's report form, on "Test milestone 2: a delivery":
+ *     0. the contractor fills in the form, sends it, reviews it on the card and files it
+ *        (0.10 from the contractor's agent wallet). The first paid story drafts by talking
  *
  *   A delivery, on "Test milestone 2: a delivery" (a goods delivery: claimed with "delivered",
  *   a quantity, a unit and a photo):
@@ -23,12 +33,13 @@
  *     4. the contractor adds the document on the App's fix page. Nothing is paid
  *     5. the confirmer confirms the milestone  (1.00, the confirmer's)
  *
- * That adds 4.00 to a paid run: 2.00 from each of the two test people's agent wallets. Every
- * filing is 1.00, the most the test people's Qatom accounts approve by themselves.
+ * That adds 4.10 to a paid run: 2.10 from the test contractor's agent wallet and 2.00 from
+ * the test confirmer's. No filing is more than 1.00, the most the test people's Qatom accounts
+ * approve by themselves.
  *
  * The rules, the same as the first paid story's:
  * - One filing per step, never retried. Each scenario stops at its first step that does not
- *   pass; the other scenario still runs.
+ *   pass; the other scenarios still run.
  * - Before every filing the step looks at the public pages, and files nothing unless donors
  *   see what the step needs: nothing here files unless the first paid story ended with its
  *   milestone confirmed, nothing is claimed twice, and nothing is confirmed that donors do not
@@ -53,6 +64,7 @@ import {
 	type MilestoneStatus
 } from '../lib/milestone-page.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
+import { chooseFormMilestone, openReportForm, sendFormForReview } from '../lib/report-form.ts';
 import { readRunCampaign } from '../lib/run-campaign.ts';
 
 needsSignIn();
@@ -78,10 +90,13 @@ const NOTHING = 'Not run, so nothing was filed and no deposit was spent: ';
 
 const reference = (step: string) => `ref-${step}-${Date.now().toString(36)}`;
 
-/** Told once per run, by the phone project, on a paid run that created its own campaign. */
+/** Told once per run, by the desktop project, on a paid run that created its own campaign. */
 function paidRunOnly(testInfo: TestInfo, cfg: E2eConfig): void {
 	test.skip(!cfg.paid, `${NOTHING}E2E_PAID is not "true".`);
-	test.skip(testInfo.project.name !== 'phone', 'One paid story per run: the phone project.');
+	test.skip(
+		testInfo.project.name !== 'desktop',
+		'Told once per run, by the desktop project, after its checks of the App.'
+	);
 	test.skip(
 		readRunCampaign() === null,
 		`${NOTHING}this run has no campaign of its own to file on.`
@@ -183,6 +198,61 @@ async function confirmMilestone(
 		deposit: '1.00'
 	});
 }
+
+// ---------------------------------------------------------------------------
+// A work log sent from the chat's report form
+// ---------------------------------------------------------------------------
+
+test.describe('a work log from the report form', () => {
+	test.describe.configure({ mode: 'serial', retries: 0 });
+
+	test('the contractor sends a work log from the report form, files it for a real deposit, and it is on the timeline', async ({
+		page,
+		cfg,
+		waypoint
+	}, testInfo) => {
+		paidRunOnly(testInfo, cfg);
+		await onlyOnAnUnclaimedMilestone(page, cfg, DELIVERY_MILESTONE);
+
+		const ref = reference('form');
+		const note = `Automated end-to-end check ${ref}. Sent from the report form. A test entry, not real work.`;
+
+		// Filled in as a person would: which milestone, which report, how it is going, the note.
+		const form = await openReportForm(page, cfg);
+		await chooseFormMilestone(form, DELIVERY_MILESTONE);
+		await form.getByRole('radio', { name: /^Work log/ }).check();
+		await form.getByLabel(/^How the work is going/).selectOption({ label: 'On track' });
+		await form.getByLabel(/^Percent complete/).fill('10');
+		await form.getByLabel('What was done').fill(note);
+		await waypoint(page, 'form-filled');
+
+		const card = await sendFormForReview(page, form);
+		// The conversation shows the form back, and the card carries its values.
+		const sent = page.locator('.log .tj-msg--human .sent-form');
+		await expect(sent).toContainText('Work log');
+		await expect(sent).toContainText(DELIVERY_MILESTONE);
+		await expect(sent).toContainText(ref);
+		await expect(
+			card,
+			'The review card is not about the milestone the form named. Nothing was filed.'
+		).toContainText(DELIVERY_MILESTONE);
+		await expect(
+			card,
+			'The review card does not carry the note the form gave. Nothing was filed.'
+		).toContainText(ref);
+		await waypoint(page, 'review-before-filing');
+
+		await fileFromReview(page, cfg, waypoint, card, ref, {
+			what: 'work log',
+			who: 'contractor',
+			deposit: '0.10'
+		});
+
+		// Donors now see work reported on the milestone, and nobody has claimed it.
+		await donorsNowSee(page, cfg, DELIVERY_MILESTONE, 'In progress');
+		await waypoint(page, 'delivery-in-progress');
+	});
+});
 
 // ---------------------------------------------------------------------------
 // A delivery: claimed with a quantity, a unit and a photo, then confirmed
