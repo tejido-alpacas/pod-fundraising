@@ -133,8 +133,8 @@ function filedInThisRun(entries: PaidEntry[]): string {
 }
 
 test.describe('the three filings', () => {
-	// In order, and the rest are left out once one fails: a claim is not filed after a failed
-	// work log, and nothing is confirmed that was not claimed.
+	// In order, and the rest are left out once one fails. A step that is left out without
+	// failing (a wallet that is short) leaves out the ones after it too: each looks first.
 	test.describe.configure({ mode: 'serial' });
 
 	test('files one work log for a real deposit and finds it on the timeline', async ({
@@ -147,7 +147,7 @@ test.describe('the three filings', () => {
 		const ref = reference('log');
 		const card = await draftWorkLog(page, cfg, ref, waypoint);
 		await waypoint(page, 'review-before-filing');
-		const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+		const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 			what: 'work log',
 			who: 'contractor',
 			deposit: '0.10'
@@ -161,6 +161,14 @@ test.describe('the three filings', () => {
 		waypoint
 	}, testInfo) => {
 		paidStoryOnly(testInfo.project.name, cfg.paid, testInfo.retry);
+
+		// A step left out (a wallet that is short) does not stop the ones after it, so each step
+		// first sees for itself that the one before it happened. Nothing is paid otherwise.
+		test.skip(
+			!readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'work log'),
+			'Not filed, and nothing was paid: this run did not see its work log on the public ' +
+				'timeline, so the story stops here and no milestone is claimed.'
+		);
 
 		const ref = reference('claim');
 		const card = await draftReport(
@@ -177,7 +185,7 @@ test.describe('the three filings', () => {
 			waypoint
 		);
 		await waypoint(page, 'review-before-filing');
-		const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+		const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 			what: 'milestone claim',
 			who: 'contractor',
 			deposit: '1.00'
@@ -200,6 +208,20 @@ test.describe('the three filings', () => {
 		}, testInfo) => {
 			paidStoryOnly(testInfo.project.name, cfg.paid, testInfo.retry);
 
+			// Never confirm a milestone nobody claimed: the claim may have been left out (a wallet
+			// that is short). Look at the public page first, before anything can be paid.
+			await openBuildMilestone(page, cfg.siteUrl, cfg.campaignId);
+			const claimed = await page.getByText('Claimed complete', { exact: true }).count();
+			test.skip(
+				claimed === 0 ||
+					!readPaidEntries(cfg.campaignId).some((entry) => entry.what === 'milestone claim'),
+				'Not filed, and nothing was paid: ' +
+					(claimed === 0
+						? 'the milestone’s public page does not say "Claimed complete"'
+						: 'this run did not see its own claim on the public timeline') +
+					', so there is nothing to confirm.'
+			);
+
 			const ref = reference('confirm');
 			const card = await draftReport(
 				page,
@@ -215,7 +237,7 @@ test.describe('the three filings', () => {
 				waypoint
 			);
 			await waypoint(page, 'review-before-filing');
-			const proofPath = await fileFromReview(page, cfg, waypoint, card, ref, {
+			const { proofPath } = await fileFromReview(page, cfg, waypoint, card, ref, {
 				what: 'confirmation',
 				who: 'confirmer',
 				deposit: '1.00'

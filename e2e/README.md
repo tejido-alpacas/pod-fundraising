@@ -109,9 +109,7 @@ lands incomplete fails saying so.
   - 2.10 in deposits: 1.10 from the test contractor's Qatom agent wallet (a work log, 0.10, and
     a milestone claim, 1.00) and 1.00 from the test confirmer's (the confirmation). Tejido
     sends a test person's deposits back to the same agent wallet by itself once the milestone
-    is confirmed, so a run that goes all the way should cost nothing in the end. A run that
-    stops before the confirmation, or whose refund does not arrive, leaves its deposits held
-    and the wallets that much lower.
+    is confirmed, so a run that goes all the way should cost nothing in the end. A run that stops before the confirmation gets its deposits back too, once they are 20 minutes old. A refund that does not arrive leaves the wallets that much lower.
   - one draft campaign in the live database, with its two people, three milestones and three
     entries, titled "Automatic test, run N (not a real fundraiser)". It is on no public list
     and nothing can remove it yet.
@@ -200,7 +198,11 @@ files, each on the campaign that run created:
 After each, the entry is found on the campaign's public timeline by a reference the suite puts
 in its note, its proof page is opened, and it must not be marked incomplete. After the claim
 the milestone's public page must say "Claimed complete"; after the confirmation, "Confirmed".
-The steps stop at the first that does not pass. No step is ever retried.
+The steps stop at the first that does not pass. No step is ever retried. A step left
+out without failing (a wallet that is short, "TOP UP NEEDED") leaves out the ones after it as
+well, paying nothing: the claim first checks that this run saw its work log on the public
+timeline, and the confirmation first checks that the milestone's public page says "Claimed
+complete".
 
 The milestone is named on purpose: the first test milestone is a service, which takes
 documents only, and a photo on it makes the report incomplete.
