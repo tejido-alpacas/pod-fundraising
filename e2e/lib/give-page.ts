@@ -7,7 +7,7 @@
  *
  * Nothing here pays, presses an amount or calls an address that needs a secret.
  */
-import { expect, type Locator, type Page, type TestInfo } from '@playwright/test';
+import { expect, type Locator, type Page, type Response, type TestInfo } from '@playwright/test';
 import { AT, escaped, whole, type Lang, type Row } from './site-words.ts';
 
 export const UNIT = 'USD-TDN';
@@ -244,28 +244,46 @@ export function fundingInWords(funding: StatedFunding | null): string {
 }
 
 /**
- * Does `press` (a press on one of the Give form's buttons), and answers the page the site's
- * answer is shown in: a new window, when the form opens one, or this same tab. Whichever
- * happens first. The caller closes a new window when it has read it.
+ * Does `press` (sending the Give form), and answers the page the site's answer to THAT FORM is
+ * shown in. The caller says where the form sends its answer, as the form itself says it
+ * (`target="_blank"` or not), so no other page is ever taken for the answer:
+ *
+ *   - `newWindow: true`: the answer is the new window the form opens, once it holds the
+ *     site's answer (a new window is blank at first). The page the form was on is never it.
+ *   - `newWindow: false`: the answer is this tab, once it has loaded the document the site
+ *     sent back for the form's POST. Nothing else this tab does counts.
+ *
+ * The caller closes a new window when it has read it.
  */
-export async function whereTheAnswerShows(page: Page, press: () => Promise<void>): Promise<Page> {
+export async function whereTheAnswerShows(
+	page: Page,
+	press: () => Promise<void>,
+	{ newWindow }: { newWindow: boolean }
+): Promise<Page> {
 	const context = page.context();
 	const opened: Page[] = [];
 	const note = (other: Page) => {
 		opened.push(other);
 	};
-	let sameTab = false;
-	const navigated = (frame: unknown) => {
-		if (frame === page.mainFrame()) sameTab = true;
+	let posted = false;
+	const answered = (response: Response) => {
+		const request = response.request();
+		if (
+			request.method() === 'POST' &&
+			request.isNavigationRequest() &&
+			request.frame() === page.mainFrame()
+		) {
+			posted = true;
+		}
 	};
 	context.on('page', note);
-	page.on('framenavigated', navigated);
+	page.on('response', answered);
 	try {
 		await press();
 		const deadline = Date.now() + 30_000;
 		for (;;) {
 			const other = opened[0];
-			if (other !== undefined) {
+			if (newWindow && other !== undefined) {
 				// A new window is blank until the site's answer arrives in it: it is not the answer
 				// yet. No reason is repeated if the wait fails: a reason can hold an address.
 				const where = other.url();
@@ -273,26 +291,26 @@ export async function whereTheAnswerShows(page: Page, press: () => Promise<void>
 					await other.waitForLoadState('domcontentloaded').catch(() => undefined);
 					return other;
 				}
-			} else if (sameTab) {
+			}
+			if (!newWindow && posted) {
 				await page.waitForLoadState('domcontentloaded').catch(() => undefined);
 				return page;
 			}
-			if (other !== undefined && Date.now() >= deadline) {
-				await other.close().catch(() => undefined);
-				throw new Error(
-					'The Give form opened a new window, and 30 seconds later it was still blank: the site’s answer never arrived in it.'
-				);
-			}
 			if (Date.now() >= deadline) {
+				for (const each of opened) await each.close().catch(() => undefined);
 				throw new Error(
-					'Waited 30 seconds for the site to answer the Give form, in this tab or in a new window. It did not.'
+					newWindow
+						? other === undefined
+							? 'The Give form should open a new window with the site’s answer. 30 seconds later none had opened.'
+							: 'The Give form opened a new window, and 30 seconds later it was still blank: the site’s answer never arrived in it.'
+						: 'Waited 30 seconds for the site to answer the Give form in this tab. It did not.'
 				);
 			}
 			await new Promise((resolve) => setTimeout(resolve, 200));
 		}
 	} finally {
 		context.off('page', note);
-		page.off('framenavigated', navigated);
+		page.off('response', answered);
 	}
 }
 
