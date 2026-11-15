@@ -31,8 +31,9 @@ const MILESTONE = 'm9-roof';
 /** The commodity ids the seeded campaign carries, and the hash Qatom's catalog gives for each. */
 const LOG_ID = fixtures.campaign.logWorkCommodityId!;
 const HIT_ID = fixtures.campaign.milestoneHitCommodityId!;
-const LOG_HASH = 'logworkcommodityhash01';
-const HIT_HASH = 'milestonehitcommodityhash02';
+// Commodity hashes are UUIDs with hyphens, as Qatom's server gives them.
+const LOG_HASH = '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12';
+const HIT_HASH = '9a1d4e7c-2b36-4f58-a0c9-7e5b3d1f6a24';
 const DQ = '41dq0000000000000000000000000000000000000000000000000000000000000a';
 
 const contractor = fixtures.parties[0]!;
@@ -85,9 +86,9 @@ beforeEach(async () => {
 		requests.push({ method, path: url.pathname, body });
 
 		if (method === 'POST' && url.pathname === '/v4/account/oauth/token') {
-			return Response.json({ access_token: 'test-account-token', expires_at: 4102444800 });
+			return Response.json({ access_token: 'test-account-token', expires_at: '4102444800' });
 		}
-		const ledger = /^\/v4\/commodity\/([0-9a-zA-Z]+)\/transactions$/.exec(url.pathname);
+		const ledger = /^\/v4\/commodity\/([0-9a-zA-Z-]+)\/transactions$/.exec(url.pathname);
 		if (method === 'GET' && ledger) return answerLedger(ledger[1]!);
 		if (
 			method === 'GET' &&
@@ -289,20 +290,22 @@ describe('a confirmed milestone', () => {
 		);
 
 		// Exactly two transfers: a twin URL for the PRIMARY wallet, the ledger's dq, the total.
+		// Qatom takes decimal USD-TDN and does no scaling: our 1200 must go out as 1.2 and our
+		// 1000 as 1. Sent as 1200 it would be a refund 1000 times too large.
 		const sentBodies = transfers().map((request) => request.body);
 		expect(sentBodies).toHaveLength(2);
 		expect(sentBodies).toContainEqual(
 			expect.objectContaining({
 				address: `https://${contractor.primaryWalletHostname}`,
 				type: DQ,
-				amount: CONTRACTOR_TOTAL
+				amount: 1.2
 			})
 		);
 		expect(sentBodies).toContainEqual(
 			expect.objectContaining({
 				address: `https://${headTeacher.primaryWalletHostname}`,
 				type: DQ,
-				amount: HEAD_TEACHER_TOTAL
+				amount: 1
 			})
 		);
 		// Never an agent wallet.
@@ -449,7 +452,15 @@ describe('when the transfer does not go through', () => {
 		expect(report.needs_a_person).toBe(false);
 		expect(transfers()).toHaveLength(2);
 		expect(await refundedAt(contractorDeposits[0]!)).toBeNull();
-		expect((await roofRefunds()).map((row) => row.status)).toEqual(['failed', 'failed']);
+		const failed = await roofRefunds();
+		expect(failed.map((row) => row.status)).toEqual(['failed', 'failed']);
+		// The recorded reason says in plain words what a person has to do about a 402.
+		for (const row of failed) {
+			expect(row.statusReason).toContain("Not enough money in Tejido's Qatom account wallet");
+			expect(row.statusReason).toContain('nothing moved');
+			expect(row.statusReason).toContain('402');
+		}
+		// Each was sent once: a refusal is never followed by a second attempt.
 		expect(await test.db.select().from(refundDeposits)).toEqual([]);
 
 		// The wallet is topped up and someone asks again: each party is paid, once.
@@ -703,8 +714,8 @@ describe('the digital quantity', () => {
 		);
 		// Only the two Milestone hit deposits go back: the claim and the confirmation.
 		expect(transfers().map((request) => request.body)).toEqual([
-			expect.objectContaining({ type: DQ, amount: DEPOSIT_AMOUNT.milestone_hit }),
-			expect.objectContaining({ type: DQ, amount: DEPOSIT_AMOUNT.milestone_hit })
+			expect.objectContaining({ type: DQ, amount: 1 }),
+			expect.objectContaining({ type: DQ, amount: 1 })
 		]);
 	});
 
@@ -741,7 +752,7 @@ describe('the digital quantity', () => {
 		// The contractor's work logs and claim were paid in different quantities: two transfers.
 		expect(report.sent.filter((line) => line.party_id === contractor.id)).toHaveLength(2);
 		expect(transfers().map((request) => request.body)).toContainEqual(
-			expect.objectContaining({ type: otherDq, amount: 2 * DEPOSIT_AMOUNT.log_work })
+			expect.objectContaining({ type: otherDq, amount: 0.2 })
 		);
 		expect(transfers()).toHaveLength(3);
 	});

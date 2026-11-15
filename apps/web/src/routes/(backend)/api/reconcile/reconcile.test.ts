@@ -17,8 +17,9 @@ const CAMPAIGN = fixtures.campaign.id;
 /** The commodity ids the seeded campaign carries, and the hash Qatom's catalog gives for each. */
 const LOG_ID = fixtures.campaign.logWorkCommodityId!;
 const HIT_ID = fixtures.campaign.milestoneHitCommodityId!;
-const LOG_HASH = 'loghash111';
-const HIT_HASH = 'hithash222';
+// Commodity hashes are UUIDs with hyphens, as Qatom's server gives them.
+const LOG_HASH = '3f2b8c1e-5d47-4a9b-8e21-0c6d9f4a7b12';
+const HIT_HASH = '9a1d4e7c-2b36-4f58-a0c9-7e5b3d1f6a24';
 
 const contractor = fixtures.parties[0]!;
 const supplier = fixtures.parties[1]!;
@@ -57,7 +58,8 @@ beforeEach(async () => {
 		if (address === `${API}/v4/account/oauth/token`) {
 			return answer({
 				access_token: 'account-token',
-				expires_at: Math.floor(Date.now() / 1000) + 3600
+				// A string of digits, as Qatom's server sends it.
+				expires_at: String(Math.floor(Date.now() / 1000) + 3600)
 			});
 		}
 		const { pathname, searchParams } = new URL(address);
@@ -77,7 +79,7 @@ beforeEach(async () => {
 					: [{ id: 42, commodity_id: commodityId, commodity_hash: listing, active: true }];
 			return answer({ items, total: items.length, limit: null, offset: 0 });
 		}
-		const hash = /^\/v4\/commodity\/(\w+)\/transactions$/.exec(pathname)?.[1];
+		const hash = /^\/v4\/commodity\/([\w-]+)\/transactions$/.exec(pathname)?.[1];
 		const ledger = hash === undefined ? undefined : ledgers[hash];
 		if (ledger === undefined) return Promise.reject(new Error(`unexpected request: ${address}`));
 		if (ledger instanceof Error) return Promise.reject(ledger);
@@ -106,22 +108,24 @@ async function giveCampaignItems(
 	await test.db.update(campaigns).set(ids).where(eq(campaigns.id, CAMPAIGN));
 }
 
-/** One ledger row, as Qatom returns it. */
+/**
+ * One ledger row, as Qatom returns it. The amount is given here in our thousandths and put on
+ * the row as Qatom reports it, in decimal USD-TDN: a 0.10 work log (our 100) reads 0.1.
+ * Real rows may not carry `destinationAddress`, so these do not.
+ */
 function sale(
 	twistId: string,
 	timestamp: string,
 	fromAddress: string,
 	amount: number = DEPOSIT_AMOUNT.log_work
 ) {
-	return {
-		twistId,
-		timestamp,
-		amount,
-		fromAddress,
-		destinationAddress: 'item.wallets.tejido.example',
-		operation: 'transfer'
-	};
+	return { twistId, timestamp, amount: amount / 1000, fromAddress, operation: 'receive' };
 }
+
+/** A paying address as the one real ledger row seen gives it: 66 hexadecimal characters. */
+const HEX_PAYER = `41${'0123456789abcdef'.repeat(4)}`;
+
+const NO_OPERATIONS = { send: 0, receive: 0, transfer: 0, split: 0, other: 0, none: 0 };
 
 /** Saves another work log by the contractor, filed at the given time. */
 async function addWorkLog(id: string, filedAt: string) {
@@ -184,7 +188,10 @@ describe('POST /api/reconcile', () => {
 			unmatched: 1,
 			ambiguous: 0,
 			waitingForWallet: 0,
-			unreadableTransactions: 0
+			payingWalletNotComparable: 0,
+			unreadableTransactions: 0,
+			rowsNotPayments: 0,
+			operationsSeen: { ...NO_OPERATIONS, receive: 1 }
 		} satisfies ReconcileSummary);
 		expect(await entry(workLog.id)).toEqual({
 			...workLog,
@@ -233,6 +240,138 @@ describe('POST /api/reconcile', () => {
 			twistId: '41bb',
 			payingWallet: STRANGER,
 			stampedAt: '2026-11-13T17:02:10.000Z'
+		});
+	});
+
+	describe('when the paying address is not a hostname', () => {
+		it('does not flag the entry: it is left as it was and counted on its own', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [sale('41hex', '2026-11-13T17:02:10.000Z', HEX_PAYER)];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({
+				matched: 0,
+				verified: 0,
+				flagged: 0,
+				unmatched: 2,
+				ambiguous: 0,
+				payingWalletNotComparable: 1
+			});
+			expect(await entry(workLog.id)).toEqual(workLog);
+		});
+
+		it('does not flag an incomplete entry either', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [];
+			ledgers[HIT_HASH] = [
+				sale(
+					'41hex',
+					'2026-11-11T11:05:45.000Z',
+					`0x${'ab'.repeat(32)}`,
+					DEPOSIT_AMOUNT.milestone_hit
+				)
+			];
+
+			expect((await run()).body).toMatchObject({ flagged: 0, payingWalletNotComparable: 1 });
+			expect(await entry(delivery.id)).toEqual(delivery);
+		});
+
+		it('still verifies an entry whose own payment is there under a hostname', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [
+				sale('41hex', '2026-11-13T17:02:12.000Z', HEX_PAYER),
+				sale('41own', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET)
+			];
+			ledgers[HIT_HASH] = [];
+
+			expect((await run()).body).toMatchObject({ verified: 1, payingWalletNotComparable: 0 });
+			expect(await entry(workLog.id)).toMatchObject({ status: 'verified', twistId: '41own' });
+		});
+
+		it('leaves it there to be matched later: a second run changes nothing and flags nothing', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [sale('41hex', '2026-11-13T17:02:10.000Z', HEX_PAYER)];
+			ledgers[HIT_HASH] = [];
+
+			await run();
+			expect((await run()).body).toMatchObject({ flagged: 0, payingWalletNotComparable: 1 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+		});
+	});
+
+	describe('amounts, which Qatom reports in decimal USD-TDN', () => {
+		it('matches a 0.10 work log to a row reading 0.1, and a 1.00 milestone to a row reading 1', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [
+				{ ...sale('41log', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET), amount: 0.1 }
+			];
+			ledgers[HIT_HASH] = [
+				{ ...sale('41hit', '2026-11-11T11:05:45.000Z', SUPPLIER_WALLET), amount: 1 }
+			];
+
+			expect((await run()).body).toMatchObject({ matched: 2, verified: 1, stampedIncomplete: 1 });
+			expect(await entry(workLog.id)).toMatchObject({ status: 'verified', twistId: '41log' });
+			expect(await entry(delivery.id)).toMatchObject({ twistId: '41hit' });
+		});
+
+		it('does not match a row reading 100: that would be a hundred, not a tenth', async () => {
+			await giveCampaignItems();
+			ledgers[LOG_HASH] = [
+				{ ...sale('41big', '2026-11-13T17:02:10.000Z', CONTRACTOR_WALLET), amount: 100 }
+			];
+			ledgers[HIT_HASH] = [];
+
+			expect((await run()).body).toMatchObject({ matched: 0 });
+			expect(await entry(workLog.id)).toEqual(workLog);
+		});
+	});
+
+	describe('rows that are not payments for the item', () => {
+		it('leaves out money going out, and a row that names another commodity', async () => {
+			await giveCampaignItems();
+			const at = '2026-11-13T17:02:10.000Z';
+			ledgers[LOG_HASH] = [
+				{ ...sale('41out', at, CONTRACTOR_WALLET), operation: 'send' },
+				{ ...sale('41other', at, CONTRACTOR_WALLET), commodityHash: HIT_HASH }
+			];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({
+				matched: 0,
+				flagged: 0,
+				rowsNotPayments: 2,
+				operationsSeen: { ...NO_OPERATIONS, send: 1, receive: 1 }
+			});
+			expect(await entry(workLog.id)).toEqual(workLog);
+		});
+
+		it('keeps a row that names this commodity, and one with no operation or any other', async () => {
+			await giveCampaignItems();
+			const { operation: _none, ...bare } = sale(
+				'41own',
+				'2026-11-13T17:02:10.000Z',
+				CONTRACTOR_WALLET
+			);
+			ledgers[LOG_HASH] = [
+				{ ...bare, commodityHash: LOG_HASH.toUpperCase() },
+				{ ...sale('41t', '2026-11-01T00:00:00.000Z', STRANGER), operation: 'transfer' },
+				{ ...sale('41s', '2026-11-01T00:00:00.000Z', STRANGER), operation: 'split' },
+				{ ...sale('41x', '2026-11-01T00:00:00.000Z', STRANGER), operation: 'mint' }
+			];
+			ledgers[HIT_HASH] = [];
+
+			const { body } = await run();
+
+			expect(body).toMatchObject({
+				verified: 1,
+				rowsNotPayments: 0,
+				operationsSeen: { ...NO_OPERATIONS, transfer: 1, split: 1, other: 1, none: 1 }
+			});
+			expect(await entry(workLog.id)).toMatchObject({ status: 'verified', twistId: '41own' });
 		});
 	});
 
