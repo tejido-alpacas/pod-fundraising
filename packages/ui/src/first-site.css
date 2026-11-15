@@ -54,3 +54,98 @@
 	font-family: var(--font-serif);
 	letter-spacing: -0.02em;
 }
+
+/*
+	The App's header, drawn as the first site's header: a rounded bar that floats a little below
+	the top of the screen, frosted white with a light edge and a soft shadow; the logo at the
+	first site's sizes; the buttons at its end as the first site's outlined "ghost" buttons; and
+	the page links as its rounded pills. The sizes and colours are the first site's own
+	(.top, .top-row, .brand img, .btn-ghost.btn-sm and .mainnav a in the Campaign Site's
+	apps/web/src/lib/campaign-site/tejido.css). Controls stay 48px tall, the App's rule.
+
+	Only the header is frosted. The page behind it stays the plain page colour: the first site's
+	drifting gradient is not used in the App.
+*/
+.tj-fieldheader {
+	top: 8px;
+	margin: 8px 8px 0;
+	gap: 8px;
+	min-height: 58px;
+	padding: 0 8px 0 12px;
+	border: 1px solid rgba(255, 255, 255, 0.75);
+	border-radius: 16px;
+	background: rgba(255, 255, 255, 0.66);
+	-webkit-backdrop-filter: saturate(180%) blur(22px);
+	backdrop-filter: saturate(180%) blur(22px);
+	box-shadow:
+		inset 0 1px 0 rgba(255, 255, 255, 0.9),
+		var(--shadow-1);
+}
+/* Browsers that cannot blur get solid white, so text passing under the bar never shows through. */
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+	.tj-fieldheader {
+		background: rgba(255, 255, 255, 0.95);
+	}
+}
+.tj-fieldheader__home--logo {
+	padding-inline: 0;
+}
+.tj-fieldheader__home--name img {
+	height: 26px;
+}
+/* Narrower on a phone than the first site's 18px, so a project's name still fits beside it. */
+.tj-fieldheader__end .tj-btn {
+	padding: 0 12px;
+	border: 1px solid rgba(5, 89, 184, 0.28);
+	border-radius: 12px;
+	background: rgba(255, 255, 255, 0.6);
+	color: var(--link);
+	font-size: 16px;
+	box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+.tj-fieldheader__end .tj-btn:hover {
+	background: rgba(255, 255, 255, 0.85);
+}
+
+/* The page links under the header, as the first site's navigation pills. */
+.tj-fieldnav {
+	gap: 2px;
+	margin: 6px 8px 0;
+	padding: 0 12px;
+	background: none;
+	border-bottom: 0;
+}
+.tj-fieldnav a {
+	padding: 0 14px;
+	border-radius: 12px;
+	color: var(--text-primary);
+	font-weight: 500;
+}
+.tj-fieldnav a:hover {
+	background: rgba(255, 255, 255, 0.7);
+}
+.tj-fieldnav a[aria-current='page'] {
+	color: var(--link);
+	background: rgba(1, 115, 230, 0.1);
+	box-shadow: none;
+}
+
+@container (min-width: 1000px) {
+	.tj-fieldheader {
+		top: 10px;
+		margin: 10px 12px 0;
+		gap: 22px;
+		min-height: 66px;
+		padding: 0 18px;
+	}
+	.tj-fieldheader__home--name img {
+		height: 34px;
+	}
+	.tj-fieldheader__end .tj-btn {
+		padding: 0 18px;
+	}
+	.tj-fieldnav {
+		margin-inline: 12px;
+		padding-inline: 18px;
+	}
+}

@@ -7,8 +7,9 @@
 /** The full logo: the mark and the name. It stands in for the title "Tejido". */
 export const LOGO = {
 	src: '/tejido-logo-on-light.svg',
-	width: 125,
-	height: 30,
+	// The first site's header size. The stylesheet makes it 26px tall on a phone, as there.
+	width: 142,
+	height: 34,
 	standsForTitle: true
 } as const;
 

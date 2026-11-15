@@ -56,7 +56,11 @@
 		</a>
 	{:else}
 		<a
-			class={logo ? 'tj-fieldheader__home tj-fieldheader__home--logo' : 'tj-fieldheader__home'}
+			class={[
+				'tj-fieldheader__home',
+				logo && 'tj-fieldheader__home--logo',
+				logo?.standsForTitle && 'tj-fieldheader__home--name'
+			]}
 			href={home}
 			aria-label="Tejido home"
 		>

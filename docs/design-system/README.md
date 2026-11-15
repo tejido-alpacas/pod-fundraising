@@ -21,9 +21,12 @@ Site (tejido.net) has. The rules:
    logo, the first site wins.** The brand book still decides the components and the trust rules.
 5. **A page is judged by reading as the same product as the Campaign Site's pages.** Put it beside
    `/campaigns/library-wing`: same fonts, same blues, same page colour, same corners.
-6. **The App stays calm.** It takes the first site's page colour, not its drifting gradient or
-   glass panels: it is used on phones in the field.
-7. **Light only**, as before (rule 7 below).
+6. **The App's header is the first site's header**: a rounded bar floating just under the top of
+   the screen, frosted white, with the logo at the first site's sizes, outlined buttons and
+   rounded page links. Its rules are in `first-site.css`.
+7. **Otherwise the App stays calm.** It takes the first site's page colour, not its drifting
+   gradient, and its cards are not glass: it is used on phones in the field.
+8. **Light only**, as before (rule 7 below).
 
 ## Where things are
 
