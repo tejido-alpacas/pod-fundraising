@@ -100,7 +100,9 @@ test('a campaign that is raising money leads to its Give page, which lists amoun
 	}
 	await expect(page.getByRole('heading', { name: 'Choose an amount' })).toBeVisible();
 	await expect(
-		page.getByText('You pay on Qatom’s checkout page. Nothing is charged here.')
+		page.getByText(
+			'Payment opens in a new window, on Qatom’s checkout page. Nothing is charged here.'
+		)
 	).toBeVisible();
 	await expect(
 		page.getByText('Tejido keeps no name, email or wallet of yours with the gift.')
