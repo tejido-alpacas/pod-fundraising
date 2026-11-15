@@ -159,11 +159,13 @@ export async function fileFromReview(
 	 * the App's pages can read a wallet's balance.
 	 */
 	const topUpIfTheWalletIsShort = (): void => {
-		if (
-			!/top.?up|insufficient|not enough|doesn[’']t have enough|too low|short of funds|balance/i.test(
+		// The assistant's own words in runs 72 and 73: "doesn't have enough to cover the 1.00 filing
+		// deposit", and "has 0.80, and the filing deposit is 1.00. Qatom turned down the payment".
+		const short =
+			/top.?up|insufficient|not enough|doesn[’']t have enough|too low|short of funds|balance/i.test(
 				said
-			)
-		) {
+			) || /turned down the payment|declined the payment|move at least [\d.,]+/i.test(said);
+		if (!short) {
 			return;
 		}
 		const notice =
