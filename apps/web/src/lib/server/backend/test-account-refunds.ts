@@ -94,7 +94,7 @@ export function isDueForRefund(
 export type TestRefundSkipReason =
 	/** The reconciler has not matched the entry to a ledger transaction yet. */
 	| 'entry_not_verified'
-	/** The reconciler flagged the entry: it was not paid from the party's own agent wallet. */
+	/** The reconciler flagged the entry: its receipt does not match the filing. */
 	| 'entry_flagged'
 	/** An earlier pass claimed these deposits and has not recorded what happened. */
 	| 'refund_in_progress'

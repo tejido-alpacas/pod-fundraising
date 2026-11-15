@@ -580,13 +580,21 @@ export async function reconcile(
 	// entries are put side by side before anything is read or matched.
 	const ledgers = new Map<number, SharedLedger>();
 	const byPurchase: WaitingOnPurchase[] = [];
+	// Every campaign's waiting entries in one query, not one query for each campaign: the
+	// number of campaigns grows with every test run, and the cost of a pass must not.
+	const waitingByCampaign = new Map<string, UnreconciledEntry[]>();
+	for (const row of await listUnreconciledEntries(db)) {
+		const rows = waitingByCampaign.get(row.entry.campaignId);
+		if (rows) rows.push(row);
+		else waitingByCampaign.set(row.entry.campaignId, [row]);
+	}
 	for (const campaign of await listCampaigns(db)) {
 		// Counted, never skipped: a campaign with no ids of its own uses the shared items.
 		if (ITEMS.every((item) => campaign[ITEM_COMMODITY_ID[item]] === null)) {
 			summary.campaignsWithoutItems += 1;
 		}
 		summary.campaigns += 1;
-		const waiting = await listUnreconciledEntries(db, campaign.id);
+		const waiting = waitingByCampaign.get(campaign.id) ?? [];
 		summary.unmatched += waiting.length;
 
 		for (const item of ITEMS) {
