@@ -1,7 +1,8 @@
 /**
- * THE PAID STORY: THE ONE PLACE A TEST MOVES MONEY. It runs only when E2E_PAID is exactly
- * `true`, which only the workflow sets, under its cap (CLAUDE.md, "Never move money to test
- * something").
+ * THE PAID STORY: WHERE A TEST MOVES MONEY. It runs only when E2E_PAID is exactly `true`,
+ * which only the workflow sets, on a run a person started by hand with "paid" ticked (CLAUDE.md,
+ * "Never move money to test something"). A run that follows a release never moves money. Never
+ * set E2E_PAID yourself, and never run this suite from a session.
  *
  * On a campaign this run created for itself (specs/create-campaign.spec.ts), it tells the paid
  * part of the story, each step through the App's chat and its review card, as a real filer:
@@ -31,7 +32,8 @@
  *   4. within 4 minutes, each entry's proof page answers "Yes · receipt verified"
  *   5. within 4 more minutes, each entry's proof page shows "Deposit refunded"
  *
- * Tejido does both by itself on a timer. Nothing here asks it to: the suite never calls
+ * Tejido matches receipts by itself on a timer; the owner returns test deposits by hand.
+ * Nothing here asks for either: the suite never calls
  * /api/reconcile, /api/refunds or /api/test-account-refunds. A wait that runs out is a failure
  * of that step alone, with the filings already recorded as passed above it.
  */

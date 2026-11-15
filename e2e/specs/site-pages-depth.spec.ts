@@ -475,7 +475,7 @@ const BACKEND_PAGES: { path: string; name: string; says: string }[] = [
 	{
 		path: '/backend/reconciler',
 		name: 'Reconciler',
-		says: "Reads each campaign's ledgers from Qatom"
+		says: 'Asks Qatom for the purchase behind each filing'
 	},
 	{ path: '/backend/refunds', name: 'Deposit refunds', says: 'back to their primary wallet' },
 	{ path: '/backend/scheduler', name: 'Cadence scheduler', says: 'Works out what is due from whom' }
