@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { idSchema, reporterCodeSchema, sha256Schema } from './primitives.ts';
 
 /**
- * The two Qatom catalog items every campaign has, and the inputs each one declares.
+ * The two Qatom catalog items every campaign shares, and the inputs each one declares.
  *
  * Qatom validates a purchase against the item's schema before it charges, then POSTs the
  * declared inputs, and nothing else, to our check-in endpoint. Field names here are the
@@ -215,18 +215,13 @@ export const CHECKIN_SECRET_HEADER = 'X-Tejido-Checkin-Secret';
 export type JsonSchema = { [key: string]: unknown };
 
 /**
- * The `service_schema` to enter on a campaign's catalog item in Qatom, generated from the
- * schemas above so the two cannot drift. `milestone_id` becomes an enum of that campaign's
- * own milestones, which is how an agent sees the valid choices in the tool itself.
+ * The `service_schema` to enter on a catalog item in Qatom, generated from the schemas above
+ * so the two cannot drift. Every campaign shares the same two items, so nothing in it names
+ * one campaign: `milestone_id` is plain text, and the check-in endpoint, which finds the
+ * campaign from the reporter code, refuses a milestone that campaign does not have.
  */
-export function itemInputJsonSchema(
-	item: EntryItem,
-	milestoneIds: readonly [string, ...string[]]
-): JsonSchema {
-	const base = item === 'log_work' ? logWorkInputSchema : milestoneHitInputSchema;
-	const forCampaign = base.extend({
-		milestone_id: z.enum(milestoneIds).describe('The milestone this entry is about.')
-	});
-	const { $schema: _dialect, ...schema } = z.toJSONSchema(forCampaign, { io: 'input' });
+export function itemInputJsonSchema(item: EntryItem): JsonSchema {
+	const inputs = item === 'log_work' ? logWorkInputSchema : milestoneHitInputSchema;
+	const { $schema: _dialect, ...schema } = z.toJSONSchema(inputs, { io: 'input' });
 	return schema;
 }
