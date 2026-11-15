@@ -1,8 +1,12 @@
 <!--
   Created: what the organiser sees once the campaign exists. The button that publishes it, its
-  page, an invitation link for each person, what happens next, and what is not automatic yet.
+  page, the full record of each person they set up with that person's invitation link, what
+  happens next, and what is not automatic yet.
 
-  <Created {created} {lang} {email} {publishing} />
+  The record (email addresses, milestones) is what the organiser typed, kept in their own
+  browser tab: see record.ts. Without it the links are still shown, and no email address is.
+
+  <Created {created} {record} {lang} {email} {publishing} />
 -->
 <script lang="ts">
 	import { Banner, Button } from '@tejido/ui';
@@ -10,16 +14,20 @@
 	import type { Lang } from '#lib/campaign-site/i18n/index.ts';
 	import PublishCampaign from '#lib/campaign-site/PublishCampaign.svelte';
 	import type { CreatedCampaign } from './draft.ts';
-	import { ROLE_LABEL } from './words.ts';
+	import type { CreatedRecord } from './record.ts';
+	import { RELATIONSHIP_LABEL, ROLE_IN_WORDS, ROLE_LABEL } from './words.ts';
 
 	let {
 		created,
+		record,
 		lang,
 		email,
 		publishing,
 		heading = $bindable()
 	}: {
 		created: CreatedCampaign;
+		/** Who was set up, as typed in this browser tab. Null when this tab does not hold it. */
+		record: CreatedRecord | null;
 		lang: Lang;
 		/** The signed-in person's email, or null. */
 		email: string | null;
@@ -65,34 +73,123 @@
 	</div>
 </div>
 
+{#if record}
+	<section class="tj-card" aria-labelledby="created-organiser">
+		<h2 class="tj-section__title" id="created-organiser">The organiser</h2>
+		<dl class="tj-dl facts">
+			<div>
+				<dt>Organised by</dt>
+				<dd>{record.organiser.name}</dd>
+			</div>
+			<div>
+				<dt>Organiser’s email, kept private</dt>
+				<dd>
+					{record.organiser.email}
+					<span class="meta">
+						Only someone who signs in with Qatom using exactly this address can publish the
+						campaign.
+					</span>
+				</dd>
+			</div>
+		</dl>
+	</section>
+{/if}
+
 <section class="tj-section" aria-labelledby="created-invitations">
 	<div class="head">
 		<h2 class="tj-section__title" id="created-invitations">Invitation links</h2>
 		<p class="tj-section__sub">
-			Send each person their own link. Tejido does not email them. A link opens the invitation in
-			the Tejido app, and only a sign-in with the email address you entered for that person can
-			accept it.
+			{#if record}
+				These are the people you set up, as you entered them. Check each one, then send each person
+				their own link yourself.
+			{:else}
+				Send each person their own link.
+			{/if}
+			Tejido does not email them. A link opens the invitation in the Tejido app, and only a sign-in with
+			the email address you entered for that person can accept it.
 		</p>
 	</div>
 	<Banner title="Copy these links now" role="note">
-		They are shown here, in this browser tab, and nowhere else. Closing the tab loses them.
+		They are shown here, in this browser tab, and nowhere else. Closing the tab loses them{record
+			? ', and the email addresses with them'
+			: ''}.
 	</Banner>
-	<ul class="links">
-		{#each created.invitations as invitation (invitation.url)}
-			<li class="tj-card">
-				<div>
-					<p class="name">{invitation.name}</p>
-					<p class="role">
-						{invitation.title ? `${invitation.title} · ` : ''}{ROLE_LABEL[invitation.role]}
+	{#if record}
+		<ul class="links">
+			{#each record.people as person (person.url)}
+				<li class="tj-card">
+					<div>
+						<p class="text-eyebrow">{ROLE_IN_WORDS[person.role]}</p>
+						<h3 class="name">{person.name}</h3>
+					</div>
+					<dl class="tj-dl facts">
+						<div>
+							<dt>Title or organisation</dt>
+							<dd>{person.title}</dd>
+						</div>
+						<div>
+							<dt>Registered email</dt>
+							<dd>
+								{person.email}
+								<span class="meta">
+									The invitation only works for someone who signs in with Qatom using exactly this
+									address.
+								</span>
+							</dd>
+						</div>
+						<div>
+							<dt>{person.role === 'confirmer' ? 'Confirms' : 'Responsible for'}</dt>
+							{#each person.milestones as milestone, index (index)}
+								<dd>{milestone}</dd>
+							{:else}
+								<dd>No milestone</dd>
+							{/each}
+						</div>
+						{#if person.relationship}
+							<div>
+								<dt>Relationship to the project</dt>
+								<dd>
+									{RELATIONSHIP_LABEL[person.relationship]}
+									{#if person.relationshipReason}
+										<span class="meta">“{person.relationshipReason}”</span>
+									{/if}
+								</dd>
+							</div>
+						{/if}
+						<div>
+							<dt>Invitation link, to send to {person.name}</dt>
+							<dd class="link">
+								<a class="tj-id" href={person.url}>{person.url}</a>
+								<CopyButton what="Invitation link for {person.name}" value={person.url} />
+							</dd>
+						</div>
+					</dl>
+				</li>
+			{/each}
+		</ul>
+	{:else}
+		<p class="tj-help">
+			Each person’s email address and milestones were shown here only right after the campaign was
+			created, in the browser tab it was created in. They are not kept where this page can read them
+			again.
+		</p>
+		<ul class="links">
+			{#each created.invitations as invitation (invitation.url)}
+				<li class="tj-card">
+					<div>
+						<p class="name">{invitation.name}</p>
+						<p class="role">
+							{invitation.title ? `${invitation.title} · ` : ''}{ROLE_LABEL[invitation.role]}
+						</p>
+					</div>
+					<p class="link">
+						<a class="tj-id" href={invitation.url}>{invitation.url}</a>
+						<CopyButton what="Invitation link for {invitation.name}" value={invitation.url} />
 					</p>
-				</div>
-				<p class="link">
-					<a class="tj-id" href={invitation.url}>{invitation.url}</a>
-					<CopyButton what="Invitation link for {invitation.name}" value={invitation.url} />
-				</p>
-			</li>
-		{/each}
-	</ul>
+				</li>
+			{/each}
+		</ul>
+	{/if}
 </section>
 
 <section class="tj-section" aria-labelledby="created-next">
@@ -145,6 +242,41 @@
 	}
 	.link a {
 		padding-block: var(--space-3);
+	}
+	section,
+	.links li {
+		overflow-wrap: anywhere;
+	}
+	.meta {
+		display: block;
+		font-size: 14px;
+		line-height: 20px;
+		color: var(--text-secondary);
+	}
+	/* As on the review step: one fact a row, ruled off, the value under its label on a phone. */
+	.facts {
+		gap: 0;
+	}
+	.facts > div {
+		display: grid;
+		gap: var(--space-1) var(--space-4);
+		padding-block: var(--space-3);
+		border-top: var(--border-hair) solid var(--border);
+	}
+	.facts > div:last-child {
+		padding-bottom: 0;
+	}
+	.facts dd + dd {
+		margin-top: var(--space-1);
+	}
+	@container (min-width: 600px) {
+		.facts > div {
+			grid-template-columns: minmax(0, 13rem) minmax(0, 1fr);
+			align-items: baseline;
+		}
+		.facts dd {
+			grid-column: 2;
+		}
 	}
 	.steps {
 		display: grid;

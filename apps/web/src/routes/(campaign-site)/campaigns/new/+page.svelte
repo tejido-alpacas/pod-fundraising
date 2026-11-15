@@ -25,13 +25,16 @@
 	import StepPeople from '#lib/campaign-site/builder/StepPeople.svelte';
 	import StepReview from '#lib/campaign-site/builder/StepReview.svelte';
 	import StepSchedule from '#lib/campaign-site/builder/StepSchedule.svelte';
+	import { recordOf, type CreatedRecord } from '#lib/campaign-site/builder/record.ts';
 	import {
 		clearDraft,
 		loadCreated,
 		loadDraft,
+		loadRecord,
 		parseCreated,
 		saveCreated,
-		saveDraft
+		saveDraft,
+		saveRecord
 	} from '#lib/campaign-site/builder/store.ts';
 	import { STEP_NAME, UNIT } from '#lib/campaign-site/builder/words.ts';
 
@@ -69,11 +72,14 @@
 	// --- The draft: in the page, and in this tab's storage so a reload keeps it ---
 	let draft = $state<BuilderDraft>(emptyDraft());
 	let created = $state<CreatedCampaign | null>(null);
+	// Who the campaign was created with, as typed in this tab. Never asked of the server.
+	let record = $state<CreatedRecord | null>(null);
 	let ready = $state(false);
 	let stored = $state(true);
 	onMount(() => {
 		draft = loadDraft();
 		created = loadCreated();
+		record = loadRecord();
 		ready = true;
 	});
 	$effect(() => {
@@ -179,6 +185,7 @@
 	{#if showCreated && created}
 		<Created
 			{created}
+			record={record?.campaignId === created.id ? record : null}
 			lang={data.lang}
 			email={data.donorEmail}
 			publishing={data.publishing?.campaignId === created.id ? data.publishing : null}
@@ -208,8 +215,12 @@
 							failed = true;
 							return;
 						}
+						// The people as just typed, beside their links: read from the draft before it
+						// is emptied, because the server's answer holds no email address.
+						record = recordOf($state.snapshot(draft), made);
 						created = made;
 						saveCreated(made);
+						saveRecord(record);
 						clearDraft();
 						draft = emptyDraft();
 						errors = {};

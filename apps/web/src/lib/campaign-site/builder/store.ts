@@ -6,9 +6,11 @@
  * loses it: `saveDraft` answers false so the page can say so.
  */
 import { emptyDraft, reviveDraft, type BuilderDraft, type CreatedCampaign } from './draft.ts';
+import { parseRecord, type CreatedRecord } from './record.ts';
 
 const DRAFT_KEY = 'tejido.builder.draft';
 const CREATED_KEY = 'tejido.builder.created';
+const RECORD_KEY = 'tejido.builder.created.people';
 
 function read(key: string): unknown {
 	try {
@@ -73,4 +75,16 @@ export function loadCreated(): CreatedCampaign | null {
 
 export function saveCreated(created: CreatedCampaign | null): void {
 	write(CREATED_KEY, created);
+}
+
+/**
+ * The record of the people the last campaign was created with, email addresses included. Like
+ * the links, it is kept in this tab only: it was typed here and is never asked of the server.
+ */
+export function loadRecord(): CreatedRecord | null {
+	return parseRecord(read(RECORD_KEY));
+}
+
+export function saveRecord(record: CreatedRecord | null): void {
+	write(RECORD_KEY, record);
 }
