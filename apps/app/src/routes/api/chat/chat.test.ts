@@ -484,13 +484,48 @@ describe('when the Claude API does not cooperate', () => {
 		expectNoSecrets(logged);
 	});
 
-	it('says the agent is busy when the API is overloaded', async () => {
-		answers = [() => new Response('{}', { status: 529 })];
+	it('tries again by itself when the API is overloaded, and says the agent is busy if it stays so', async () => {
+		const overloaded = () => new Response('{}', { status: 529 });
+		answers = [overloaded, overloaded, overloaded];
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			// The answer starts as soon as the person can be told it is trying again.
+			const response = await ask(sessionFor(contractor));
+			expect(response.status).toBe(200);
+			const reading = received(response);
+			await vi.advanceTimersByTimeAsync(1000);
+			await vi.advanceTimersByTimeAsync(3000);
+			const { events } = await reading;
 
-		const response = await ask(sessionFor(contractor));
+			expect(sent).toHaveLength(3);
+			expect(events).toEqual([
+				{ type: 'retrying', message: expect.stringContaining('Trying again') },
+				{ type: 'retrying', message: expect.stringContaining('Trying again') },
+				{ type: 'error', message: expect.stringContaining('busy') }
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
-		expect(response.status).toBe(502);
-		expect(((await response.json()) as { message: string }).message).toContain('busy');
+	it('carries on with the reply when the second try is answered', async () => {
+		answers = [() => new Response('{}', { status: 502 }), plainReply];
+		vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+		try {
+			const response = await ask(sessionFor(contractor));
+			const reading = received(response);
+			await vi.advanceTimersByTimeAsync(1000);
+			const { events } = await reading;
+
+			expect(events).toEqual([
+				{ type: 'retrying', message: expect.stringContaining('Trying again') },
+				{ type: 'text', text: 'You owe ' },
+				{ type: 'text', text: 'a work log.' },
+				{ type: 'done' }
+			]);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it('explains when the API cannot be reached at all', async () => {
