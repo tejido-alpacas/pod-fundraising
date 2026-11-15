@@ -8,7 +8,6 @@ import { checkDraft, noticesFor, readGoal } from '#lib/campaign-site/builder/che
 import { reviveDraft, type BuilderDraft } from '#lib/campaign-site/builder/draft.ts';
 import { CREATED_PER_HOUR } from '#lib/campaign-site/server/create-campaign.ts';
 import { load as home } from '../../../+page.server.ts';
-import { load as oldHome } from '../../../old/+page.server.ts';
 import { load as explore } from '../../explore/+page.server.ts';
 import { load as give } from '../../needs/+page.server.ts';
 import { actions } from './+page.server.ts';
@@ -463,13 +462,12 @@ describe('creating the campaign', () => {
 		const answer = await post('create', validDraft());
 		const { id } = answer['created'] as { id: string };
 
-		// Where campaigns are listed: the home page (/), Explore, Give (/needs), and /old.
+		// Where campaigns are listed: the home page (/), Explore and Give (/needs).
 		const event = { locals: { ctx: { db: test.db } } };
 		const lists = async () => [
 			await home(event as unknown as Parameters<typeof home>[0]),
 			await explore(event as unknown as Parameters<typeof explore>[0]),
-			await give(event as unknown as Parameters<typeof give>[0]),
-			await oldHome(event as unknown as Parameters<typeof oldHome>[0])
+			await give(event as unknown as Parameters<typeof give>[0])
 		];
 		for (const data of await lists()) {
 			expect(data).toEqual({ campaigns: [] });
@@ -477,7 +475,7 @@ describe('creating the campaign', () => {
 		}
 
 		// It is left out because it is a draft: the same campaign, once it is raising money, is
-		// on all four.
+		// on all three.
 		await test.db.update(campaigns).set({ status: 'funding' });
 		for (const data of await lists()) {
 			expect(data?.campaigns.map((campaign) => campaign.id)).toEqual([id]);
