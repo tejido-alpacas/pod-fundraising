@@ -14,6 +14,7 @@ checks must never need: the network, a mailbox, and three real Qatom accounts.
 
 ## What it does
 
+<<<<<<< HEAD
 | Spec                     | What it does                                                                                                                                                                                                                                                                                                | Runs                      |
 | ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
 | `sign-in`                | Opens each test person's invite, presses Sign in with Qatom, types their email on Qatom's page, reads the emailed code from the inbox, and lands back in the App signed in. Saves that signed-in browser for the other specs.                                                                               | Once per person per run   |
@@ -29,6 +30,20 @@ checks must never need: the network, a mailbox, and three real Qatom accounts.
 | `site-signed-in`         | As that visitor. "Start a campaign" in the header bar or its menu, by width and language. The campaign builder's six steps: what each asks for, what it says when the answer is missing, and Back keeping every answer. Signing out. **Never presses "Create campaign"** unless `E2E_CREATE_CAMPAIGN=true`. | Phone and desktop         |
 
 The five signed-out specs type nothing into Qatom, call no model and write nothing, so they
+=======
+| Spec               | What it does                                                                                                                                                                                                                             | Runs                      |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------- |
+| `sign-in`          | Opens each test person's invite, presses Sign in with Qatom, types their email on Qatom's page, reads the emailed code from the inbox, and lands back in the App signed in. Saves that signed-in browser for the other specs.            | Once per person per run   |
+| `app-walk`         | Signed in. Home, Add evidence (uploads one small generated picture for real, then opens it signed out and checks its fingerprint), the fix page, and the chat as it opens. Then the confirmer's home and chat.                           | Phone and desktop         |
+| `chat-draft`       | Signed in. One conversation with the assistant: says what was done, attaches the picture, asks for the review, and checks the review card and its two buttons appear. Files nothing.                                                     | Phone only, unpaid runs   |
+| `paid-filing`      | **The one place a test moves money.** Holds the same conversation, presses File this entry, waits for "Submitted", then finds the entry on the campaign's public timeline. Spends a real 0.10 deposit from the test contractor's wallet. | Only with `E2E_PAID=true` |
+| `app-signed-out`   | The App with nobody signed in: home, both invitations, an invitation that does not exist, and the pages that need a signed-in person saying so.                                                                                          | Phone and desktop         |
+| `site-walk`        | Signed out, as a donor. The test campaign's overview, a proof page (once the campaign has an entry), the milestones and one milestone's page, and the delivery report.                                                                   | Phone and desktop         |
+| `site-pages`       | Signed out. Home, Explore, Give and About in Spanish, English, French and Portuguese; Spanish for a browser that asks for none of them; the language buttons; the home page's links; a missing campaign; where Sign in leads (Qatom).    | Phone and desktop         |
+| `campaign-builder` | Signed out. The builder's first step: what is missing, then on to the second step and back. The campaign API's check. Never creates a campaign.                                                                                          | Phone and desktop         |
+
+The four signed-out specs type nothing into Qatom, call no model and write nothing, so they
+>>>>>>> origin/main
 run on every run.
 
 The contractor signs in on the phone-sized screen and the confirmer on the desktop-sized one, so
@@ -62,6 +77,32 @@ column is the gaps, each with its reason.
 | A signed-in person is offered "Start a campaign" in the header               | In the bar at 1280 px in Spanish, English and Portuguese; in the menu at 390 px in all four languages and at every width in French (1280 and 1920 px); it moves from the menu to the bar between 1199 and 1200 px; it leads to the builder. Signed out, it is nowhere in the header in any language | Widths between 390 and 1199 px other than 1199                                                                                                                                                                                                                                                                          |
 | A reminder's link (`/reminder`)                                              | Signed out: it says a report is due, names neither the project nor the person, and its sign-in comes back to it. Signed in as the contractor: it says what is due and leads to the chat; a link about someone else's milestone says so                                                              | The reminder message itself (the scheduler sends none yet), and the confirmer's reminder with something to confirm: it needs a claimed milestone                                                                                                                                                                        |
 | The scheduler's, the refunds' and the reconciler's own addresses             | Nothing, on purpose                                                                                                                                                                                                                                                                                 | They act on live data or money when called. The suite never calls them, not even to see them refuse                                                                                                                                                                                                                     |
+
+Signing out of the App is offered on the home page and is deliberately not pressed: it also
+ends the assistant's access to Qatom for that person, for every later check.
+
+## The story, and what is checked
+
+The product's story, step by step, against what this suite checks on the live site. The last
+column is the gaps, each with its reason.
+
+| Step of the story                                                            | Checked on every unpaid run                                                                                                                                                                                                            | Not checked, and why                                                                                                                                                    |
+| ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| A creator builds a campaign at `/campaigns/new`                              | The builder opens; an empty first step lists what is missing; a filled one moves to the second step; Back keeps the answers                                                                                                            | Steps 3 to 6 and "Create campaign": creating writes a campaign to the live database on every run. Proposed to the owner, not built                                      |
+| The campaign API (`docs/campaign-api.md`)                                    | `POST /api/campaigns/check`: a complete campaign passes, an empty one is told what is missing, one step can be checked alone, a wrong step is refused                                                                                  | `POST /api/campaigns`: it creates. Proposed with the row above                                                                                                          |
+| A contractor accepts an invitation and signs in                              | The invite page, Qatom's email and code pages, the emailed code, the offer to add funds skipped, back in the App signed in, both wallets linked                                                                                        | Nothing                                                                                                                                                                 |
+| Reports work in the chat                                                     | One real conversation with the assistant as far as its review card and its two buttons (phone)                                                                                                                                         | The report form inside the chat ("Fill in the form"). The fix page with a report to fix: the test campaign has no incomplete report                                     |
+| Adds evidence                                                                | A picture uploads from the evidence page and from the chat; the file then opens for anyone, signed out, and its bytes match the fingerprint in its address                                                                             | A file kept from donors (each run would add a file and two lines of text to the live store), a PDF, a file that is too big                                              |
+| Files (a real deposit)                                                       | Nothing on an unpaid run                                                                                                                                                                                                               | `paid-filing` does this, only when a person starts a paid run. See "Before the first paid run"                                                                          |
+| The entry shows on the campaign's timeline with its receipt                  | The timeline is there and says "No updates yet" or lists entries, each with "View proof"                                                                                                                                               | An entry of our own: there is none until the first paid run. `paid-filing` then looks for its entry by its reference                                                    |
+| The reconciler verifies it                                                   | Nothing                                                                                                                                                                                                                                | The test campaign has no catalog items of its own, so the reconciler skips it and its entries stay at "Receipt pending". Checking this needs a test campaign with items |
+| The confirmer signs in and confirms the milestone                            | The confirmer signs in, sees the milestones they confirm, and the chat opens for them                                                                                                                                                  | Confirming: it is a paid filing (1.00), after the contractor claims the milestone (another 1.00). Proposed, not built                                                   |
+| The deposit is refunded                                                      | Nothing                                                                                                                                                                                                                                | It moves money from Tejido's merchant account, after a confirmation. Proposed, not built                                                                                |
+| A donor reads the campaign page, a proof page, the milestones and the report | The overview with its three tabs and "Who’s involved"; the milestones list and one milestone's page; the delivery report. The proof page once the campaign has an entry                                                                | The proof page until the first paid run (skipped, saying so). An overdue or flagged report: the test campaign has none                                                  |
+| Home, Explore, Give and About in four languages                              | Each page's title and main heading in Spanish, English, French and Portuguese; Spanish by default; the language buttons; the choice remembered on the next page                                                                        | The rest of each page's wording                                                                                                                                         |
+| A donor signs in on the Campaign Site                                        | "Sign in" leads to Qatom's own sign-in page, from the page the donor was on                                                                                                                                                            | Signing in and out: it needs a third test person and a third code per run. Proposed, not built                                                                          |
+| A reminder's link (`/reminder`)                                              | Signed out: it says a report is due, names neither the project nor the person, and its sign-in comes back to it. Signed in as the contractor: it says what is due and leads to the chat; a link about someone else's milestone says so | The reminder message itself (the scheduler sends none yet), and the confirmer's reminder with something to confirm: it needs a claimed milestone                        |
+| The scheduler's, the refunds' and the reconciler's own addresses             | Nothing, on purpose                                                                                                                                                                                                                    | They act on live data or money when called. The suite never calls them, not even to see them refuse                                                                     |
 
 Signing out of the App is offered on the home page and is deliberately not pressed: it also
 ends the assistant's access to Qatom for that person, for every later check.
@@ -305,6 +346,7 @@ appear in a screenshot of Qatom's own page; it is worthless once used.
    using the note word for word: the spec looks for its own reference (`ref-…`) in the public
    timeline's text. If the model rewrites the note, the entry is filed but the spec fails at
    the last step, saying so.
+<<<<<<< HEAD
 4. **The visitor's sign-in on the Campaign Site.** It has never run against the live site: it
    could only be built against a local copy, where Qatom's pages cannot be reached. Nothing is
    set up for it in the database: the visitor is no party, and their Qatom account is made by
@@ -330,3 +372,22 @@ appear in a screenshot of Qatom's own page; it is worthless once used.
 | `lib/stuck-page.ts`    | Wording those lines, and taking out what must not be in a log                              |
 | `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network                               |
 | `specs/*.spec.ts`      | The eleven specs above. Only `npm run e2e` runs them                                       |
+=======
+
+## Where things are
+
+| File                   | What it is                                                              |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `playwright.config.ts` | The three projects: `sign-in`, then `phone` and `desktop`               |
+| `lib/config.ts`        | The configuration, parsed once. The only place that reads environment   |
+| `lib/safety.ts`        | The refusals: other hosts, and typing a code anywhere but Qatom         |
+| `lib/inbox-message.ts` | Reading one queue message and finding the code in the email's body      |
+| `lib/inbox.ts`         | Waiting on the queue: whose message it is, what is removed or put back  |
+| `lib/sign-in.ts`       | Driving Qatom's sign-in pages                                           |
+| `lib/chat.ts`          | Driving the App's chat as far as the review card                        |
+| `lib/harness.ts`       | `waypoint`: the named screenshots. Describes the page when a test fails |
+| `lib/seen-page.ts`     | Reading from a live page what the failure lines say                     |
+| `lib/stuck-page.ts`    | Wording those lines, and taking out what must not be in a log           |
+| `lib/*.test.ts`        | Unit tests, part of `npm test`. They never reach the network            |
+| `specs/*.spec.ts`      | The eight specs above. Only `npm run e2e` runs them                     |
+>>>>>>> origin/main

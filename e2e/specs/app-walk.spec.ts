@@ -70,7 +70,10 @@ test('a picture can be added as evidence', async ({
 	);
 	const fingerprint = createHash('sha256').update(testEvidencePng()).digest('hex');
 	expect(address).toContain(`/evidence/${fingerprint}.png`);
-	const anyone = await playwright.request.newContext();
+	// With no cookies given, the request would carry this project's signed-in browser.
+	const anyone = await playwright.request.newContext({
+		storageState: { cookies: [], origins: [] }
+	});
 	try {
 		const file = await anyone.get(new URL(address ?? '', cfg.appUrl).href);
 		expect(file.status(), 'A public evidence file should open without signing in.').toBe(200);
