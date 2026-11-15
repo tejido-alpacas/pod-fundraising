@@ -162,7 +162,14 @@ const NEW_STRINGS = {
 		"La connexion avec Qatom n'a pas abouti : le délai a expiré, elle a été annulée ou Qatom n'a pas répondu. Rien n'a été modifié. Vous pouvez réessayer.",
 		'O login com o Qatom não terminou: o tempo acabou, foi cancelado ou o Qatom não respondeu. Nada foi alterado. Você pode tentar de novo.'
 	],
-	signin_try_again: ['Intentar de nuevo', 'Try again', 'Réessayer', 'Tentar de novo']
+	signin_try_again: ['Intentar de nuevo', 'Try again', 'Réessayer', 'Tentar de novo'],
+	// The button a signed-in person sees in the header. The same words as the home page's tile.
+	start_campaign: [
+		'Inicia una campaña',
+		'Start a campaign',
+		'Lancez une campagne',
+		'Comece uma campanha'
+	]
 } as const satisfies Record<string, Row>;
 
 export const STRINGS = { ...V1_STRINGS, ...NEW_STRINGS } as const satisfies Record<string, Row>;
