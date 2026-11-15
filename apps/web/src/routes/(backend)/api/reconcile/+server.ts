@@ -3,8 +3,8 @@
  * Track C owns this file. The rules are in #lib/server/backend/reconciler.ts.
  *
  * Not for the public: the caller must send the same shared-secret header as the check-in
- * endpoint. Nothing calls this on a schedule yet; until a scheduled trigger is added, a
- * person or a job that holds the secret calls it.
+ * endpoint. On the live site Cloudflare's timer calls it once a minute, in-process
+ * (#lib/server/backend/worker.ts). A person who holds the secret can still call it.
  *
  * The ledgers are read with Tejido's merchant account only. No person's token is involved.
  */

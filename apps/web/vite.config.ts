@@ -34,6 +34,9 @@ export default defineConfig({
 			// the evidence store live in ./data at the repository root, shared by both apps,
 			// and the configuration values come from the one .env file there.
 			adapter: adapter({
+				// Where the build writes the Worker it generates. Not wrangler.jsonc: its
+				// `main` is the entry that adds the timer, which the build would overwrite.
+				config: 'wrangler.build.jsonc',
 				platformProxy: {
 					configPath: 'wrangler.jsonc',
 					persist: { path: localStateDirectory() },

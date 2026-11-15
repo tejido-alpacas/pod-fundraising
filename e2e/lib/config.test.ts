@@ -31,6 +31,7 @@ describe('parseE2eConfig', () => {
 			email: 'e2e-contractor@e2e.m.todaq.net'
 		});
 		expect(config.confirmer.email).toBe('e2e-confirmer@e2e.m.todaq.net');
+		expect(config.donor).toEqual({ email: 'e2e-donor@e2e.m.todaq.net' });
 		expect(config.allowOtherHosts).toBe(false);
 		expect(config.paid).toBe(false);
 	});
@@ -47,6 +48,15 @@ describe('parseE2eConfig', () => {
 		expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: 'true' }).signIn).toBe(false);
 		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
 			expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: value }).signIn).toBe(true);
+		}
+	});
+
+	it('creates a campaign only for exactly "true"', () => {
+		expect(parseE2eConfig({ ...complete, E2E_CREATE_CAMPAIGN: 'true' }).createCampaign).toBe(true);
+		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
+			expect(parseE2eConfig({ ...complete, E2E_CREATE_CAMPAIGN: value }).createCampaign).toBe(
+				false
+			);
 		}
 	});
 

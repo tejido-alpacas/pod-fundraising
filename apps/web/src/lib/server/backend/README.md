@@ -3,6 +3,29 @@ Track C (Backend): the reconciler, deposit refunds and the cadence scheduler go 
 Everything in this folder is server-only. Reach Qatom through `event.locals.ctx.qatom.account`
 and the database through `event.locals.ctx.db`.
 
+## The timer (`worker.ts`, `reconcile-timer.ts`)
+
+On the live site the reconciler runs by itself, once a minute. Cloudflare's own timer (the
+Cron Trigger in `apps/web/wrangler.jsonc`, `triggers.crons`) calls the `scheduled` handler in
+`worker.ts`, which hands the Worker's own request handler a `POST /api/reconcile` with the
+shared-secret header. No network hop, and the same route a person's call goes through.
+
+- Reconcile only. `/api/funding` and `/api/schedule` are not on the timer; adding one is one
+  more call in `worker.ts`. `/api/refunds` moves money and must never be put there.
+- `worker.ts` is the Worker's entry (`main` in `wrangler.jsonc`). SvelteKit's adapter has no
+  option for a timer, so the entry is the Worker the build generates plus the handler. The
+  build writes the generated Worker to the path in `apps/web/wrangler.build.jsonc`.
+- Seeing it work: in the Cloudflare dashboard, the `tejido-web` Worker's Logs show, each
+  minute, `Reconcile on the timer: POST /api/reconcile answered 200.` A failed run shows
+  `Reconcile on the timer failed: ...` with the status only, and the timer event is marked
+  failed. Page requests are separate events and keep working.
+- Turning it off: change `"crons": ["* * * * *"]` to `"crons": []` in `wrangler.jsonc` and
+  merge. Deleting the line leaves the timer running.
+- Trying it locally: `npm run build`, then in `apps/web` run `npm start -- --test-scheduled`
+  and open `http://localhost:5173/__scheduled`. `npm run dev` has no timer.
+- Two passes can overlap if one takes longer than a minute. A stamped entry is never looked
+  at again, but overlapping passes have not been tried against real Qatom.
+
 ## Reconciler (`reconciler.ts`, `POST /api/reconcile`)
 
 One pass finds, for each saved entry that has no receipt yet, the Qatom transaction that paid
@@ -26,8 +49,9 @@ at the top of `reconciler.ts`.
   ledger Qatom did not give, with the commodity id and the campaigns whose entries wait on it.
 - It only reads from Qatom, with the merchant account. It never transfers. A stamped entry is
   never looked at again, so running the pass twice changes nothing.
-- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. Nothing
-  calls it on a schedule yet.
+- `POST /api/reconcile` runs one pass and needs the `X-Tejido-Checkin-Secret` header. On the
+  live site the timer calls it once a minute (see "The timer" above); a person who holds the
+  secret can still call it.
 
 ## Item provisioning (`provisioning.ts`, `POST /api/provisioning`)
 

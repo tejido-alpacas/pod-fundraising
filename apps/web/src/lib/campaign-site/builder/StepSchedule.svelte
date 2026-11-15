@@ -130,6 +130,15 @@
 		margin-bottom: var(--space-2);
 		padding: 0;
 	}
+	/*
+		A choice that is not chosen has no line around it: it is a white row with a soft shadow
+		on the page's background. The border keeps its width, transparent, so nothing moves
+		when a choice is made. The chosen one keeps the design system's blue outline and tint.
+	*/
+	.tj-choice:not(:has(input:checked)) {
+		border-color: transparent;
+		box-shadow: var(--shadow);
+	}
 	.days {
 		margin-top: var(--space-2);
 		padding: var(--space-4);

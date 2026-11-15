@@ -120,11 +120,15 @@ message, changes them.
   `.claude/settings.json` denies these commands in Claude Code. A denied command is not an
   obstacle to work around: do not rephrase it, wrap it in a script, or edit that file.
 - **Never move money to test something.** Do not call `transfer` from a script, a test, a
-  one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid spec
-  of the end-to-end suite, `e2e/specs/paid-filing.spec.ts`: it files one work log for a real
-  0.10 deposit, only when `E2E_PAID` is exactly `true`, which only a person sets (see
-  `e2e/README.md`). Never set it yourself, never run that suite from your session, and never
-  add a second place where a test moves money.
+  one-off command or a "quick check". Tests stub `fetch`. The one exception is the paid story
+  of the end-to-end suite (`e2e/`, see `e2e/README.md`). By the owner's decision of 15
+  November 2026 it runs by itself after a release, never started by hand, under the cap set
+  in `.github/workflows/e2e.yml`. It files real deposits as the two test people (a work log,
+  0.10; a milestone claim, 1.00; its confirmation, 1.00), each run on a campaign it creates
+  through the campaign API. It moves money only by filing through the App, as a real filer
+  does: it never calls `transfer`, never calls `/api/refunds`, and holds no secret. Only that
+  workflow sets `E2E_PAID`. Never set it yourself, never run that suite from your session,
+  and never add a way for a test to move money outside that paid story.
 - **Never push to `main`, force-push or rewrite history.** `main` changes only by merging a
   pull request, as described above. Delete only your own branch, after it has merged.
 - **Never merge a pull request whose checks are not all green**, and never merge without being

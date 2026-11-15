@@ -42,7 +42,8 @@ const schema = z.object({
 	E2E_CONTRACTOR_PARTY_ID: id,
 	E2E_CONFIRMER_PARTY_ID: id,
 	E2E_PAID: switchedOn,
-	E2E_SKIP_SIGN_IN: switchedOn
+	E2E_SKIP_SIGN_IN: switchedOn,
+	E2E_CREATE_CAMPAIGN: switchedOn
 });
 
 export const E2E_CONFIG_NAMES = Object.keys(schema.shape) as (keyof typeof schema.shape)[];
@@ -65,6 +66,11 @@ export interface E2eConfig {
 	campaignId: string;
 	contractor: TestPerson;
 	confirmer: TestPerson;
+	/**
+	 * The third test person: a visitor who signs in on the Campaign Site. They are no party of
+	 * any campaign, so nothing in the database is theirs: only an address on the inbox domain.
+	 */
+	donor: Pick<TestPerson, 'email'>;
 	/** True only when `E2E_PAID` is exactly `true`: the paid spec then spends a real deposit. */
 	paid: boolean;
 	/**
@@ -73,6 +79,12 @@ export interface E2eConfig {
 	 * sets it when enough recent runs have signed in already (Qatom limits codes per address).
 	 */
 	signIn: boolean;
+	/**
+	 * True only when `E2E_CREATE_CAMPAIGN` is exactly `true`: the builder's last button is then
+	 * pressed, which writes one draft campaign to the database of the site under test. Nothing
+	 * sets it: see e2e/README.md.
+	 */
+	createCampaign: boolean;
 }
 
 /** Thrown when the suite's configuration is missing or malformed. Never contains a value. */
@@ -132,8 +144,10 @@ export function parseE2eConfig(env: Readonly<Record<string, string | undefined>>
 		campaignId: values.E2E_CAMPAIGN_ID,
 		contractor: person(values.E2E_CONTRACTOR_PARTY_ID, 'e2e-contractor'),
 		confirmer: person(values.E2E_CONFIRMER_PARTY_ID, 'e2e-confirmer'),
+		donor: { email: `e2e-donor@${values.E2E_INBOX_DOMAIN}` },
 		paid: values.E2E_PAID,
-		signIn: !values.E2E_SKIP_SIGN_IN
+		signIn: !values.E2E_SKIP_SIGN_IN,
+		createCampaign: values.E2E_CREATE_CAMPAIGN
 	};
 }
 
