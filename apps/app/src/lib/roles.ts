@@ -23,4 +23,8 @@ export function roleName(party: { role: PartyRole; title: string }): string {
 	return party.title.trim() || ROLES[party.role].name;
 }
 
-export const CADENCE = { weekly: 'every week', fortnightly: 'every two weeks' } as const;
+/**
+ * How often work is logged, as the end of a sentence: "every week", "every Monday and
+ * Tuesday". The words are the contracts' own, so every cadence has them.
+ */
+export { cadencePhrase } from '@tejido/contracts';

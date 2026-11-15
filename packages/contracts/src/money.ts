@@ -3,14 +3,16 @@ import { z } from 'zod';
 /**
  * Money.
  *
- * Every amount in our records is a whole number of Qatom's smallest unit of USD-TDN, the unit
- * Qatom's transfer call takes. Qatom quotes USD-TDN to three decimal places, so we treat one
- * unit as 0.001: a 0.10 deposit is 100 and a 1.00 deposit is 1000. Whole numbers keep sums exact.
+ * Every amount in our records is a whole number of thousandths of USD-TDN. This is TEJIDO'S
+ * OWN unit: a 0.10 deposit is 100 and a 1.00 deposit is 1000. Whole numbers keep sums exact.
  *
- * NOT YET CONFIRMED AGAINST A LIVE LEDGER. Qatom's API document says prices and transfers are
- * "in the smallest unit" and shows amounts to three decimals, but never states the scale.
- * Buy one 0.10 item on staging and read its ledger amount. If it is not 100, change
- * AMOUNT_UNITS_PER_USD_TDN here and nothing else: the deposit amounts below follow from it.
+ * IT IS NOT QATOM'S UNIT. Qatom's API uses decimal USD-TDN everywhere (prices, transfers and
+ * ledger amounts): there a 0.10 deposit is 0.1 and 1.00 is 1. Amounts are converted in exactly
+ * one place, `packages/qatom/src/account/amounts.ts`, on their way to and from Qatom.
+ *
+ * DO NOT CHANGE AMOUNT_UNITS_PER_USD_TDN to make our numbers agree with Qatom's. Everything
+ * stored is already in thousandths, and the conversion divides and multiplies by this number:
+ * changing it would misread every stored amount and send transfers of the wrong size.
  */
 export const AMOUNT_UNITS_PER_USD_TDN = 1000;
 

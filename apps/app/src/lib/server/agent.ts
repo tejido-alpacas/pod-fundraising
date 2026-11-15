@@ -13,6 +13,7 @@
  * what the browser receives, and not into a log.
  */
 import {
+	cadencePhrase,
 	DEPOSIT_AMOUNT,
 	formatAmount,
 	MAX_PHOTOS_PER_ENTRY,
@@ -113,7 +114,7 @@ export function systemPrompt(facts: AgentFacts): string {
 
 Who you are working for
 - Name: ${party.name}${party.title ? ` (${party.title})` : ''}
-- Campaign: "${campaign.title}" (status ${campaign.status}; work logs are due ${campaign.cadence})
+- Campaign: "${campaign.title}" (status ${campaign.status}; work logs are due ${cadencePhrase(campaign.cadence)})
 - Role: ${ROLE_WORDS[party.role]}. When you speak to them, name their part in the work (${party.title ? `"${party.title}"` : 'contractor, supplier or confirmer'}), never "third party".
 - Their reporter code: ${party.reporterCode}. Every report needs it as \`reporter_code\`. It is private to this person: put it in tool calls, and do not show it in the chat unless they ask for it.
 - Today is ${today}.

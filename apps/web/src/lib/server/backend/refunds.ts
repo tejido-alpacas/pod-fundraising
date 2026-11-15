@@ -92,7 +92,7 @@ const NEEDS_A_PERSON: ReadonlySet<RefundSkipReason> = new Set([
 interface RefundLine {
 	party_id: string;
 	party_name: string;
-	/** In Qatom's smallest unit. */
+	/** In Tejido's unit, thousandths of USD-TDN: 1200 is 1.20. */
 	amount: Amount;
 	/** For people, e.g. "1.20". */
 	amount_display: string;
@@ -177,6 +177,17 @@ function nothingMoved(error: unknown): error is QatomHttpError {
 function describeFailure(error: unknown): string {
 	const text = error instanceof Error ? `${error.name}: ${error.message}` : 'Unknown failure';
 	return text.slice(0, 300);
+}
+
+/**
+ * What is recorded on a refund Qatom refused. A 402 gets plain words, because a person has to
+ * act on it: Qatom pays a transfer from the merchant account's OWN wallet (its main account
+ * wallet first), not from the wallets its items are sold from, so deposits coming in do not
+ * by themselves put money where refunds are paid from.
+ */
+function describeRefusal(error: QatomHttpError): string {
+	if (error.status !== 402) return describeFailure(error);
+	return "Not enough money in Tejido's Qatom account wallet to send this refund, so Qatom refused it and nothing moved. Refunds are paid from the account's own wallet, not from the wallets the items are sold from. Add funds to the account's wallet, then ask again. (Qatom answered 402.)";
 }
 
 const DQ_HASH = /^[0-9a-zA-Z]+$/;
@@ -382,7 +393,7 @@ export async function refundMilestone(options: RefundMilestoneOptions): Promise<
 			} catch (error) {
 				if (nothingMoved(error)) {
 					console.error('Refund refused by Qatom:', refundId, error.name, error.message);
-					await markRefundFailed(db, refundId, describeFailure(error), new Date().toISOString());
+					await markRefundFailed(db, refundId, describeRefusal(error), new Date().toISOString());
 					skip(partyId, rows, 'transfer_failed', refundId);
 				} else {
 					// A timeout, a dropped connection, a server error or anything unexpected:

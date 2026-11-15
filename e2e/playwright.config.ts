@@ -5,8 +5,13 @@
  * specs get their configuration, checked, from `lib/harness.ts`.
  */
 import { defineConfig } from '@playwright/test';
-import { CONTRACTOR_STATE, REPORT, TEST_OUTPUT } from './lib/paths.ts';
+import { CONTRACTOR_STATE, DONOR_STATE, REPORT, TEST_OUTPUT } from './lib/paths.ts';
 import { DESKTOP, PHONE } from './lib/viewports.ts';
+
+// Each sign-in spec by its whole name under specs/, so neither pattern can match the other file.
+const APP_SIGN_IN = '**/specs/sign-in.spec.ts';
+const SITE_SIGN_IN = '**/specs/site-sign-in.spec.ts';
+const SITE_SIGNED_IN = [SITE_SIGN_IN, '**/specs/site-signed-in.spec.ts'];
 
 export default defineConfig({
 	testDir: './specs',
@@ -32,18 +37,28 @@ export default defineConfig({
 	},
 	projects: [
 		// Signs each test person in ONCE and saves their signed-in browser. Everything else reuses it.
-		{ name: 'sign-in', testMatch: 'sign-in.spec.ts' },
+		{ name: 'sign-in', testMatch: APP_SIGN_IN },
 		{
 			name: 'phone',
-			testIgnore: 'sign-in.spec.ts',
+			testIgnore: [APP_SIGN_IN, ...SITE_SIGNED_IN],
 			dependencies: ['sign-in'],
 			use: { ...PHONE, storageState: CONTRACTOR_STATE }
 		},
 		{
 			name: 'desktop',
-			testIgnore: 'sign-in.spec.ts',
+			testIgnore: [APP_SIGN_IN, ...SITE_SIGNED_IN],
 			dependencies: ['sign-in'],
 			use: { ...DESKTOP, storageState: CONTRACTOR_STATE }
+		},
+		// The third test person signs in on the Campaign Site, once. These two projects stand apart
+		// from the three above, so a failure here skips nothing there, and the other way round.
+		{ name: 'site-sign-in', testMatch: SITE_SIGN_IN },
+		// What that person then sees. The spec sets the phone and desktop screens itself.
+		{
+			name: 'site-signed-in',
+			testMatch: '**/specs/site-signed-in.spec.ts',
+			dependencies: ['site-sign-in'],
+			use: { storageState: DONOR_STATE }
 		}
 	]
 });
