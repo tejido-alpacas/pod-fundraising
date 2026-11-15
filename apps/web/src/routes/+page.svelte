@@ -59,6 +59,11 @@
 				<span class="x-tile-t">{t(lang, 'x_about_nav')}</span>
 				<span class="x-tile-d">{t(lang, 'tile_about_d')}</span>
 			</a>
+			<a class="card x-tile t-blue" href="/campaigns/new">
+				<span class="x-tile-ic"><Icon name="bolt" size={24} /></span>
+				<span class="x-tile-t">{t(lang, 'tile_start')}</span>
+				<span class="x-tile-d">{t(lang, 'tile_start_d')}</span>
+			</a>
 		</div>
 	</div>
 </section>
