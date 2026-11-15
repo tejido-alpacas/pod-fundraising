@@ -25,17 +25,20 @@
  * names a tool to the assistant: a real person would not. It never calls `transfer` or
  * `/api/refunds`.
  *
- * AFTER THE FILINGS, two further steps only read the public pages, as a donor who is not signed
- * in, and say what they find. Each is its own named step, and each runs whatever became of the
- * other, so the report says which of "verified" and "returned" was reached:
+ * AFTER THE FILINGS, one further step only reads the public pages, as a donor who is not signed
+ * in, and says what it finds:
  *
  *   4. within 4 minutes, each entry's proof page answers "Yes · receipt verified"
- *   5. within 4 more minutes, each entry's proof page shows "Deposit refunded"
  *
- * Tejido matches receipts by itself on a timer; the owner returns test deposits by hand.
- * Nothing here asks for either: the suite never calls
- * /api/reconcile, /api/refunds or /api/test-account-refunds. A wait that runs out is a failure
- * of that step alone, with the filings already recorded as passed above it.
+ * Tejido matches receipts by itself on a timer; nothing here asks it to (the suite never calls
+ * /api/reconcile). A wait that runs out is a failure of that step alone, with the filings
+ * already recorded as passed above it.
+ *
+ * NO DEPOSIT COMES BACK BY ITSELF, and nothing here waits for one. By the owner's decision of
+ * 15 November 2026 only the owner moves test money: the deposits of a confirmed milestone stay
+ * "Refund outstanding" on the public pages until the owner returns them by hand. The step
+ * above prints what each entry's deposit reads, and expects nothing of it. The suite never
+ * calls /api/refunds or /api/test-account-refunds.
  */
 import type { Page } from '@playwright/test';
 import { BUILD_MILESTONE, draftReport, draftWorkLog } from '../lib/chat.ts';
@@ -43,7 +46,6 @@ import { fileFromReview } from '../lib/filing.ts';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { expectMilestoneStatus, milestoneStatus, openMilestone } from '../lib/milestone-page.ts';
 import {
-	DEPOSIT_REFUNDED,
 	readPaidEntries,
 	readProof,
 	recordPaidEntry,
@@ -79,7 +81,7 @@ function paidStoryOnly(project: string, paid: boolean, retry: number): void {
 const openBuildMilestone = (page: Page, siteUrl: string, campaignId: string): Promise<void> =>
 	openMilestone(page, siteUrl, campaignId, BUILD_MILESTONE);
 
-/** How long each of the two waits after the filings may last. */
+/** How long the wait for the receipts, after the filings, may last. */
 const WAIT_MS = 240_000;
 /** How long between two looks at the public pages. Tejido's timer runs once a minute. */
 const LOOK_EVERY_MS = 15_000;
@@ -269,7 +271,7 @@ test.describe('after the filings, as a donor who is not signed in', () => {
 			cfg.siteUrl,
 			entries,
 			(seen) => seen.receipt === RECEIPT_VERIFIED,
-			(seen) => seen.receipt
+			(seen) => `${seen.receipt}; its deposit reads ${seen.deposit}`
 		);
 		console.log(`Receipts, as the public proof pages show them: ${lines.join('; ')}.`);
 		await waypoint(page, 'receipts-after-the-wait');
@@ -278,40 +280,6 @@ test.describe('after the filings, as a donor who is not signed in', () => {
 				`RECEIPTS NOT ALL VERIFIED within ${WAIT_MS / 60_000} minutes of the last filing. ` +
 					`${filedInThisRun(entries)} The filings themselves are not in doubt: this step only ` +
 					`waits for Tejido to match each one to its public receipt. ${lines.join('; ')}.`
-			);
-		}
-	});
-
-	test('the deposits show as returned within 4 more minutes', async ({
-		page,
-		cfg,
-		waypoint
-	}, testInfo) => {
-		paidStoryOnly(testInfo.project.name, cfg.paid, testInfo.retry);
-		test.setTimeout(WAIT_MS + 180_000);
-		const entries = readPaidEntries(cfg.campaignId);
-		test.skip(
-			!entries.some((entry) => entry.what === 'confirmation'),
-			'Not checked: the confirmation was not recorded as filed in this run, so the milestone ' +
-				'is not confirmed and no deposit is due back.'
-		);
-
-		const { all, lines } = await waitOnProofPages(
-			page,
-			cfg.siteUrl,
-			entries,
-			(seen) => seen.deposit === DEPOSIT_REFUNDED,
-			(seen) => seen.deposit
-		);
-		console.log(`Deposits, as the public proof pages show them: ${lines.join('; ')}.`);
-		await waypoint(page, 'deposits-after-the-wait');
-		if (!all) {
-			throw new Error(
-				`DEPOSITS NOT ALL SHOWN AS RETURNED within ${WAIT_MS / 60_000} more minutes. ` +
-					`${filedInThisRun(entries)} The filings themselves are not in doubt: this step only ` +
-					'waits for the public pages to show each deposit as refunded to the test person. ' +
-					`${lines.join('; ')}. Before more paid runs, look at the two test people’s agent ` +
-					'wallets: deposits that do not come back have to be topped up by hand.'
 			);
 		}
 	});
