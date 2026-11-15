@@ -8,8 +8,7 @@
  * one copy, however many runs there are. It is not attached to a report, so it does not appear
  * on the test campaign's public page.
  *
- * A file kept from donors is not checked here: the end-to-end session has that in a spec of
- * its own.
+ * A file kept from donors is not checked here: `app-walk` checks that.
  */
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import {

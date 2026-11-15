@@ -7,10 +7,18 @@
 import { createHash } from 'node:crypto';
 import { expect, needsSignIn, test } from '../lib/harness.ts';
 import { openChat } from '../lib/chat.ts';
-import { testEvidenceFile, testEvidencePng } from '../lib/image.ts';
+import {
+	privateEvidenceFile,
+	privateEvidencePng,
+	testEvidenceFile,
+	testEvidencePng
+} from '../lib/image.ts';
 import { CONFIRMER_STATE } from '../lib/paths.ts';
 
 needsSignIn();
+
+/** A request with no cookies at all. Without this it would carry the project's signed-in browser. */
+const SIGNED_OUT = { storageState: { cookies: [], origins: [] } };
 
 test('home shows the project and what can be done', async ({ page, cfg, waypoint }) => {
 	await page.goto(`${cfg.appUrl}/`);
@@ -70,7 +78,7 @@ test('a picture can be added as evidence', async ({
 	);
 	const fingerprint = createHash('sha256').update(testEvidencePng()).digest('hex');
 	expect(address).toContain(`/evidence/${fingerprint}.png`);
-	const anyone = await playwright.request.newContext();
+	const anyone = await playwright.request.newContext(SIGNED_OUT);
 	try {
 		const file = await anyone.get(new URL(address ?? '', cfg.appUrl).href);
 		expect(file.status(), 'A public evidence file should open without signing in.').toBe(200);
@@ -82,6 +90,72 @@ test('a picture can be added as evidence', async ({
 		).toBe(fingerprint);
 	} finally {
 		await anyone.dispose();
+	}
+});
+
+test('a file kept from donors opens for its uploader and the confirmer, and for nobody else', async ({
+	page,
+	cfg,
+	waypoint,
+	playwright
+}) => {
+	await page.goto(`${cfg.appUrl}/upload`);
+	await expect(page.getByText('Or drop files here')).toBeAttached({ timeout: 30_000 });
+
+	// Who may see a file is decided before choosing it: it is sent as soon as it is chosen.
+	await page.getByLabel('Keep these files from donors').check();
+	await page.getByLabel('What it is').fill('Automated test file');
+	await page
+		.getByLabel('Why donors are not shown it')
+		.fill('An automated check of the app, not real evidence.');
+	await waypoint(page, 'upload-kept-from-donors-chosen');
+
+	await page
+		.locator('form.tj-picker input[type="file"][multiple]')
+		.setInputFiles(privateEvidenceFile());
+	const row = page.locator('.tj-upload').filter({ hasText: 'e2e-kept-from-donors.png' });
+	await expect(row).toContainText('Uploaded. Not public', { timeout: 60_000 });
+	await waypoint(page, 'upload-kept-from-donors-done');
+
+	const address = await row
+		.getByRole('link', { name: 'Open e2e-kept-from-donors.png' })
+		.getAttribute('href');
+	const fingerprint = createHash('sha256').update(privateEvidencePng()).digest('hex');
+	expect(address).toContain(`/evidence/${fingerprint}.png`);
+	const file = new URL(address ?? '', cfg.appUrl).href;
+
+	// Nobody signed in: refused, and no bytes.
+	const anyone = await playwright.request.newContext(SIGNED_OUT);
+	// The confirmer of this project: allowed.
+	const confirmer = await playwright.request.newContext({ storageState: CONFIRMER_STATE });
+	try {
+		const refused = await anyone.get(file);
+		expect(refused.status(), 'A file kept from donors must not open without signing in.').toBe(401);
+		expect((await refused.body()).includes(privateEvidencePng())).toBe(false);
+
+		const forConfirmer = await confirmer.get(file);
+		expect(forConfirmer.status(), 'The project’s confirmer may open it.').toBe(200);
+		expect(
+			createHash('sha256')
+				.update(await forConfirmer.body())
+				.digest('hex')
+		).toBe(fingerprint);
+	} finally {
+		await anyone.dispose();
+		await confirmer.dispose();
+	}
+	// The uploader, in this signed-in browser: allowed.
+	const forUploader = await page.request.get(file);
+	expect(forUploader.status(), 'The uploader may open their own file.').toBe(200);
+
+	// And the public picture is still public: keeping one file from donors hides no other.
+	const publicFingerprint = createHash('sha256').update(testEvidencePng()).digest('hex');
+	const stillPublic = await playwright.request.newContext(SIGNED_OUT);
+	try {
+		const open = await stillPublic.get(`${cfg.appUrl}/evidence/${publicFingerprint}.png`);
+		expect(open.status(), 'The public test picture should still open for anyone.').toBe(200);
+	} finally {
+		await stillPublic.dispose();
 	}
 });
 

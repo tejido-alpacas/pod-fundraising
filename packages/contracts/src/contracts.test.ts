@@ -393,10 +393,8 @@ describe('records', () => {
 });
 
 describe('the JSON Schema given to Qatom', () => {
-	const milestoneIds = ['m1-foundation', 'm2-walls', 'm3-books-delivered'] as const;
-
-	it('declares the log work inputs, with the campaign milestones as an enum', () => {
-		const schema = itemInputJsonSchema('log_work', milestoneIds) as {
+	it('declares the log work inputs', () => {
+		const schema = itemInputJsonSchema('log_work') as {
 			type: string;
 			required: string[];
 			properties: Record<string, { enum?: string[]; type?: string; description?: string }>;
@@ -408,13 +406,12 @@ describe('the JSON Schema given to Qatom', () => {
 		expect(Object.keys(schema.properties).sort()).toEqual(
 			Object.keys(logWorkInputSchema.shape).sort()
 		);
-		expect(schema.properties.milestone_id?.enum).toEqual([...milestoneIds]);
 		expect(schema.properties.status?.enum).toEqual(['on_track', 'delayed', 'blocked']);
 		expect(schema.properties.percent_complete?.type).toBe('number');
 	});
 
 	it('declares the milestone hit inputs, with claim required', () => {
-		const schema = itemInputJsonSchema('milestone_hit', milestoneIds) as {
+		const schema = itemInputJsonSchema('milestone_hit') as {
 			required: string[];
 			properties: Record<string, { enum?: string[] }>;
 		};
@@ -431,9 +428,27 @@ describe('the JSON Schema given to Qatom', () => {
 		]);
 	});
 
+	it('takes any milestone as plain text, because every campaign shares the two items', () => {
+		for (const item of ['log_work', 'milestone_hit'] as const) {
+			const schema = itemInputJsonSchema(item) as {
+				properties: { milestone_id: { [key: string]: unknown } };
+			};
+			expect(schema.properties.milestone_id).toEqual({
+				type: 'string',
+				minLength: 1,
+				maxLength: 100,
+				description: 'The milestone this entry is about.'
+			});
+			// Nothing in the schema is one campaign's own: not even the example campaign's milestones.
+			for (const milestone of fixtures.milestones) {
+				expect(JSON.stringify(schema)).not.toContain(milestone.id);
+			}
+		}
+	});
+
 	it('describes every input, because an agent fills the tool in from the schema', () => {
 		for (const item of ['log_work', 'milestone_hit'] as const) {
-			const schema = itemInputJsonSchema(item, milestoneIds) as {
+			const schema = itemInputJsonSchema(item) as {
 				properties: Record<string, { description?: string }>;
 			};
 			for (const [name, property] of Object.entries(schema.properties)) {

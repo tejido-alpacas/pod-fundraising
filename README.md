@@ -201,14 +201,19 @@ browser.
 
 ## Setting up the two catalog items in Qatom
 
-For each campaign, both items (Log work at 0.10, Milestone hit at 1.00) need:
+Every campaign shares the same two items on Tejido's merchant account: one Log work at 0.10 and
+one Milestone hit at 1.00. There is no pair per campaign. Both items need:
 
 - **External endpoint**: `https://<this app>/api/checkins`, method POST. Both items use the same
   endpoint; it tells them apart by whether `claim` is present.
 - **Dispatch parameter**: a sensitive `header` named `X-Tejido-Checkin-Secret` whose value is
   `CHECKIN_SHARED_SECRET`.
 - **Schema**: generate it from the contracts so it cannot drift:
-  `itemInputJsonSchema('log_work', milestoneIds)` in `@tejido/contracts`.
+  `itemInputJsonSchema('log_work')` and `itemInputJsonSchema('milestone_hit')` in
+  `@tejido/contracts`. Nothing in it names one campaign: `milestone_id` is plain text, not a
+  list of one campaign's milestones. Qatom refuses a purchase whose inputs do not fit the
+  schema before it charges, so a list of one campaign's milestones would lock every other
+  campaign out.
 
 Then store each item's commodity id (a whole number) on the campaign (`logWorkCommodityId`,
 `milestoneHitCommodityId`) so the reconciler knows which ledgers to read. Qatom reads a ledger by
