@@ -2,7 +2,6 @@
 	import { enhance } from '$app/forms';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { cadenceSchema } from '@tejido/contracts';
 	import { Banner, Icon } from '@tejido/ui';
 	import { onMount, untrack } from 'svelte';
 	import type { PageProps } from './$types';
@@ -25,6 +24,7 @@
 	import StepMilestones from '#lib/campaign-site/builder/StepMilestones.svelte';
 	import StepPeople from '#lib/campaign-site/builder/StepPeople.svelte';
 	import StepReview from '#lib/campaign-site/builder/StepReview.svelte';
+	import StepSchedule from '#lib/campaign-site/builder/StepSchedule.svelte';
 	import {
 		clearDraft,
 		loadCreated,
@@ -33,12 +33,7 @@
 		saveCreated,
 		saveDraft
 	} from '#lib/campaign-site/builder/store.ts';
-	import {
-		CADENCE_HELP,
-		CADENCE_LABEL,
-		STEP_NAME,
-		UNIT
-	} from '#lib/campaign-site/builder/words.ts';
+	import { STEP_NAME, UNIT } from '#lib/campaign-site/builder/words.ts';
 
 	let { data }: PageProps = $props();
 
@@ -378,33 +373,7 @@
 			{:else if step === 'people'}
 				<StepPeople bind:draft {errors} {notices} {editKey} />
 			{:else if step === 'schedule'}
-				{@const cadenceId = fieldId('schedule.cadence')}
-				<fieldset
-					class="choices"
-					aria-describedby={errors['schedule.cadence'] ? `${cadenceId}-err` : undefined}
-				>
-					<legend class="tj-label">Work is reported</legend>
-					<div class="tj-choices" id={cadenceId}>
-						{#each cadenceSchema.options as cadence (cadence)}
-							<label class="tj-check tj-choice">
-								<input
-									type="radio"
-									name="cadence"
-									value={cadence}
-									bind:group={draft.schedule.cadence}
-								/>
-								<span class="tj-check__text">
-									<span>{CADENCE_LABEL[cadence]}</span>
-									<small>{CADENCE_HELP[cadence]}</small>
-								</span>
-							</label>
-						{/each}
-					</div>
-					<FieldError id="{cadenceId}-err" message={errors['schedule.cadence']} />
-				</fieldset>
-				<Banner title="Reminders are not sent yet" role="note">
-					Tejido shows donors when a report is late. It does not yet remind the person who owes it.
-				</Banner>
+				<StepSchedule bind:draft {errors} />
 			{:else}
 				<StepReview {draft} {notices} />
 			{/if}
@@ -482,17 +451,6 @@
 	}
 	.unit {
 		white-space: nowrap;
-	}
-	.choices {
-		border: 0;
-		margin: 0;
-		padding: 0;
-		min-width: 0;
-		display: grid;
-		gap: var(--space-2);
-	}
-	.choices legend {
-		margin-bottom: var(--space-2);
 	}
 	/*
 		The floating Back / Continue bar, in the header's family: `header.top` in the first

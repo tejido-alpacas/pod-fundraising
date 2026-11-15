@@ -159,11 +159,44 @@ test('a file kept from donors opens for its uploader and the confirmer, and for 
 	}
 });
 
-test('the fix page opens', async ({ page, cfg, waypoint }) => {
+test('the fix page shows what is incomplete, or says nothing is', async ({
+	page,
+	cfg,
+	waypoint
+}) => {
 	await page.goto(`${cfg.appUrl}/fix`);
-	// "Nothing to fix" or "Choose the report to fix": either is the page working.
-	await expect(page.getByRole('heading', { level: 1 })).toContainText(/fix/i);
-	await waypoint(page, 'fix');
+	const heading = page.getByRole('heading', { level: 1 });
+	// Three states, each with its own page: no incomplete report, exactly one (opened at once),
+	// or several to choose from. Which one depends on what has been filed on the test campaign.
+	await expect(heading).toHaveText(
+		/^(Nothing to fix|Choose the report to fix|Add what is missing to finish .+)$/
+	);
+	const state = (await heading.innerText()).trim();
+
+	if (state === 'Nothing to fix') {
+		await expect(page.getByText('None of your reports is incomplete.')).toBeVisible();
+		await expect(page.getByRole('link', { name: 'Back to your project' })).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Save to this report' })).toHaveCount(0);
+		await waypoint(page, 'fix-nothing');
+		return;
+	}
+
+	if (state === 'Choose the report to fix') {
+		// Each incomplete report is listed with its milestone and what is missing, and opens.
+		const choices = page.locator('a[href^="?entry="]');
+		expect(await choices.count()).toBeGreaterThanOrEqual(2);
+		await expect(page.getByText('You won’t pay again.')).toBeVisible();
+		await waypoint(page, 'fix-choose');
+		await choices.first().click();
+		await expect(heading).toHaveText(/^Add what is missing to finish .+$/);
+	}
+
+	// One report, open: it says what was saved, that fixing costs no deposit, and offers to
+	// save. Nothing is chosen or saved here: saving changes the report for good.
+	await expect(page.getByText('You won’t pay the deposit again.')).toBeVisible();
+	await expect(page.getByText('Already saved', { exact: true })).toBeVisible();
+	await expect(page.getByRole('button', { name: 'Save to this report' })).toBeVisible();
+	await waypoint(page, 'fix-one-report');
 });
 
 test('a reminder’s link says what is due and leads to the chat', async ({

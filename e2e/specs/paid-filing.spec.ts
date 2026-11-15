@@ -196,4 +196,17 @@ test('files one work log for a real deposit and finds it on the timeline', async
 	await expect(page.getByRole('heading', { name: 'What happened' })).toBeVisible();
 	await expect(page.getByRole('main')).toContainText(reference);
 	await waypoint(page, 'proof-of-the-entry');
+
+	// Filed, and complete. A report that reached Tejido with something missing is saved (its
+	// deposit is paid) and marked incomplete, with the reason as this notice's title.
+	const incomplete = page
+		.getByRole('note')
+		.filter({ hasText: 'can add what is missing without paying again' });
+	if ((await incomplete.count()) > 0) {
+		throw new Error(
+			`The work log "${reference}" was filed and its deposit paid, but Tejido saved it as ` +
+				`INCOMPLETE. The public page says: "${tidy(await incomplete.first().innerText(), 500)}". ` +
+				'Do not file again to fix it: the App’s fix page is where a report is completed.'
+		);
+	}
 });

@@ -10,6 +10,9 @@ import {
 	AMOUNT_UNITS_PER_USD_TDN,
 	cadenceSchema,
 	campaignSchema,
+	DAYS_CADENCE_PREFIX,
+	daysCadence,
+	daysNamedIn,
 	milestoneKindSchema,
 	milestoneSchema,
 	partyRelationshipSchema,
@@ -100,6 +103,35 @@ function field<T>(schema: z.ZodType<T>, value: unknown, words: Words): Field<T> 
 }
 
 const tidy = (value: string): string => value.trim().replace(/[ \t]+/g, ' ');
+
+// ---------------------------------------------------------------------------
+// The cadence
+// ---------------------------------------------------------------------------
+
+/**
+ * Reads how often work is reported: `weekly`, `fortnightly`, `daily`, or chosen days of the
+ * week written `days:mon,thu`. Chosen days may arrive in any order and repeated; they are
+ * put the way the contract writes them. At least one day must be chosen, and nothing that
+ * is not a cadence is ever read as one.
+ */
+export function readCadence(sent: string): Field<Cadence> {
+	if (sent.startsWith(DAYS_CADENCE_PREFIX)) {
+		if (sent === DAYS_CADENCE_PREFIX) {
+			return { ok: false, message: 'Choose at least one day of the week.' };
+		}
+		const days = daysNamedIn(sent);
+		if (days === null) {
+			return {
+				ok: false,
+				message: 'Choose days of the week from mon, tue, wed, thu, fri, sat and sun.'
+			};
+		}
+		return field(cadenceSchema, daysCadence(days), {
+			empty: 'Choose at least one day of the week.'
+		});
+	}
+	return field(cadenceSchema, sent, { empty: 'Choose how often work is reported.' });
+}
 
 // ---------------------------------------------------------------------------
 // The goal
@@ -335,12 +367,7 @@ export function checkDraft(draft: BuilderDraft): Checked {
 	}
 
 	// --- Schedule ---
-	const cadence = put(
-		'schedule.cadence',
-		field(cadenceSchema, draft.schedule.cadence, {
-			empty: 'Choose how often work is reported.'
-		})
-	);
+	const cadence = put('schedule.cadence', readCadence(draft.schedule.cadence));
 
 	const clean = Object.keys(errors).length === 0;
 	const value: CheckedDraft | null =
