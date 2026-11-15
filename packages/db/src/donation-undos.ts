@@ -12,7 +12,7 @@
  * A donation or a ledger payment that any undo has ever named cannot be claimed again.
  */
 import type { AgentWalletHostname, Amount, PrimaryWalletHostname } from '@tejido/contracts';
-import { and, eq, gte, inArray, lte, or, sql } from 'drizzle-orm';
+import { and, eq, gte, inArray, lte, sql } from 'drizzle-orm';
 import type { Database, Executor } from './client.ts';
 import { campaigns, donations, donationUndos, parties, type RefundStatus } from './schema.ts';
 
@@ -139,16 +139,17 @@ export async function listPartiesByWalletHostname(
 			agentWalletHostname: parties.agentWalletHostname
 		})
 		.from(parties)
+		// The columns are typed as the two kinds of wallet; a ledger's hostname is neither yet.
 		.where(
-			or(eq(parties.primaryWalletHostname, hostname), eq(parties.agentWalletHostname, hostname))
+			sql`${parties.primaryWalletHostname} = ${hostname} or ${parties.agentWalletHostname} = ${hostname}`
 		)
 		.orderBy(parties.id);
 	const found: PartyOfWallet[] = [];
 	for (const { email, primaryWalletHostname, agentWalletHostname } of rows) {
-		if (primaryWalletHostname !== null && primaryWalletHostname === hostname) {
+		if (primaryWalletHostname !== null && String(primaryWalletHostname) === hostname) {
 			found.push({ email, primaryWalletHostname });
 		}
-		if (agentWalletHostname !== null && agentWalletHostname === hostname) {
+		if (agentWalletHostname !== null && String(agentWalletHostname) === hostname) {
 			found.push({ email, agentWalletHostname });
 		}
 	}
