@@ -43,6 +43,26 @@ describe('parseE2eConfig', () => {
 		}
 	});
 
+	it('turns the paid donation on only for exactly "true", and never from E2E_PAID', () => {
+		expect(parseE2eConfig(complete).paidDonation).toBe(false);
+		expect(parseE2eConfig(complete).donationCampaignId).toBeNull();
+		expect(parseE2eConfig({ ...complete, E2E_PAID: 'true' }).paidDonation).toBe(false);
+		expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: 'true' }).paidDonation).toBe(true);
+		expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: 'true' }).paid).toBe(false);
+		for (const value of ['TRUE', '1', 'yes', 'false', ' ', undefined]) {
+			expect(parseE2eConfig({ ...complete, E2E_PAID_DONATION: value }).paidDonation).toBe(false);
+		}
+	});
+
+	it('reads the campaign a paid donation may give to, and refuses one that is not an id', () => {
+		const config = parseE2eConfig({ ...complete, E2E_DONATION_CAMPAIGN_ID: 'e2e-giving' });
+		expect(config.donationCampaignId).toBe('e2e-giving');
+		expect(config.campaignId).toBe('e2e-smoke');
+		expect(refusal({ ...complete, E2E_DONATION_CAMPAIGN_ID: 'Not An Id' }).names).toEqual([
+			'E2E_DONATION_CAMPAIGN_ID'
+		]);
+	});
+
 	it('signs in unless told not to with exactly "true"', () => {
 		expect(parseE2eConfig(complete).signIn).toBe(true);
 		expect(parseE2eConfig({ ...complete, E2E_SKIP_SIGN_IN: 'true' }).signIn).toBe(false);
