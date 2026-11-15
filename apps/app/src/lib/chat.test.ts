@@ -7,8 +7,15 @@ describe('filingTool', () => {
 		expect(filingTool('library-wing_milestone_hit')).toBe('milestone_hit');
 	});
 
+	it('knows the shared milestone tool by the name Qatom gives it on the live site', () => {
+		expect(filingTool('milestone')).toBe('milestone_hit');
+		expect(filingTool('tejido_milestone')).toBe('milestone_hit');
+		expect(filingTool('log_work')).toBe('log_work');
+	});
+
 	it('treats every other Qatom tool as not a filing', () => {
 		expect(filingTool('agent_wallet_info')).toBeNull();
+		expect(filingTool('milestones_list')).toBeNull();
 		expect(filingTool('a tool')).toBeNull();
 	});
 });
