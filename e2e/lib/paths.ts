@@ -19,3 +19,8 @@ export const CONFIRMER_STATE = join(AUTH, 'confirmer.json');
 export const DONOR_STATE = join(AUTH, 'donor.json');
 /** Playwright's own scratch output (failure screenshots before they reach the report). */
 export const TEST_OUTPUT = join(root, '.test-output');
+/**
+ * The campaign a paid run created for itself: its id and its two people's party ids. Written by
+ * specs/create-campaign.spec.ts and read by the harness. No secret is in it.
+ */
+export const RUN_CAMPAIGN = join(AUTH, 'run-campaign.json');

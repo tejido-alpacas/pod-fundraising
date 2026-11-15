@@ -63,54 +63,53 @@ async function say(page: Page, text: string, what: string): Promise<void> {
 	await replyAfter(page, before, what);
 }
 
+/** What one conversation says to the assistant before asking for the review. */
+export interface Draft {
+	/** The person's first message: what they want to file, in their own words. */
+	opening: string;
+	/** Whether the test picture is attached after the first message. */
+	photo: boolean;
+}
+
 /**
- * One conversation, as far as the review card: says what was done, attaches the picture, asks
- * for the review. Returns the card. Nothing is filed by this.
- *
- * `reference` is put in the note so the entry can be found afterwards if it is filed.
+ * One conversation, as far as the review card: says what is to be filed, attaches the picture
+ * if there is one, asks for the review. Returns the card. Nothing is filed by this.
  */
-export async function draftWorkLog(
+export async function draftReport(
 	page: Page,
 	cfg: E2eConfig,
-	reference: string,
+	draft: Draft,
 	waypoint: Waypoint
 ): Promise<Locator> {
 	await openChat(page, cfg);
 	await waypoint(page, 'chat-open');
 
-	await say(
-		page,
-		// Named on purpose. The test campaign's first milestone is a service, which takes documents
-		// only: a work log with a photo on it is saved as incomplete. The third is a build, which
-		// takes photos and needs the percent complete given here.
-		'I want to file a work log on the milestone called "Test milestone 3: a build". This is an ' +
-			'automated test of the ' +
-			`app, not real work. Status: on track. Percent complete: 10. Use this note word for word: ` +
-			`"Automated end-to-end check ${reference}. A test entry, not real work." ` +
-			'I will attach one photo next. Do not file anything yet.',
-		'the description of the work'
-	);
+	await say(page, draft.opening, 'the description of what to file');
 	await waypoint(page, 'chat-described');
 
-	// The picture goes through the chat's own "Choose file", which uploads it for real and then
-	// tells the assistant.
-	const before = await assistantBubbles(page).count();
-	const attach = page.getByRole('button', { name: 'Add photo or file' });
-	if ((await attach.getAttribute('aria-expanded')) !== 'true') await attach.click();
-	await page
-		.locator('#attach-choices input[type="file"]:not([capture])')
-		.setInputFiles(testEvidenceFile());
-	await expect(page.locator('.tj-attach').filter({ hasText: 'Uploaded ·' })).toBeVisible({
-		timeout: 60_000
-	});
-	await replyAfter(page, before, 'the attached photo');
-	await waypoint(page, 'chat-photo-attached');
+	if (draft.photo) {
+		// The picture goes through the chat's own "Choose file", which uploads it for real and
+		// then tells the assistant.
+		const before = await assistantBubbles(page).count();
+		const attach = page.getByRole('button', { name: 'Add photo or file' });
+		if ((await attach.getAttribute('aria-expanded')) !== 'true') await attach.click();
+		await page
+			.locator('#attach-choices input[type="file"]:not([capture])')
+			.setInputFiles(testEvidenceFile());
+		await expect(page.locator('.tj-attach').filter({ hasText: 'Uploaded ·' })).toBeVisible({
+			timeout: 60_000
+		});
+		await replyAfter(page, before, 'the attached photo');
+		await waypoint(page, 'chat-photo-attached');
+	}
 
 	// Ask for the review. The assistant may ask one more question first: one nudge, no more.
 	const card = reviewCard(page);
 	await say(
 		page,
-		'That is everything. Attach the photo I just uploaded and show me the review before filing.',
+		draft.photo
+			? 'That is everything. Attach the photo I just uploaded and show me the review before filing.'
+			: 'That is everything. I have no file to attach. Show me the review before filing.',
 		'the request for the review'
 	);
 	if (!(await card.isVisible())) {
@@ -122,4 +121,35 @@ export async function draftWorkLog(
 	}
 	await expect(card, 'The assistant did not show its review card.').toBeVisible();
 	return card;
+}
+
+/** The milestone of the test campaign that takes photos: a build. Its first is documents only. */
+export const BUILD_MILESTONE = 'Test milestone 3: a build';
+
+/**
+ * The work log's conversation. `reference` is put in the note so the entry can be found
+ * afterwards if it is filed.
+ */
+export function draftWorkLog(
+	page: Page,
+	cfg: E2eConfig,
+	reference: string,
+	waypoint: Waypoint
+): Promise<Locator> {
+	return draftReport(
+		page,
+		cfg,
+		{
+			// The milestone is named on purpose. The test campaign's first milestone is a service,
+			// which takes documents only: a work log with a photo on it is saved as incomplete. The
+			// third is a build, which takes photos and needs the percent complete given here.
+			opening:
+				`I want to file a work log on the milestone called "${BUILD_MILESTONE}". This is an ` +
+				'automated test of the app, not real work. Status: on track. Percent complete: 10. ' +
+				`Use this note word for word: "Automated end-to-end check ${reference}. A test entry, ` +
+				'not real work." I will attach one photo next. Do not file anything yet.',
+			photo: true
+		},
+		waypoint
+	);
 }

@@ -1,9 +1,11 @@
 /**
- * The two small pictures the suite uploads as evidence: real PNGs, made here so no binary file
- * is committed. Each is the same bytes every run, so the evidence store keeps a single copy of
- * each. They differ on purpose: who may see a file is kept by its fingerprint, so the picture
- * that is kept from donors must never be the same bytes as the public one.
+ * The small pictures the suite uploads as evidence: real PNGs, made here so no binary file is
+ * committed. The public one is the same bytes every run, so the evidence store keeps a single
+ * copy. The one kept from donors is the same bytes for the same uploader. They differ on
+ * purpose: who may see a file is kept by its fingerprint, so a picture that is kept from donors
+ * must never be the same bytes as the public one.
  */
+import { createHash } from 'node:crypto';
 import { crc32, deflateSync } from 'node:zlib';
 
 function chunk(type: string, data: Buffer): Buffer {
@@ -49,9 +51,16 @@ export function testEvidencePng(): Buffer {
 	return bands([0x1f, 0x6f, 0x5c], [0xf2, 0xe9, 0xd8]);
 }
 
-/** The picture kept from donors: grey bands. Different bytes from the public one, always. */
-export function privateEvidencePng(): Buffer {
-	return bands([0x55, 0x55, 0x5a], [0xdd, 0xdd, 0xe2]);
+/**
+ * The picture kept from donors: bands in two colours worked out from `owner`, the party who
+ * uploads it. Who may open a file kept from donors is recorded once, for whoever uploaded
+ * those bytes first, so each uploader needs bytes of their own: the same person always gets
+ * the same picture, and two people never share one. The last colour value is fixed and differs
+ * from the public picture's, so it can never be the same bytes as the public one.
+ */
+export function privateEvidencePng(owner: string): Buffer {
+	const [r = 0, g = 0, lightR = 0, lightG = 0] = createHash('sha256').update(owner).digest();
+	return bands([r, g, 0x5a], [lightR, lightG, 0xe2]);
 }
 
 /** What `setInputFiles` takes. */
@@ -59,7 +68,15 @@ export function testEvidenceFile(): { name: string; mimeType: string; buffer: Bu
 	return { name: 'e2e-evidence.png', mimeType: 'image/png', buffer: testEvidencePng() };
 }
 
-/** The same, for the picture that is kept from donors. */
-export function privateEvidenceFile(): { name: string; mimeType: string; buffer: Buffer } {
-	return { name: 'e2e-kept-from-donors.png', mimeType: 'image/png', buffer: privateEvidencePng() };
+/** The same, for the picture that `owner` keeps from donors. */
+export function privateEvidenceFile(owner: string): {
+	name: string;
+	mimeType: string;
+	buffer: Buffer;
+} {
+	return {
+		name: 'e2e-kept-from-donors.png',
+		mimeType: 'image/png',
+		buffer: privateEvidencePng(owner)
+	};
 }
