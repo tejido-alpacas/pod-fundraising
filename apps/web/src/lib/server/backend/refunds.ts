@@ -58,7 +58,7 @@ import { randomUUID } from 'node:crypto';
 export type RefundSkipReason =
 	/** The reconciler has not matched the entry to a ledger transaction yet. */
 	| 'entry_not_verified'
-	/** The reconciler flagged the entry: the paying wallet was not the party's own. */
+	/** The reconciler flagged the entry: its receipt does not match the filing. */
 	| 'entry_flagged'
 	/** An earlier request claimed these deposits and has not recorded what happened. */
 	| 'refund_in_progress'
@@ -150,7 +150,7 @@ const SKIP_MESSAGES: Record<RefundSkipReason, string> = {
 	entry_not_verified:
 		'Not sent: the entry has not been matched to its payment in the ledger yet. Run the reconciler, then ask again.',
 	entry_flagged:
-		'Not sent: the entry is flagged because it was not paid from the wallet registered for this party. A person must decide.',
+		'Not sent: the entry is flagged because its receipt does not match the filing. A person must decide.',
 	refund_in_progress:
 		'Not sent: an earlier request started refunding these deposits and has not recorded the outcome. If no request is still running, a person must check the wallet before anything is sent again.',
 	refund_outcome_unknown:

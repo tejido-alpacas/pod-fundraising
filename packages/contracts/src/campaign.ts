@@ -66,7 +66,7 @@ export type Campaign = z.infer<typeof campaignSchema>;
 /**
  * - `open`: nobody has claimed it yet.
  * - `claimed`: the party doing the work says it is done; no confirmation yet.
- * - `confirmed_independent`: the named confirmer signed it off from their own wallet. The name
+ * - `confirmed_independent`: the named confirmer signed it off. The name
  *   says who signed, not how strong the confirmation is: that comes from the confirmer's
  *   recorded relationship. See `confirmationStrength`.
  * - `confirmed_creator`: no confirmer answered in the waiting period, so the creator signed it

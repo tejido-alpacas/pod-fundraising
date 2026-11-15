@@ -10,19 +10,14 @@
  * shared-secret check a person's call goes through. Never put `/api/refunds` here: it moves
  * money, and the product's refunds are sent only when a person asks.
  *
- * ONE EXCEPTION, FOR THE END-TO-END TEST PEOPLE ONLY (CLAUDE.md, "Qatom"; the owner's decision
- * of 15 November 2026). After a reconcile pass that worked, the timer asks, in the same
- * in-process way, for `POST /api/test-account-refunds`: the deposits of the test accounts
- * (email at the test inbox domain) go back to their agent wallets, a confirmed milestone's
- * at once and any other once it is 20 minutes old, so the automatic paid tests keep
- * themselves funded. That route is its own, checks the same
- * secret, and refunds nobody else. TO TURN IT OFF, remove the `refundTestAccountsOnTimer`
- * call below; nothing else calls that route.
- *
- * The same exception covers a donation the paid tests make: after the refunds, the timer asks
- * for `POST /api/test-donation-undos`, which sends such a donation back to the test person's
- * wallet it was paid from and takes it out of the campaign's total. Nobody else's donation is
- * touched. TO TURN IT OFF, remove the `undoTestDonationsOnTimer` call below.
+ * THE TEST PEOPLE'S MONEY IS NOT SENT BACK BY THE TIMER (the owner, 15 November 2026: "Switch
+ * it off, only I move test money"). The timer used to ask, after a reconcile pass, for
+ * `POST /api/test-account-refunds` (the test accounts' deposits back to their agent wallets)
+ * and `POST /api/test-donation-undos` (a test donation sent back and taken out of the total).
+ * It asks for neither now. The two routes and their code are still there, behind the same
+ * secret, and nothing calls them. TO SWITCH ONE ON AGAIN, on the owner's word only, call
+ * `refundTestAccountsOnTimer` or `undoTestDonationsOnTimer` (reconcile-timer.ts) below, after
+ * the reconcile pass.
  *
  * LAST, THE TEST CAMPAIGNS ARE CLEANED UP (the owner, 15 November 2026). The timer asks for
  * `POST /api/test-campaign-cleanup`, which DELETES the campaigns the automatic end-to-end
@@ -36,12 +31,7 @@
  */
 import { parseConfig } from '@tejido/config';
 import sveltekit from 'tejido:sveltekit-worker';
-import {
-	cleanUpTestCampaignsOnTimer,
-	reconcileOnTimer,
-	refundTestAccountsOnTimer,
-	undoTestDonationsOnTimer
-} from './reconcile-timer.ts';
+import { cleanUpTestCampaignsOnTimer, reconcileOnTimer } from './reconcile-timer.ts';
 
 export default {
 	...sveltekit,
@@ -61,23 +51,10 @@ export default {
 		const status = await reconcileOnTimer(pass);
 		console.log(`Reconcile on the timer: POST /api/reconcile answered ${status}.`);
 
-		// The end-to-end test people's refunds, only after a reconcile pass that worked. Like
-		// the reconcile pass, a failure throws with the status only, and only this timer event
-		// fails: page requests are separate events.
-		const refunds = await refundTestAccountsOnTimer(pass);
-		console.log(
-			`Test-account refunds on the timer: POST /api/test-account-refunds answered ${refunds}.`
-		);
+		// No test-account refunds and no test-donation undos here: only the owner moves test
+		// money (see the top of this file).
 
-		// The donations the paid tests made, sent back and taken out of the totals. Last, so a
-		// failure here stops nothing above; it fails only this timer event.
-		const undos = await undoTestDonationsOnTimer(pass);
-		console.log(
-			`Test-donation undos on the timer: POST /api/test-donation-undos answered ${undos}.`
-		);
-
-		// Last of all: delete the campaigns the automatic tests created and are finished with.
-		// After the passes above, so a refund or an undo recorded in this same minute is seen.
+		// Last: delete the campaigns the automatic tests created and are finished with.
 		// A failure throws with the status only.
 		const cleanup = await cleanUpTestCampaignsOnTimer(pass);
 		console.log(

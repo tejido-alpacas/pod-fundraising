@@ -13,29 +13,17 @@ shared-secret header. No network hop, and the same route a person's call goes th
 - Reconcile, and then three more things. `/api/funding` and `/api/schedule` are not on the timer;
   adding one is one more call in `worker.ts`. `/api/refunds` moves money and must never be put
   there: the product's refunds go to primary wallets and only when a person asks.
-- The one more thing is for the end-to-end test accounts only (`CLAUDE.md`, "Qatom": the one
-  exception, the owner's decision of 15 November 2026). After a reconcile pass that worked, the
-  timer asks for `POST /api/test-account-refunds`. A party whose email is at the test inbox
-  domain gets their deposits back in the agent wallet they were paid from (a confirmed
-  milestone's at once; any other once it is 20 minutes old, because a failed test run never
-  confirms its milestone), out of the twin the item is sold from, so the automatic paid tests keep themselves
-  funded. Nobody else is refunded that way. The rules are in `test-account-refunds.ts`; the
-  Qatom calls are in `packages/qatom/src/account/item-twin-refund.ts`. To turn it off, remove
-  the `refundTestAccountsOnTimer` call in `worker.ts`. A pass that had something to consider
-  writes one line to the Worker's logs, such as `Test-account refunds: 0 sent, 3 skipped
-(item_twin_balance_too_low 3), a person needs to look: no.` Counts and reason names only.
-- And one more, under the same exception: a donation the paid tests make is undone. After the
-  refunds the timer asks for `POST /api/test-donation-undos`. A donation to a campaign whose
-  creator's email is at the test inbox domain, recorded in the last hour, is tied to its
-  payment on the donation item's ledger; if that payment came from a wallet our own database
-  has registered to a test person (and to nobody else), the amount is sent back to that
-  wallet out of the donation item's own twin, once, and the donation stops counting in the
-  campaign's total (its row stays; `donation_undos` records the undo). Exactly one payment
-  must fit, and it must fit no other donation on any campaign; otherwise nothing is sent. At
-  most 10.00 a pass, so only the 1 and 10 items can be undone. A campaign the donation moved
-  to `funded` stays `funded`. The rules are in `test-donation-undos.ts`. To turn it off, remove
-  the `undoTestDonationsOnTimer` call in `worker.ts`. Its log line reads, for example,
-  `Test-donation undos: 1 sent back, 0 skipped, a person needs to look: no.`
+- **Test money is not sent back by the timer** (the owner, 15 November 2026: "Switch it off,
+  only I move test money"). Two passes were built for the end-to-end test accounts only
+  (`CLAUDE.md`, "Qatom": the one exception) and the timer used to ask for them after a
+  reconcile pass: `POST /api/test-account-refunds` (a test party's deposits back to the agent
+  wallet they were paid from, out of the twin the item is sold from; rules in
+  `test-account-refunds.ts`, Qatom calls in `packages/qatom/src/account/item-twin-refund.ts`)
+  and `POST /api/test-donation-undos` (a test donation sent back and taken out of the
+  campaign's total; rules in `test-donation-undos.ts`). The timer calls neither now. The
+  routes and their code are still there and nothing calls them. To switch one on again, on
+  the owner's word only, add its call (`refundTestAccountsOnTimer`,
+  `undoTestDonationsOnTimer`) to `worker.ts` after the reconcile pass.
 - Last, the timer cleans up after the automatic tests: `POST /api/test-campaign-cleanup`
   **deletes** the campaigns the paid end-to-end tests created and are finished with (the
   owner, 15 November 2026). See "Test-campaign cleanup" below. To turn it off, remove the
