@@ -8,8 +8,10 @@ step at phone size (390 px wide) and desktop size (1280 px wide).
 It is separate from the four checks. `npm test` never runs it, and it needs things the four
 checks must never need: the network, a mailbox, and two real Qatom accounts.
 
-> **Nothing here has been run against the live site yet.** It was written before the inbox
-> existed. Read "What needs a look after the first run" before trusting a failure.
+> **Only the first steps have run against the live site.** The workflow's sign-in to AWS, the
+> invitation page, Qatom's email and code pages, and reading the code from the inbox all work.
+> Everything after the code is still unchecked. Read "What still needs a look" before trusting a
+> failure.
 
 ## What it does
 
@@ -152,15 +154,15 @@ Open the run on GitHub and download the artifact at the bottom of its page. It h
 
 Common failures, and what they mean:
 
-| The message says                                        | What happened                                                                                                                                     |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| "No sign-in code arrived at …"                          | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.      |
-| "Qatom did not send a code: …"                          | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                |
-| "Waited 90 seconds for Qatom to send the browser back…" | Qatom showed a step the suite does not know. Look at `…-qatom-stuck.png`.                                                                         |
-| "The App did not sign … in: …"                          | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match). |
-| "The assistant did not show its review card."           | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                |
-| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"       | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.        |
-| "The assistant replied without filing"                  | Nothing was sent. Usually the wallet is empty or the auto-approve limit is too low; the screenshot shows what the assistant asked for.            |
+| The message says                                        | What happened                                                                                                                                      |
+| ------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| "No sign-in code arrived at …"                          | Qatom's email did not reach the queue in two minutes. Check the inbox infrastructure, and Qatom's limit above. No second code was asked for.       |
+| "Qatom did not send a code: …"                          | Qatom refused, usually its limit. Wait 15 minutes.                                                                                                 |
+| "Waited 90 seconds for Qatom to send the browser back…" | Qatom showed a step the suite does not know. The lines under the message name the page's step, headings and buttons; `…-qatom-stuck.png` shows it. |
+| "The App did not sign … in: …"                          | The App refused the sign-in. The message is the App's own title, such as a wrong email (the fixture's address and the inbox domain do not match).  |
+| "The assistant did not show its review card."           | The model did not produce the review after one nudge. Look at the chat screenshots; run again before assuming something is broken.                 |
+| "IT IS NOT KNOWN WHETHER THE FILING WENT THROUGH"       | A paid run lost touch mid-filing. **Do not run paid again** until you have looked at the test campaign's page and the contractor's wallet.         |
+| "The assistant replied without filing"                  | Nothing was sent. Usually the wallet is empty or the auto-approve limit is too low; the screenshot shows what the assistant asked for.             |
 
 `sign-in` and `paid-filing` are never retried: a retry would ask for another code or pay
 another deposit. `chat-draft` is retried once, because the model's answers vary. If `sign-in`
@@ -173,29 +175,25 @@ session cookie) is kept in `e2e/.auth/`, which git ignores and the workflow does
 trace or video is recorded, because either would contain cookies. A used one-time code may
 appear in a screenshot of Qatom's own page; it is worthless once used.
 
-## What needs a look after the first run
+## What still needs a look
 
-None of this has run against the live site. In order of likelihood:
+The email step, the code step and the inbox have worked against the live site. The rest has not
+run. In order of likelihood:
 
-1. **Qatom's pages after the code.** The ids for the email and code steps (`#email-input`,
-   `#email-submit-btn`, `#email-code-input`) and for the steps that can follow
-   (`#passkey-skip-btn`, `#confirm-authorization-btn`, `#proceed-without-wallet`,
-   `#account-select-continue`) were read from the sign-in page Qatom serves in production for
-   Tejido's client, not from Qatom's own test suite. For Tejido's client the page finishes by
-   itself after the code. If Qatom shows a separate consent page (the App asks for
-   `offline_access` with `prompt=consent`), the suite does not know it and stops with
-   `qatom-stuck`: add its button to `ONWARD` in `lib/sign-in.ts`.
-2. **The shape of the queue message.** `lib/inbox-message.ts` expects SES's "Received"
-   notification, with the whole email as `content`, inside SNS's envelope or delivered raw. If
-   the infrastructure stores mail in S3 instead, the reader says so ("does not carry its
-   text") and needs changing.
-3. **The email's wording.** The code is taken as the only six-digit number in the email's
-   text. If Qatom's email has another one, the reader refuses to guess and says so.
-4. **A first-time account.** The very first sign-in of each person also creates their Qatom
+1. **Qatom's pages after the code.** Because the App's sign-in names a Qatom MCP server, Qatom
+   offers to add funds by card after the code ("Add funds to your wallet"), unless the client's
+   row in Qatom says `"show_chargeup": false`. The suite presses "Skip for now" and nothing
+   else there. The ids of the other steps that can follow (`#passkey-skip-btn`,
+   `#confirm-authorization-btn`, `#proceed-without-wallet`, `#account-select-continue`,
+   `#finish-sign-in-retry`) were read from Qatom's sign-in page, not checked by a run. If Qatom
+   shows a page the suite does not know (a separate consent page, say), it stops with
+   `qatom-stuck` and the log names the page's step, headings and buttons: add its button to
+   `ONWARD` in `lib/sign-in.ts`.
+2. **A first-time account.** The very first sign-in of each person also creates their Qatom
    account, which Qatom says can take a few seconds longer; the wait is 90 seconds.
-5. **The assistant's behaviour.** The review card is drawn only when the model follows its
+3. **The assistant's behaviour.** The review card is drawn only when the model follows its
    layout exactly. The suite asks plainly and nudges once.
-6. **Finding the filed entry.** The paid spec looks for its own reference (`ref-…`) in the
+4. **Finding the filed entry.** The paid spec looks for its own reference (`ref-…`) in the
    public timeline's text. It asks the assistant to use the note word for word; if the model
    rewrites it, the entry is filed but the spec fails at the last step, saying so.
 
