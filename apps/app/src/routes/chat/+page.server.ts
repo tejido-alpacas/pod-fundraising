@@ -4,7 +4,7 @@ import { mcpResource, usablePersonToken } from '#lib/server/person-tokens.ts';
 import type { PageServerLoad } from './$types';
 
 // The chat page (B2): who the agent would be working for, and whether it can reach Qatom as them.
-export const load: PageServerLoad = async ({ locals }) => {
+export const load: PageServerLoad = async ({ locals, url }) => {
 	const { session } = locals;
 	if (!session) return { who: null };
 
@@ -18,6 +18,13 @@ export const load: PageServerLoad = async ({ locals }) => {
 		resource: mcpResource(config.QATOM_MCP_URL)
 	});
 	const milestones = await listMilestones(db, campaign.id);
+	const theirs = milestones.filter(
+		(milestone) => milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id
+	);
+	// `/chat?milestone={id}` opens the conversation for one milestone, as a reminder's button
+	// does. It counts only when that milestone is this party's own; anything else is ignored.
+	const asked = url.searchParams.get('milestone');
+	const about = theirs.find((milestone) => milestone.id === asked)?.id ?? null;
 
 	return {
 		/** Today, as YYYY-MM-DD, so the page can say what is overdue. */
@@ -39,20 +46,17 @@ export const load: PageServerLoad = async ({ locals }) => {
 				campaignTitle: campaign.title,
 				/** False when the person must sign in again before the agent can act for them. */
 				connected: token.ok,
-				milestones: milestones
-					.filter(
-						(milestone) =>
-							milestone.ownerPartyId === party.id || milestone.confirmerPartyId === party.id
-					)
-					.map((milestone) => ({
-						id: milestone.id,
-						title: milestone.title,
-						/** The report form shows the fields this type of milestone needs. */
-						kind: milestone.kind,
-						dueDate: milestone.dueDate,
-						state: milestone.state,
-						part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const)
-					}))
+				/** The id of the one milestone this conversation was opened for, or null. */
+				about,
+				milestones: theirs.map((milestone) => ({
+					id: milestone.id,
+					title: milestone.title,
+					/** The report form shows the fields this type of milestone needs. */
+					kind: milestone.kind,
+					dueDate: milestone.dueDate,
+					state: milestone.state,
+					part: milestone.ownerPartyId === party.id ? ('owes' as const) : ('confirms' as const)
+				}))
 			}
 		}
 	};

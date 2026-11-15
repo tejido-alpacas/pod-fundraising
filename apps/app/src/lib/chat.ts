@@ -20,6 +20,11 @@ export interface ChatTurn {
 
 export interface ChatRequest {
 	messages: ChatTurn[];
+	/**
+	 * The id of the milestone the chat was opened for (`/chat?milestone=...`), if any. The server
+	 * uses it only when that milestone is the signed-in party's own, and ignores it otherwise.
+	 */
+	milestone?: string;
 }
 
 export const CHAT_MAX_TURNS = 100;

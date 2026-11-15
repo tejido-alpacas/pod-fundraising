@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { Banner, Button, Icon, StatusBadge, type IconName } from '@tejido/ui';
 	import { shortDay } from '#lib/dates.ts';
+	import { needsYou } from '#lib/due.ts';
 	import FieldPage from '#lib/FieldPage.svelte';
 	import { CADENCE, ROLES, roleName } from '#lib/roles.ts';
 	import type { PageProps } from './$types';
@@ -9,9 +10,7 @@
 
 	const milestones = $derived(data.viewer === 'party' ? data.milestones : []);
 	/** What this person has to do themselves, soonest first. */
-	const toDo = $derived(
-		milestones.filter((milestone) => milestone.step === 'claim' || milestone.step === 'confirm')
-	);
+	const toDo = $derived(milestones.filter((milestone) => needsYou(milestone.step)));
 	const incomplete = $derived(data.viewer === 'party' ? data.incompleteReports : 0);
 	const confirmer = $derived(data.viewer === 'party' && data.party.role === 'confirmer');
 

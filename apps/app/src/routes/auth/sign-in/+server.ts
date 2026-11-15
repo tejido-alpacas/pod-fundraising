@@ -13,17 +13,11 @@
 import { redirect } from '@sveltejs/kit';
 import { getParty } from '@tejido/db';
 import { QatomError } from '@tejido/qatom';
+import { safeReturnTo } from '#lib/return-to.ts';
 import { mcpResource } from '#lib/server/person-tokens.ts';
 import { writeSignInState } from '#lib/server/session.ts';
 import { problemPath } from '#lib/server/sign-in-problem.ts';
 import type { RequestHandler } from './$types';
-
-/** A path on this site, never another site. */
-function safeReturnTo(value: string | null): string {
-	return value && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\')
-		? value
-		: '/';
-}
 
 export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 	const { config, db, qatom } = locals.ctx;
@@ -52,7 +46,8 @@ export const GET: RequestHandler = async ({ url, cookies, locals }) => {
 	writeSignInState(cookies, config.SESSION_SECRET, {
 		pending: started.pending,
 		partyId,
-		returnTo: safeReturnTo(url.searchParams.get('return_to'))
+		// A path on this site, never another site.
+		returnTo: safeReturnTo(url.searchParams.get('return_to'), url.origin)
 	});
 
 	// The only place we send a browser off-site: to the provider at PAYMENT_API_URL.

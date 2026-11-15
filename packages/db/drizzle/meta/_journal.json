@@ -71,6 +71,13 @@
       "when": 1794689565887,
       "tag": "0009_ordinary_lester",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1794724057858,
+      "tag": "0010_majestic_omega_red",
+      "breakpoints": true
     }
   ]
 }
