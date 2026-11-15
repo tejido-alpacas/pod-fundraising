@@ -674,12 +674,17 @@ export async function listUnrefundedDeposits(
 }
 
 /**
- * A deposit not yet refunded, on a CONFIRMED milestone, with the party who filed its entry.
- * What the automatic refund pass for the end-to-end test people starts from.
+ * A deposit not yet refunded, with the party who filed its entry, whether its milestone is
+ * confirmed and when the entry was filed. What the automatic refund pass for the end-to-end
+ * test people starts from: it decides, from these, which deposits are due.
  */
-export interface ConfirmedUnrefundedDeposit extends UnrefundedDeposit {
+export interface UnrefundedDepositWithFiler extends UnrefundedDeposit {
 	campaignId: string;
 	milestoneId: string;
+	/** True when the entry's own milestone is confirmed, by anyone. */
+	milestoneConfirmed: boolean;
+	/** When the entry was filed: the moment we saved it. */
+	filedAt: Timestamp;
 	party: Pick<Party, 'id' | 'name' | 'email' | 'agentWalletHostname'>;
 	/**
 	 * The commodity id of the item the entry was filed with, as its campaign stores it. Null
@@ -691,16 +696,18 @@ export interface ConfirmedUnrefundedDeposit extends UnrefundedDeposit {
 }
 
 /**
- * Every unrefunded deposit on a confirmed milestone, in any campaign, whose filer's email is
- * at `emailDomain` (compared without regard to letter case), oldest entry first.
+ * Every unrefunded deposit, in any campaign and on any milestone, confirmed or not, whose
+ * filer's email is at `emailDomain` (compared without regard to letter case), oldest entry
+ * first.
  *
- * The domain here only keeps the list short. It decides nothing about who may be refunded
- * how: the caller asks `isEndToEndTestEmail` in @tejido/qatom about every row it is given.
+ * The domain here only keeps the list short. It decides nothing about who may be refunded,
+ * how or when: the caller asks `isEndToEndTestEmail` in @tejido/qatom about every row it is
+ * given, and decides from `milestoneConfirmed` and `filedAt` which deposits are due.
  */
-export async function listConfirmedUnrefundedDepositsByEmailDomain(
+export async function listUnrefundedDepositsByEmailDomain(
 	db: Executor,
 	emailDomain: string
-): Promise<ConfirmedUnrefundedDeposit[]> {
+): Promise<UnrefundedDepositWithFiler[]> {
 	const suffix = `@${emailDomain.toLowerCase()}`;
 	const rows = await db
 		.select({
@@ -710,6 +717,8 @@ export async function listConfirmedUnrefundedDepositsByEmailDomain(
 			refundedAt: deposits.refundedAt,
 			campaignId: entries.campaignId,
 			milestoneId: entries.milestoneId,
+			milestoneState: milestones.state,
+			filedAt: entries.filedAt,
 			partyId: entries.partyId,
 			item: entries.item,
 			entryStatus: entries.status,
@@ -736,7 +745,6 @@ export async function listConfirmedUnrefundedDepositsByEmailDomain(
 		.where(
 			and(
 				isNull(deposits.refundedAt),
-				inArray(milestones.state, ['confirmed_independent', 'confirmed_creator']),
 				sql`lower(substr(${parties.email}, ${-suffix.length})) = ${suffix}`
 			)
 		)
@@ -745,6 +753,9 @@ export async function listConfirmedUnrefundedDepositsByEmailDomain(
 	return rows.map((row) => ({
 		campaignId: row.campaignId,
 		milestoneId: row.milestoneId,
+		milestoneConfirmed:
+			row.milestoneState === 'confirmed_independent' || row.milestoneState === 'confirmed_creator',
+		filedAt: row.filedAt,
 		deposit: {
 			id: row.id,
 			entryId: row.entryId,
