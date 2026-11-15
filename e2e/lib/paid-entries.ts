@@ -1,12 +1,13 @@
 /**
  * What the paid story filed in this run, kept in a file so the steps that come after the filings
- * (the receipts, the deposits coming back) can find the entries even when an earlier step failed
+ * (the receipts) can find the entries even when an earlier step failed
  * and the tests started again in a new process. Only the public address of each entry's proof
  * page is kept: no secret is in it.
  *
  * Reading the public pages is all that is done with it. Nothing here asks Tejido to match a
  * receipt or to send a deposit back: the suite never calls /api/reconcile, /api/refunds or
- * /api/test-account-refunds. It waits, as a donor would, and says what it saw.
+ * /api/test-account-refunds. It waits for the receipt, as a donor would, and says what it saw.
+ * No deposit is waited for: only the owner moves test money, by hand.
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
@@ -55,7 +56,6 @@ export const RECEIPT_VERIFIED = RECEIPT_ANSWERS[0];
 
 /** The deposit, in the proof page's own words (the deposit badge; `packages/ui` states). */
 const DEPOSIT_BADGES = ['Deposit refunded', 'Refund outstanding', 'Deposit held'] as const;
-export const DEPOSIT_REFUNDED = DEPOSIT_BADGES[0];
 
 export interface SeenProof {
 	/** One of RECEIPT_ANSWERS, or what the page showed instead. */
