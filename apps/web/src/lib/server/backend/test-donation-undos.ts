@@ -92,6 +92,15 @@ export const PASS_LIMIT: Amount = 10_000;
  */
 export const CONSIDER_FOR_MS = 60 * 60_000;
 
+/**
+ * The window around the moment a donation was recorded in which its payment's ledger time
+ * must fall: from five minutes before to one minute after. The reconciler's own window, and
+ * the same assumption: NOT MEASURED AGAINST REAL QATOM. The first real paid run measures it.
+ * If it is too narrow nothing is sent (`no_payment_from_a_test_wallet`); it never sends more.
+ */
+export const PAYMENT_WINDOW_BEFORE_MS = MATCH_WINDOW_BEFORE_MS;
+export const PAYMENT_WINDOW_AFTER_MS = MATCH_WINDOW_AFTER_MS;
+
 export type DonationUndoSkipReason =
 	/** An earlier pass started this undo and has not recorded what happened. */
 	| 'undo_in_progress'
@@ -183,7 +192,8 @@ function describeFailure(error: unknown): string {
 /** Whether a payment recorded at `paidAt` is in the window of a donation recorded at `receivedAt`. */
 function inWindow(paidAt: number, receivedAt: number): boolean {
 	return (
-		paidAt >= receivedAt - MATCH_WINDOW_BEFORE_MS && paidAt <= receivedAt + MATCH_WINDOW_AFTER_MS
+		paidAt >= receivedAt - PAYMENT_WINDOW_BEFORE_MS &&
+		paidAt <= receivedAt + PAYMENT_WINDOW_AFTER_MS
 	);
 }
 
@@ -353,8 +363,8 @@ export async function undoTestDonations(
 			await listDonationsOfAmountBetween(
 				db,
 				amount,
-				new Date(payment.paidAt - MATCH_WINDOW_AFTER_MS).toISOString(),
-				new Date(payment.paidAt + MATCH_WINDOW_BEFORE_MS).toISOString()
+				new Date(payment.paidAt - PAYMENT_WINDOW_AFTER_MS).toISOString(),
+				new Date(payment.paidAt + PAYMENT_WINDOW_BEFORE_MS).toISOString()
 			)
 		).filter((other) => other.donationId !== donationId && !other.hasUndo);
 		if (others.length > 0) {
